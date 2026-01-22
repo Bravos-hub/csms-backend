@@ -482,6 +482,26 @@ export class ApplicationsService {
         });
     }
 
+    async verifySecurityDeposit(id: string) {
+        const application = await this.findOne(id);
+
+        // Ensure we have a negotiated amount
+        const terms = application.negotiatedTerms as any;
+        const depositAmount = terms?.securityDepositMonths && terms?.monthlyRent
+            ? terms.securityDepositMonths * terms.monthlyRent
+            : 0;
+
+        return this.prisma.tenantApplication.update({
+            where: { id },
+            data: {
+                status: ApplicationStatus.DEPOSIT_PAID,
+                depositPaidAt: new Date(),
+                securityDepositAmount: depositAmount,
+            },
+            include: { site: true }
+        });
+    }
+
     async verifyLease(id: string, dto: VerifyLeaseDto) {
         return this.prisma.tenantApplication.update({
             where: { id },
@@ -489,6 +509,38 @@ export class ApplicationsService {
                 status: dto.status === 'VERIFIED' ? ApplicationStatus.COMPLIANCE_CHECK : ApplicationStatus.LEASE_DRAFTING,
                 // approvalNotes: dto.notes - if we want to store notes
             }
+        });
+    }
+
+    async activate(id: string) {
+        const application = await this.findOne(id);
+
+        // Ideally check status is DEPOSIT_PAID or LEASE_SIGNED
+        // if (application.status !== ApplicationStatus.DEPOSIT_PAID) ...
+
+        return this.prisma.$transaction(async (prisma) => {
+            // 1. Update Application Status
+            const updatedApp = await prisma.tenantApplication.update({
+                where: { id },
+                data: {
+                    status: ApplicationStatus.COMPLETED,
+                    completedAt: new Date(),
+                },
+                include: { site: true }
+            });
+
+            // 2. Create Tenant Record
+            const tenant = await prisma.tenant.create({
+                data: {
+                    name: application.organizationName,
+                    type: 'CPO', // Charge Point Operator
+                    status: 'Active',
+                    siteId: application.siteId,
+                    startDate: new Date(),
+                }
+            });
+
+            return { application: updatedApp, tenant };
         });
     }
 }

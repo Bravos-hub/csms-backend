@@ -107,6 +107,11 @@ export class ApplicationsController {
         return this.applicationsService.uploadSignedLease(id, file, userId);
     }
 
+    @Post(':id/deposit/verify')
+    verifySecurityDeposit(@Param('id') id: string) {
+        return this.applicationsService.verifySecurityDeposit(id);
+    }
+
     @Get(':id/lease')
     getLease(@Param('id') id: string) {
         return this.applicationsService.getLease(id);
@@ -125,5 +130,10 @@ export class ApplicationsController {
     @Patch(':id/lease/verify')
     verifyLease(@Param('id') id: string, @Body() dto: VerifyLeaseDto) {
         return this.applicationsService.verifyLease(id, dto);
+    }
+
+    @Post(':id/activate')
+    activate(@Param('id') id: string) {
+        return this.applicationsService.activate(id);
     }
 }
