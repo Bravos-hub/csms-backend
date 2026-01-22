@@ -1,0 +1,560 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String  @id @default(uuid())
+  name            String
+  email           String? @unique
+  phone           String? @unique
+  passwordHash    String?
+  role            String  @default("OWNER")
+  status          String  @default("Pending")
+  ownerCapability String? // CHARGE, SWAP, BOTH
+
+  // Relations
+  applications        TenantApplication[] @relation("Applications")
+  reviewedApplications TenantApplication[] @relation("ReviewedApplications")
+
+  // OTP
+  otpCode      String?
+  otpExpiresAt DateTime?
+
+  // Relations
+  wallet   Wallet?
+  invoices Invoice[]
+  bookings Booking[]
+  sites    Site[]
+
+  // Document Relations
+  uploadedDocuments  Document[] @relation("UploadedDocuments")
+  verifiedDocuments  Document[] @relation("VerifiedDocuments")
+  
+  // Negotiation Relations
+  proposedNegotiations  NegotiationRound[] @relation("ProposedNegotiations")
+  respondedNegotiations NegotiationRound[] @relation("RespondedNegotiations")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model Station {
+  id        String  @id @default(uuid())
+  name      String
+  status    String  @default("ACTIVE")
+  latitude  Float
+  longitude Float
+  address   String
+  siteId    String?
+
+  // Relations
+  site         Site?         @relation(fields: [siteId], references: [id])
+  chargePoints ChargePoint[]
+  incidents    Incident[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("stations")
+}
+
+model ChargePoint {
+  id              String  @id @default(uuid())
+  stationId       String
+  ocppId          String  @unique
+  status          String  @default("AVAILABLE")
+  model           String?
+  vendor          String?
+  firmwareVersion String?
+
+  station  Station   @relation(fields: [stationId], references: [id])
+  sessions Session[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("charge_points")
+}
+
+model Session {
+  id          String  @id @default(uuid())
+  stationId   String
+  connectorId Int
+  ocppTxId    String? @unique
+  ocppId      String
+  idTag       String?
+  userId      String?
+
+  startTime   DateTime
+  endTime     DateTime?
+  meterStart  Float     @default(0)
+  meterStop   Float     @default(0)
+  totalEnergy Float     @default(0)
+  amount      Float     @default(0) // Revenue in USD
+  status      String    @default("ACTIVE")
+
+  chargePoint ChargePoint @relation(fields: [ocppId], references: [ocppId])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sessions")
+}
+
+model Booking {
+  id            String   @id @default(uuid())
+  userId        String
+  stationId     String
+  chargePointId String?
+  startTime     DateTime
+  endTime       DateTime
+  status        String   @default("PENDING")
+
+  user User @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("bookings")
+}
+
+model Wallet {
+  id       String @id @default(uuid())
+  userId   String @unique
+  balance  Float  @default(0)
+  currency String @default("USD")
+
+  user         User          @relation(fields: [userId], references: [id])
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("wallets")
+}
+
+model Transaction {
+  id          String  @id @default(uuid())
+  walletId    String
+  amount      Float
+  type        String
+  description String?
+  reference   String?
+
+  wallet Wallet @relation(fields: [walletId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@map("transactions")
+}
+
+model Invoice {
+  id          String   @id @default(uuid())
+  userId      String
+  totalAmount Float
+  status      String
+  dueDate     DateTime
+
+  user User @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("invoices")
+}
+
+model Incident {
+  id            String  @id @default(uuid())
+  stationId     String
+  chargePointId String?
+  title         String
+  description   String
+  severity      String
+  status        String  @default("OPEN")
+  assignedTo    String?
+
+  station    Station    @relation(fields: [stationId], references: [id])
+  dispatches Dispatch[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("incidents")
+}
+
+model Dispatch {
+  id           String    @id @default(uuid())
+  incidentId   String
+  technicianId String
+  status       String    @default("PENDING")
+  notes        String?
+  scheduledAt  DateTime?
+
+  incident Incident @relation(fields: [incidentId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("dispatches")
+}
+
+enum SitePurpose {
+  PERSONAL
+  COMMERCIAL
+}
+
+enum LeaseType {
+  REVENUE_SHARE
+  FIXED_RENT
+  HYBRID
+}
+
+enum Footfall {
+  LOW
+  MEDIUM
+  HIGH
+  VERY_HIGH
+}
+
+model Site {
+  id              String      @id @default(uuid())
+  name            String
+  city            String
+  address         String
+  powerCapacityKw Float
+  parkingBays     Int
+  purpose         SitePurpose @default(COMMERCIAL)
+  latitude        Float?
+  longitude       Float?
+  photos          String      @default("[]") // JSON array of photo URLs
+  amenities       String      @default("[]") // JSON array
+  tags            String      @default("[]") // JSON array
+  ownerId         String
+
+  // Relations
+  owner              User                 @relation(fields: [ownerId], references: [id])
+  stations           Station[]
+  tenants            Tenant[]
+  leaseDetails       SiteLeaseDetails?
+  documents          SiteDocument[]
+  tenantApplications TenantApplication[]
+
+  // Document Verification
+  documentsVerified   Boolean  @default(false)
+  documentsVerifiedAt DateTime?
+  documentsVerifiedBy String?
+  
+  // Status to include verification state
+  verificationStatus String @default("PENDING") // PENDING, VERIFIED, REJECTED
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sites")
+}
+
+model SiteLeaseDetails {
+  id                   String    @id @default(uuid())
+  siteId               String    @unique
+  leaseType            LeaseType
+  expectedMonthlyPrice Float?
+  expectedFootfall     Footfall
+  status               String    @default("PENDING")
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("site_lease_details")
+}
+
+model Tenant {
+  id        String    @id @default(uuid())
+  name      String
+  type      String
+  status    String    @default("Active")
+  siteId    String
+  startDate DateTime?
+
+  site Site @relation(fields: [siteId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("tenants")
+}
+
+
+enum ApplicationStatus {
+  DRAFT
+  PENDING_REVIEW
+  INFO_REQUESTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  
+  NEGOTIATING
+  TERMS_AGREED
+  
+  AWAITING_DEPOSIT
+  DEPOSIT_PAID
+  
+  LEASE_DRAFTING
+  LEASE_PENDING_SIGNATURE
+  LEASE_SIGNED
+  
+  COMPLIANCE_CHECK
+  COMPLETED
+  
+  WITHDRAWN
+  CANCELLED
+  EXPIRED
+}
+
+model TenantApplication {
+  id          String  @id @default(uuid())
+  applicantId String
+  
+  // Organization Details
+  organizationName           String
+  businessRegistrationNumber String
+  taxComplianceNumber        String?
+
+  // Contact Information
+  contactPersonName String
+  contactEmail      String
+  contactPhone      String
+  physicalAddress   String
+  companyWebsite    String?
+
+  // Business Experience
+  yearsInEVBusiness        String // '<1', '1-3', '3-5', '5+'
+  existingStationsOperated Int?
+
+  // Site & Proposal
+  siteId                     String
+  preferredLeaseModel        String // 'Revenue Share' | 'Fixed Rent' | 'Hybrid'
+  businessPlanSummary        String @db.Text
+  sustainabilityCommitments  String? @db.Text
+  additionalServices         String  @default("[]") // JSON array
+  estimatedStartDate         String?
+
+  // Commercial Terms (Set by Site Owner)
+  proposedRent            Float?
+  proposedTerm            Int? // months
+  numberOfChargingPoints  Int?
+  totalPowerRequirement   Float? // kW
+  chargingTechnology      String @default("[]") // JSON array
+  targetCustomerSegment   String @default("[]") // JSON array
+
+  // Application Status
+  status          ApplicationStatus    @default(DRAFT)
+  message         String?   @db.Text // Initial application message
+  
+  // Review
+  reviewedBy    String?
+  reviewedAt    DateTime?
+  approvalNotes String?   @db.Text
+  
+  // Response
+  responseMessage String?   @db.Text // Site owner response
+  respondedAt     DateTime?
+  
+  // Negotiation & Lease scalars (Relations to be added in future phases)
+  proposedTerms     Json?
+  negotiatedTerms   Json?
+  termsAgreedAt     DateTime?
+  securityDepositAmount Decimal?
+  depositPaidAt         DateTime?
+  depositReceiptUrl     String?
+  paymentId             String?
+  leaseAgreementUrl String?
+  leaseSignedAt     DateTime?
+  leaseStartDate    DateTime?
+  leaseEndDate      DateTime?
+  completedAt       DateTime?
+
+
+  negotiationRounds NegotiationRound[]
+
+  // Relations
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  applicant         User                 @relation("Applications", fields: [applicantId], references: [id])
+  reviewer          User?                @relation("ReviewedApplications", fields: [reviewedBy], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("tenant_applications")
+}
+
+model SiteDocument {
+  id          String  @id @default(uuid())
+  siteId      String
+  name        String
+  type        String // e.g., 'lease_agreement', 'permit', 'insurance', 'inspection_report'
+  fileUrl     String
+  fileSize    Int?
+  mimeType    String?
+  uploadedBy  String?
+  description String?
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("site_documents")
+}
+
+model Webhook {
+  id     String  @id @default(uuid())
+  url    String
+  events String
+  active Boolean @default(true)
+  secret String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("webhooks")
+}
+
+enum DocumentCategory {
+  // Site Owner Documents
+  OWNERSHIP_PROOF
+  OWNER_IDENTITY
+  OWNER_ADDRESS_PROOF
+  SITE_PHOTOS
+  ELECTRICAL_CAPACITY
+  SITE_PLAN
+  LAND_USE_PERMIT
+  SOCIETY_NOC
+  LENDER_CONSENT
+  CO_OWNER_CONSENT
+  BUSINESS_REGISTRATION
+  
+  // Operator Documents
+  OPERATOR_IDENTITY
+  OPERATOR_ADDRESS_PROOF
+  OPERATOR_PHOTO
+  OPERATOR_BUSINESS_REG
+  TAX_CERTIFICATE
+  BANK_STATEMENTS
+  INSTALLATION_LICENSE
+  INSURANCE_CERTIFICATE
+  PORTFOLIO
+  INSTALLATION_PLAN
+  EQUIPMENT_SPECS
+  
+  // Lease Documents
+  LEASE_AGREEMENT
+  LEASE_REGISTRATION
+  STAMP_DUTY_RECEIPT
+  SECURITY_DEPOSIT_RECEIPT
+  INDEMNITY_BOND
+  EXECUTED_LEASE
+  
+  OTHER
+}
+
+enum DocumentStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  EXPIRED
+  INFO_REQUESTED
+}
+
+enum EntityType {
+  SITE
+  APPLICATION
+  TENANT
+  USER
+}
+
+model Document {
+  id        String   @id @default(uuid())
+  
+  // Classification
+  category    DocumentCategory
+  entityType  EntityType
+  entityId    String
+  
+  // File Information
+  fileName           String
+  fileUrl            String
+  fileType           String
+  fileSize           Int
+  cloudinaryPublicId String
+  
+  // Metadata
+  uploadedBy   String
+  uploadedAt   DateTime @default(now())
+  
+  // Verification
+  status           DocumentStatus @default(PENDING)
+  verifiedBy       String?
+  verifiedAt       DateTime?
+  rejectionReason  String?        @db.Text
+  
+  // Expiry
+  expiryDate       DateTime?
+  expiryReminder   Boolean        @default(false)
+  
+  // Business Logic
+  isRequired       Boolean        @default(false)
+  allowMultiple    Boolean        @default(false)
+  
+  // Additional Context
+  notes            String?        @db.Text
+  metadata         Json?
+  
+  // Relations
+  uploader User @relation("UploadedDocuments", fields: [uploadedBy], references: [id])
+  verifier User? @relation("VerifiedDocuments", fields: [verifiedBy], references: [id])
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("documents")
+  @@index([entityType, entityId])
+  @@index([status])
+  @@index([category])
+}
+
+model NegotiationRound {
+  id            String   @id @default(uuid())
+  applicationId String
+  proposedBy    String   // userId (site owner or operator)
+  
+  // Lease Terms
+  terms Json // { monthlyRent, currency, leaseDuration, revenueSharePercent, etc. }
+  
+  // Status
+  status       String    @default("PROPOSED") // PROPOSED, COUNTERED, ACCEPTED, REJECTED
+  respondedBy  String?
+  respondedAt  DateTime?
+  
+  // Communication
+  message String? @db.Text
+  
+  // Relations
+  application TenantApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  proposer    User              @relation("ProposedNegotiations", fields: [proposedBy], references: [id])
+  responder   User?             @relation("RespondedNegotiations", fields: [respondedBy], references: [id])
+  
+  createdAt DateTime @default(now())
+  
+  @@map("negotiation_rounds")
+  @@index([applicationId])
+}
+

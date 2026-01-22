@@ -1,0 +1,122 @@
+# ⚡ EVZone Backend
+
+The microservices backend for the EVZone Charging Platform. Built with **NestJS**, **Kafka**, **PostgreSQL**, and **Redis**.
+
+## 🏗️ Architecture
+
+The system follows an event-driven microservices architecture.
+
+```mermaid
+graph TD
+    subgraph Clients
+        App[Web/Mobile App]
+        Charger[EV Charger (OCPP)]
+    end
+
+    subgraph Entry Points
+        AuthAPI[Auth Service :3000]
+        Gateway[OCPP Gateway :3003]
+        BillingAPI[Billing Service :3004]
+        BookingAPI[Booking Service :3005]
+        MaintAPI[Maintenance Service :3006]
+        NotifAPI[Notification Service :3007]
+        AnalyticsAPI[Analytics Service :3008]
+    end
+
+    subgraph Core Services
+        StationSvc[Station Service :3001]
+        SessionSvc[Session Service :3002]
+    end
+
+    subgraph Infrastructure
+        Kafka{{Kafka Event Bus}}
+        DB[(PostgreSQL)]
+        Redis[(Redis Cache)]
+    end
+
+    %% Flows
+    App -->|HTTP/REST| AuthAPI
+    App -->|HTTP/REST| BillingAPI
+    App -->|HTTP/REST| BookingAPI
+    App -->|HTTP/REST| MaintAPI
+    
+    Charger -->|WebSocket| Gateway
+
+    Gateway -->|Produces 'ocpp.message'| Kafka
+    
+    Kafka -->|Consumes| StationSvc
+    Kafka -->|Consumes| SessionSvc
+    Kafka -->|Consumes| BillingAPI
+    
+    StationSvc -->|Read/Write| DB
+    SessionSvc -->|Read/Write| DB
+    AuthAPI -->|Read/Write| DB
+    
+    AuthAPI -.->|Auth Token| App
+```
+
+## 📦 Microservices
+
+| Service | Port | Description |
+| :--- | :--- | :--- |
+| **Auth Service** | `3000` | User management, Authentication (JWT), RBAC. |
+| **Station Service** | `3001` | Charger registry, status tracking, auto-provisioning. |
+| **Session Service** | `3002` | Charging session tracking (Start/Stop transactions). |
+| **OCPP Gateway** | `3003` | WebSocket handling for OCPP 1.6/2.0 chargers. |
+| **Billing Service** | `3004` | Wallets, Tariffs, Invoicing, Payments. |
+| **Booking Service** | `3005` | Charging slot reservations. |
+| **Maintenance** | `3006` | Incident reporting, ticketing, technician dispatch. |
+| **Notification** | `3007` | Centralized alerts (Push, Email, SMS). |
+| **Analytics** | `3008` | Reporting and data aggregation. |
+
+## 🚀 Getting Started
+
+### Prerequisites
+*   [Docker Desktop](https://www.docker.com/products/docker-desktop) (Running)
+*   [Node.js](https://nodejs.org/) (v16+)
+
+### Quick Start (Windows)
+
+We provide a **Master Startup Script** that launches:
+1.  Docker Infrastructure (Postgres, Kafka, Zookeeper, Redis).
+2.  All 9 Microservices in separate terminal windows.
+
+```powershell
+./startup.ps1
+```
+
+### Manual Start
+
+1.  **Start Infrastructure:**
+    ```bash
+    docker-compose up -d
+    ```
+
+2.  **Start a Service (Example):**
+    ```bash
+    npx nest start station-service --watch
+    ```
+
+## 🧪 Verification
+
+1.  **Auth API**:
+    *   POST `http://localhost:3000/auth/register`
+    *   Body: `{"email": "admin@test.com", "password": "pass", "name": "Admin", "role": "SUPER_ADMIN"}`
+
+2.  **OCPP Connection**:
+    *   Connect WebSocket Client to `ws://localhost:3003/ocpp/TEST_CP_001`
+    *   Protocol: `ocpp1.6`
+    *   Send `BootNotification` payload.
+
+3.  **Check Logs**:
+    *   Observe `station-service` logs to see the new charger being auto-provisioned upon connection.
+
+## 🛠️ Tech Stack
+
+*   **Framework**: [NestJS](https://nestjs.com/) (Monorepo Mode)
+*   **Language**: TypeScript
+*   **Database**: PostgreSQL + TypeORM
+*   **Message Broker**: Apache Kafka
+*   **Cache**: Redis
+*   **Validation**: class-validator
+*   **Documentation**: Mermaid, Markdown

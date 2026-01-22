@@ -1,0 +1,9 @@
+node_modules
+.env
+dist   
+.vscode
+.idea
+
+
+//all txt files
+*.txt

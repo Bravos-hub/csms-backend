@@ -1,0 +1,39 @@
+{
+    "extends": "../../tsconfig.json",
+    "compilerOptions": {
+        "outDir": "../../dist/apps/worker",
+        "declaration": false,
+        "removeComments": true,
+        "emitDecoratorMetadata": true,
+        "experimentalDecorators": true,
+        "allowSyntheticDefaultImports": true,
+        "sourceMap": true,
+        "incremental": true,
+        "composite": false,
+        "tsBuildInfoFile": "../../dist/apps/worker/.tsbuildinfo",
+        "baseUrl": "./",
+        "paths": {
+            "@app/domain": [
+                "../../packages/domain"
+            ],
+            "@app/domain/*": [
+                "../../packages/domain/*"
+            ],
+            "@app/db": [
+                "../../packages/db"
+            ],
+            "@app/db/*": [
+                "../../packages/db/*"
+            ]
+        }
+    },
+    "include": [
+        "src/**/*.ts"
+    ],
+    "exclude": [
+        "node_modules",
+        "dist",
+        "test",
+        "**/*spec.ts"
+    ]
+}
