@@ -1,0 +1,44 @@
+name: evzone-backend
+region: nyc
+services:
+  - name: api
+    dockerfile_path: Dockerfile
+    source_dir: /
+    http_port: 3000
+    routes:
+      - path: /
+    envs:
+      - key: APP_NAME
+        scope: BUILD_TIME
+        value: api
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${DATABASE_URL}
+      - key: REDIS_URL
+        scope: RUN_TIME
+        value: ${REDIS_URL}
+      - key: KAFKA_BROKERS
+        scope: RUN_TIME
+        value: ${KAFKA_BROKERS}
+workers:
+  - name: worker
+    dockerfile_path: Dockerfile
+    source_dir: /
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    envs:
+      - key: APP_NAME
+        scope: BUILD_TIME
+        value: worker
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${DATABASE_URL}
+      - key: REDIS_URL
+        scope: RUN_TIME
+        value: ${REDIS_URL}
+      - key: KAFKA_BROKERS
+        scope: RUN_TIME
+        value: ${KAFKA_BROKERS}
+domains:
+  - domain: api.evzonecharging.com
+    type: PRIMARY

@@ -9,6 +9,8 @@ import { StationService } from './station-service.service';
 // import { ChargePoint } from './stations/entities/charge-point.entity'; (Removed)
 import { PrismaService } from '../../prisma.service';
 
+import { ChargerProvisioningService } from './provisioning/charger-provisioning.service';
+
 @Module({
   imports: [
     ConfigModule,
@@ -31,6 +33,6 @@ import { PrismaService } from '../../prisma.service';
     ]),
   ],
   controllers: [StationController, ChargePointController],
-  providers: [StationService, PrismaService],
+  providers: [StationService, PrismaService, ChargerProvisioningService],
 })
 export class StationServiceModule { }

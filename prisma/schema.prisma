@@ -558,3 +558,45 @@ model NegotiationRound {
   @@index([applicationId])
 }
 
+
+model Command {
+  id            String    @id @default(uuid())
+  stationId     String?   @map("station_id")
+  chargePointId String?   @map("charge_point_id")
+  connectorId   String?   @map("connector_id")
+  commandType   String    @map("command_type")
+  payload       Json?
+  status        String
+  requestedBy   String?   @map("requested_by")
+  requestedAt   DateTime  @map("requested_at")
+  sentAt        DateTime? @map("sent_at")
+  completedAt   DateTime? @map("completed_at")
+  correlationId String?   @map("correlation_id")
+  error         String?
+
+  @@map("commands")
+}
+
+model CommandOutbox {
+  id          String    @id @default(uuid())
+  commandId   String    @map("command_id")
+  status      String
+  attempts    Int       @default(0)
+  lockedAt    DateTime? @map("locked_at")
+  publishedAt DateTime? @map("published_at")
+  lastError   String?   @map("last_error")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@map("command_outbox")
+}
+
+model CommandEvent {
+  id         String   @id @default(uuid())
+  commandId  String   @map("command_id")
+  status     String
+  payload    Json?
+  occurredAt DateTime @map("occurred_at")
+
+  @@map("command_events")
+}

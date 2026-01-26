@@ -53,7 +53,7 @@ export class StationController {
   }
 
   // Microservice EventHandler
-  @EventPattern('ocpp.message')
+  @EventPattern('ocpp.events')
   async handleOcppMessage(@Payload() message: any) {
     await this.stationService.handleOcppMessage(message);
   }

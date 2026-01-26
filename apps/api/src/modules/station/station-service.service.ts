@@ -1,11 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
 import { CreateStationDto, UpdateStationDto, CreateChargePointDto, UpdateChargePointDto } from './dto/station.dto';
+import { ChargerProvisioningService } from './provisioning/charger-provisioning.service';
 
 @Injectable()
 export class StationService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly provisioningService: ChargerProvisioningService,
   ) { }
 
   async handleOcppMessage(message: any) {
@@ -104,13 +106,17 @@ export class StationService {
   }
 
   async createChargePoint(createDto: CreateChargePointDto) {
-    return this.prisma.chargePoint.create({
+    const cp = await this.prisma.chargePoint.create({
       data: {
         ocppId: createDto.ocppId,
         stationId: createDto.stationId,
         status: 'AVAILABLE'
-      }
+      },
+      include: { station: { include: { site: true } } }
     });
+
+    await this.provisioningService.provision(cp, cp.station);
+    return cp;
   }
 
   async updateChargePoint(id: string, updateDto: UpdateChargePointDto) {
@@ -147,7 +153,7 @@ export class StationService {
         });
       }
 
-      cp = await this.prisma.chargePoint.create({
+      const createdCp = await this.prisma.chargePoint.create({
         data: {
           ocppId,
           stationId: defaultStation.id,
@@ -155,17 +161,22 @@ export class StationService {
           model: payload.chargePointModel,
           vendor: payload.chargePointVendor,
           firmwareVersion: payload.firmwareVersion
-        }
+        },
+        include: { station: { include: { site: true } } }
       });
+
+      await this.provisioningService.provision(createdCp, createdCp.station);
     } else {
-      cp = await this.prisma.chargePoint.update({
+      const updatedCp = await this.prisma.chargePoint.update({
         where: { id: cp.id },
         data: {
           status: 'Online',
           firmwareVersion: payload.firmwareVersion || cp.firmwareVersion
           // Last heartbeat not in schema currently
-        }
+        },
+        include: { station: { include: { site: true } } }
       });
+      await this.provisioningService.provision(updatedCp, updatedCp.station);
     }
   }
 
