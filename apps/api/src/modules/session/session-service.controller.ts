@@ -33,7 +33,7 @@ export class SessionController {
   }
 
   // Event handler (can be in controller or pure service call from gateway)
-  @EventPattern('ocpp.events')
+  @EventPattern('ocpp.session.events')
   async handleOcppMessage(@Payload() message: any) {
     await this.sessionService.handleOcppMessage(message);
   }

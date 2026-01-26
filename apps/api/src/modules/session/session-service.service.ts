@@ -68,7 +68,9 @@ export class SessionService {
 
   // --- OCPP ---
   async handleOcppMessage(message: any) {
-    const { chargePointId, action, payload } = message;
+    const chargePointId = message.chargePointId;
+    const action = message.action || message.eventType; // Handle DomainEvent eventType
+    const payload = message.payload;
 
     if (action === 'StartTransaction') {
       await this.handleStartTransaction(chargePointId, payload);

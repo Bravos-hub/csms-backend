@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { Transport } from '@nestjs/microservices';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -12,6 +13,26 @@ async function bootstrap() {
     credentials: true,
   });
 
+  // Connect Kafka microservice
+  app.connectMicroservice({
+    transport: Transport.KAFKA,
+    options: {
+      client: {
+        brokers: (process.env.KAFKA_BROKERS || 'localhost:9092').split(','),
+        ssl: process.env.KAFKA_SSL === 'true',
+        sasl: process.env.KAFKA_SASL_USERNAME ? {
+          mechanism: 'scram-sha-256',
+          username: process.env.KAFKA_SASL_USERNAME,
+          password: process.env.KAFKA_SASL_PASSWORD,
+        } : undefined,
+      },
+      consumer: {
+        groupId: 'backend-api-consumer',
+      },
+    },
+  });
+
+  await app.startAllMicroservices();
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();

@@ -65,7 +65,7 @@ export class AuthService {
         email: createUserDto.email,
         name: createUserDto.name,
         phone: createUserDto.phone,
-        role: createUserDto.role || 'OWNER',
+        role: (createUserDto.role as any) || 'SITE_OWNER',
         status: 'Pending',
         passwordHash: createUserDto.password, // In production: await bcrypt.hash(createUserDto.password, 10)
       }
@@ -229,7 +229,7 @@ export class AuthService {
     return this.prisma.user.create({
       data: {
         email: inviteDto.email,
-        role: inviteDto.role,
+        role: inviteDto.role as any,
         name: inviteDto.email.split('@')[0],
         status: 'Invited'
       }

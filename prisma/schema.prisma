@@ -4,7 +4,25 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  SITE_OWNER
+  STATION_OWNER
+  STATION_OPERATOR
+  DRIVER
+}
+
+enum StationType {
+  CHARGING
+  SWAPPING
+}
+
+enum StationOwnerCapability {
+  CHARGE
+  SWAP
+  BOTH
 }
 
 model User {
@@ -13,12 +31,12 @@ model User {
   email           String? @unique
   phone           String? @unique
   passwordHash    String?
-  role            String  @default("OWNER")
-  status          String  @default("Pending")
-  ownerCapability String? // CHARGE, SWAP, BOTH
+  role            UserRole                @default(SITE_OWNER)
+  status          String                  @default("Pending")
+  ownerCapability StationOwnerCapability? // Only for STATION_OWNER
 
   // Relations
-  applications        TenantApplication[] @relation("Applications")
+  applications         TenantApplication[] @relation("Applications")
   reviewedApplications TenantApplication[] @relation("ReviewedApplications")
 
   // OTP
@@ -26,10 +44,12 @@ model User {
   otpExpiresAt DateTime?
 
   // Relations
-  wallet   Wallet?
-  invoices Invoice[]
-  bookings Booking[]
-  sites    Site[]
+  wallet           Wallet?
+  invoices         Invoice[]
+  bookings         Booking[]
+  sites            Site[]
+  ownedStations    Station[] @relation("StationOwner")
+  operatedStations Station[] @relation("StationOperator")
 
   // Document Relations
   uploadedDocuments  Document[] @relation("UploadedDocuments")
@@ -52,9 +72,14 @@ model Station {
   latitude  Float
   longitude Float
   address   String
-  siteId    String?
+  type        StationType @default(CHARGING)
+  ownerId     String?
+  operatorId  String?
+  siteId      String?
 
   // Relations
+  owner        User?         @relation("StationOwner", fields: [ownerId], references: [id])
+  operator     User?         @relation("StationOperator", fields: [operatorId], references: [id])
   site         Site?         @relation(fields: [siteId], references: [id])
   chargePoints ChargePoint[]
   incidents    Incident[]
@@ -73,6 +98,11 @@ model ChargePoint {
   model           String?
   vendor          String?
   firmwareVersion String?
+
+  // Auth for OCPP Gateway
+  clientSecretHash String?
+  clientSecretSalt String?
+  allowedInsecure  Boolean @default(false)
 
   station  Station   @relation(fields: [stationId], references: [id])
   sessions Session[]
