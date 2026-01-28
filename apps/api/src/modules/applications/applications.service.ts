@@ -87,7 +87,7 @@ export class ApplicationsService {
         });
 
         // Map to frontend format
-        return applications.map(app => ({
+        return applications.map((app: any) => ({
             id: app.id,
             applicantId: app.applicantId,
             applicantName: app.contactPersonName,
@@ -491,25 +491,33 @@ export class ApplicationsService {
             ? terms.securityDepositMonths * terms.monthlyRent
             : 0;
 
-        return this.prisma.tenantApplication.update({
-            where: { id },
-            data: {
-                status: ApplicationStatus.DEPOSIT_PAID,
-                depositPaidAt: new Date(),
-                securityDepositAmount: depositAmount,
-            },
-            include: { site: true }
-        });
+        try {
+            return await this.prisma.tenantApplication.update({
+                where: { id },
+                data: {
+                    status: ApplicationStatus.DEPOSIT_PAID,
+                    depositPaidAt: new Date(),
+                    securityDepositAmount: depositAmount,
+                },
+                include: { site: true }
+            });
+        } catch (error) {
+            throw new BadRequestException('Failed to verify security deposit');
+        }
     }
 
     async verifyLease(id: string, dto: VerifyLeaseDto) {
-        return this.prisma.tenantApplication.update({
-            where: { id },
-            data: {
-                status: dto.status === 'VERIFIED' ? ApplicationStatus.COMPLIANCE_CHECK : ApplicationStatus.LEASE_DRAFTING,
-                // approvalNotes: dto.notes - if we want to store notes
-            }
-        });
+        try {
+            return await this.prisma.tenantApplication.update({
+                where: { id },
+                data: {
+                    status: dto.status === 'VERIFIED' ? ApplicationStatus.COMPLIANCE_CHECK : ApplicationStatus.LEASE_DRAFTING,
+                    // approvalNotes: dto.notes - if we want to store notes
+                }
+            });
+        } catch (error) {
+            throw new BadRequestException('Failed to verify lease');
+        }
     }
 
     async activate(id: string) {
@@ -518,29 +526,33 @@ export class ApplicationsService {
         // Ideally check status is DEPOSIT_PAID or LEASE_SIGNED
         // if (application.status !== ApplicationStatus.DEPOSIT_PAID) ...
 
-        return this.prisma.$transaction(async (prisma) => {
-            // 1. Update Application Status
-            const updatedApp = await prisma.tenantApplication.update({
-                where: { id },
-                data: {
-                    status: ApplicationStatus.COMPLETED,
-                    completedAt: new Date(),
-                },
-                include: { site: true }
-            });
+        try {
+            return await this.prisma.$transaction(async (prisma: any) => {
+                // 1. Update Application Status
+                const updatedApp = await prisma.tenantApplication.update({
+                    where: { id },
+                    data: {
+                        status: ApplicationStatus.COMPLETED,
+                        completedAt: new Date(),
+                    },
+                    include: { site: true }
+                });
 
-            // 2. Create Tenant Record
-            const tenant = await prisma.tenant.create({
-                data: {
-                    name: application.organizationName,
-                    type: 'CPO', // Charge Point Operator
-                    status: 'Active',
-                    siteId: application.siteId,
-                    startDate: new Date(),
-                }
-            });
+                // 2. Create Tenant Record
+                const tenant = await prisma.tenant.create({
+                    data: {
+                        name: application.organizationName,
+                        type: 'CPO', // Charge Point Operator
+                        status: 'Active',
+                        siteId: application.siteId,
+                        startDate: new Date(),
+                    }
+                });
 
-            return { application: updatedApp, tenant };
-        });
+                return { application: updatedApp, tenant };
+            });
+        } catch (error) {
+            throw new BadRequestException('Failed to activate application');
+        }
     }
 }

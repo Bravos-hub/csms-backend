@@ -1,10 +1,12 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
 import { CreateStationDto, UpdateStationDto, CreateChargePointDto, UpdateChargePointDto } from './dto/station.dto';
 import { ChargerProvisioningService } from './provisioning/charger-provisioning.service';
 
 @Injectable()
 export class StationService {
+  private readonly logger = new Logger(StationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly provisioningService: ChargerProvisioningService,
@@ -12,7 +14,7 @@ export class StationService {
 
   async handleOcppMessage(message: any) {
     const { chargePointId, action, payload } = message;
-    console.log(`Processing OCPP Action: ${action} for ${chargePointId}`);
+    this.logger.log(`Processing OCPP Action: ${action}`);
 
     if (action === 'BootNotification') {
       await this.handleBootNotification(chargePointId, payload);
@@ -133,7 +135,7 @@ export class StationService {
   async rebootChargePoint(id: string) {
     const cp = await this.findChargePointById(id);
     if (!cp) throw new NotFoundException('Charge Point not found');
-    console.log(`Rebooting ${cp.ocppId}`);
+    this.logger.log(`Rebooting charge point ${id}`);
     return { status: 'Reboot command sent' };
   }
 
@@ -142,10 +144,7 @@ export class StationService {
     let cp = await this.prisma.chargePoint.findUnique({ where: { ocppId } });
 
     if (!cp) {
-      console.log(`New ChargePoint detected: ${ocppId}`);
-      // Find a default station or require one. For now creating dummy or failing?
-      // Prisma requires stationId. 
-      // We will look for a default "Unknown" station or create one
+      this.logger.log('New ChargePoint detected');
       let defaultStation = await this.prisma.station.findFirst({ where: { name: 'Unknown' } });
       if (!defaultStation) {
         defaultStation = await this.prisma.station.create({

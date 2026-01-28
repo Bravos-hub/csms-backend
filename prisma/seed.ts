@@ -14,12 +14,12 @@ async function main() {
             id: mockUserId,
             name: 'Mock User',
             email: 'mock@evzone.app',
-            role: 'OWNER',
+            role: 'SITE_OWNER',
             status: 'Active',
             passwordHash: 'password'
         }
     });
-    console.log('Mock user seeded:', mockUser.email);
+    console.log('Mock user seeded');
 
     // 2. Create Site
     const siteId = 'default-site-id';
@@ -45,7 +45,7 @@ async function main() {
             }
         }
     });
-    console.log('Site seeded:', site.name);
+    console.log('Site seeded');
 
     // 3. Create Station (the one failing with 404 in frontend)
     const stationId = '0b0817eb-fc2a-413c-94f7-c8826ad57967';
@@ -59,10 +59,10 @@ async function main() {
             longitude: 36.817223,
             address: 'CBD Nairobi',
             status: 'ACTIVE',
-            siteId: stationId // Note: Using station ID as site ID based on frontend request
+            siteId: stationId
         }
     });
-    console.log('Station seeded:', station.name);
+    console.log('Station seeded');
 
     // 4. Create Site for the station (using the same ID the frontend is requesting)
     const frontendSiteId = '0b0817eb-fc2a-413c-94f7-c8826ad57967';
@@ -88,7 +88,7 @@ async function main() {
             }
         }
     });
-    console.log('Frontend site seeded:', frontendSite.name);
+    console.log('Frontend site seeded');
 
     // 5. Create Sample Documents for the frontend site
     await prisma.siteDocument.upsert({
@@ -203,7 +203,7 @@ async function main() {
 
 main()
     .catch((e) => {
-        console.error(e);
+        console.error('Seeding failed:', e instanceof Error ? e.message : 'Unknown error');
         process.exit(1);
     })
     .finally(async () => {

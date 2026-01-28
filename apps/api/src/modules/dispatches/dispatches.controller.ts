@@ -3,8 +3,8 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestj
 @Controller('dispatches')
 export class DispatchesController {
   @Get()
-  getAll(@Query() query: any) {
-    return []
+  getAll(@Query() query: Record<string, unknown>) {
+    return [];
   }
 
   @Get(':id')

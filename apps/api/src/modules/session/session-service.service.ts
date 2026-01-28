@@ -1,10 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
 import { NotificationService } from '../notification/notification-service.service';
 import { StopSessionDto, SessionFilterDto } from './dto/session.dto';
 
 @Injectable()
 export class SessionService {
+  private readonly logger = new Logger(SessionService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
@@ -69,49 +71,73 @@ export class SessionService {
   // --- OCPP ---
   async handleOcppMessage(message: any) {
     const chargePointId = message.chargePointId;
-    const action = message.action || message.eventType; // Handle DomainEvent eventType
+    const eventType = message.eventType;
     const payload = message.payload;
 
-    if (action === 'StartTransaction') {
+    if (eventType === 'SessionStarted' || payload?.action === 'StartTransaction') {
+      const startPayload = payload?.action === 'StartTransaction'
+        ? { ...payload.payload, transactionId: payload.transactionId }
+        : payload;
+      await this.handleStartTransaction(chargePointId, startPayload);
+    } else if (eventType === 'SessionStopped' || payload?.action === 'StopTransaction') {
+      const stopPayload = payload?.action === 'StopTransaction'
+        ? { ...payload.payload, transactionId: payload.transactionId }
+        : payload;
+      await this.handleStopTransaction(chargePointId, stopPayload);
+    } else if (message.action === 'StartTransaction') {
       await this.handleStartTransaction(chargePointId, payload);
-    } else if (action === 'StopTransaction') {
+    } else if (message.action === 'StopTransaction') {
       await this.handleStopTransaction(chargePointId, payload);
     }
   }
 
   private async handleStartTransaction(ocppId: string, payload: any) {
-    console.log(`Starting Transaction for ${ocppId}`, payload);
+    this.logger.log(`Starting Transaction for ${ocppId}`);
+
+    // Look up the charge point to get the stationId
+    const chargePoint = await this.prisma.chargePoint.findUnique({
+      where: { ocppId },
+      select: { stationId: true },
+    });
+
+    if (!chargePoint) {
+      this.logger.error(`ChargePoint ${ocppId} not found, cannot start session`);
+      return;
+    }
+
     await this.prisma.session.create({
       data: {
         ocppId: ocppId,
-        connectorId: payload.connectorId,
-        idTag: payload.idTag,
+        connectorId: Number(payload.connectorId) || 0,
+        idTag: String(payload.idTag || ''),
         ocppTxId: payload.transactionId?.toString(),
-        startTime: new Date(payload.timestamp),
-        meterStart: payload.meterStart,
+        startTime: payload.timestamp ? new Date(payload.timestamp) : new Date(),
+        meterStart: Number(payload.meterStart) || 0,
         status: 'ACTIVE',
-        stationId: 'UNKNOWN_YET',
-        // Prisma requires stationId and ocppId to link relations if defined as such, 
-        // but our Session model links `chargePoint` via `ocppId` field.
-        // If strict relation, we might need valid foreign key.
-        // Schema: `chargePoint ChargePoint @relation(fields: [ocppId], references: [ocppId])`
-      }
+        stationId: chargePoint.stationId,
+      },
     });
   }
 
   private async handleStopTransaction(ocppId: string, payload: any) {
-    console.log(`Stopping Transaction for ${ocppId}`, payload);
+    this.logger.log(`Stopping Transaction for ${ocppId}`);
     const txId = payload.transactionId?.toString();
-    // Assuming txId is unique in DB
+    if (!txId) {
+      this.logger.warn('Missing transaction ID in stop transaction payload');
+      return;
+    }
     const session = await this.prisma.session.findUnique({ where: { ocppTxId: txId } });
 
     if (session) {
+      const meterStop = Number(payload.meterStop) || 0;
+      const totalEnergy = Math.max(0, meterStop - session.meterStart);
+      
       const updated = await this.prisma.session.update({
         where: { id: session.id },
         data: {
-          endTime: new Date(payload.timestamp),
-          meterStop: payload.meterStop,
-          totalEnergy: payload.meterStop - session.meterStart,
+          endTime: payload.timestamp ? new Date(payload.timestamp) : new Date(),
+          meterStop,
+          totalEnergy,
           status: 'COMPLETED'
         }
       });
@@ -120,7 +146,7 @@ export class SessionService {
         await this.notifyUserOfStop(updated.userId, updated);
       }
     } else {
-      console.warn(`Session not found for transaction ${txId}`);
+      this.logger.warn(`Session not found for transaction ${txId}`);
     }
   }
 }

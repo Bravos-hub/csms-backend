@@ -35,22 +35,26 @@ export class BillingService {
   async topUp(userId: string, dto: TopUpDto) {
     const wallet = await this.getWalletBalance(userId);
 
-    const updatedWallet = await this.prisma.wallet.update({
-      where: { id: wallet.id },
-      data: { balance: { increment: dto.amount } }
-    });
+    try {
+      const updatedWallet = await this.prisma.wallet.update({
+        where: { id: wallet.id },
+        data: { balance: { increment: dto.amount } }
+      });
 
-    await this.prisma.transaction.create({
-      data: {
-        walletId: wallet.id,
-        amount: dto.amount,
-        type: 'CREDIT',
-        description: 'Wallet TopUp',
-        reference: 'PAY_' + Date.now()
-      }
-    });
+      await this.prisma.transaction.create({
+        data: {
+          walletId: wallet.id,
+          amount: dto.amount,
+          type: 'CREDIT',
+          description: 'Wallet TopUp',
+          reference: 'PAY_' + Date.now()
+        }
+      });
 
-    return updatedWallet;
+      return updatedWallet;
+    } catch (error) {
+      throw new BadRequestException('Failed to process top-up');
+    }
   }
 
   // Invoices

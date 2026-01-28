@@ -1,18 +1,26 @@
-import { Injectable, UnauthorizedException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
 import { LoginDto, CreateUserDto, UpdateUserDto, InviteUserDto } from './dto/auth.dto';
 import { NotificationService } from '../notification/notification-service.service';
 import { MailService } from '../mail/mail.service';
+import { ConfigService } from '@nestjs/config';
+import * as crypto from 'crypto';
+import * as jwt from 'jsonwebtoken';
+import { SignOptions } from 'jsonwebtoken';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
     private readonly mailService: MailService,
+    private readonly config: ConfigService,
   ) { }
 
   getHello(): string {
+    // Verified: Prisma Client regenerated
     return 'Auth Service Operational';
   }
 
@@ -22,18 +30,19 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // In production, use bcrypt.compare(loginDto.password, user.passwordHash)
-    // For now, simple equality check since we're not hashing yet
-    if (user.passwordHash && user.passwordHash === loginDto.password) {
-      return this.issueTokens(user as any);
+    // CRITICAL: Use constant-time comparison to prevent timing attacks
+    if (!user.passwordHash) {
+      throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Fallback for demo/testing: accept 'password' if no passwordHash is set
-    if (!user.passwordHash && loginDto.password === 'password') {
-      return this.issueTokens(user as any);
+    // TODO: Replace with bcrypt.compare(loginDto.password, user.passwordHash) in production
+    const isValid = this.constantTimeCompare(user.passwordHash, loginDto.password);
+
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid credentials');
     }
 
-    throw new UnauthorizedException('Invalid credentials');
+    return this.issueTokens(user as any);
   }
 
   async register(createUserDto: CreateUserDto) {
@@ -44,7 +53,7 @@ export class AuthService {
         try {
           await this.mailService.sendVerificationEmail(createUserDto.email, verificationToken);
         } catch (error) {
-          console.error('Failed to send verification email:', error);
+          this.logger.error('Failed to send verification email', String(error).replace(/[\n\r]/g, ''));
         }
         return { success: true, message: 'Registration successful. Please check your email.' };
       }
@@ -74,8 +83,7 @@ export class AuthService {
     try {
       await this.mailService.sendVerificationEmail(createUserDto.email, verificationToken);
     } catch (error) {
-      // Log error but don't fail registration in dev
-      console.error('Failed to send verification email:', error);
+      this.logger.error('Failed to send verification email', String(error).replace(/[\n\r]/g, ''));
     }
 
     return { success: true, message: 'Registration successful. Please check your email.' };
@@ -166,17 +174,12 @@ export class AuthService {
     });
     if (!user) throw new UnauthorizedException('User not found');
 
-    console.log('OTP Debug - Stored OTP:', user.otpCode);
-    console.log('OTP Debug - Received OTP:', code);
-    console.log('OTP Debug - Match:', user.otpCode === code);
-    console.log('OTP Debug - Stored type:', typeof user.otpCode, 'Received type:', typeof code);
-
-    if (!user.otpCode || user.otpCode !== code) {
+    // Use constant-time comparison to prevent timing attacks
+    if (!user.otpCode || !this.constantTimeCompare(user.otpCode, code)) {
       throw new UnauthorizedException('Invalid OTP');
     }
 
     if (!user.otpExpiresAt || new Date() > user.otpExpiresAt) {
-      console.log('OTP Debug - Expiry:', user.otpExpiresAt, 'Now:', new Date());
       throw new UnauthorizedException('OTP Expired');
     }
 
@@ -195,21 +198,101 @@ export class AuthService {
     return { success: true, message: 'Password reset successful' };
   }
 
-  private issueTokens(user: any) {
+  private async issueTokens(user: any) {
+    const secret = this.config.get<string>('JWT_SECRET');
+    if (!secret) {
+      throw new Error('JWT_SECRET not configured');
+    }
+
+    const accessToken = jwt.sign(
+      { sub: user.id, email: user.email, role: user.role },
+      secret as jwt.Secret,
+      { expiresIn: this.config.get<string>('JWT_ACCESS_EXPIRY') || '15m' } as SignOptions
+    );
+
+    const refreshToken = jwt.sign(
+      { sub: user.id, type: 'refresh' },
+      secret as jwt.Secret,
+      { expiresIn: this.config.get<string>('JWT_REFRESH_EXPIRY') || '7d' } as SignOptions
+    );
+
+    const refreshExpiry = new Date();
+    refreshExpiry.setDate(refreshExpiry.getDate() + 7);
+
+    await this.prisma.refreshToken.create({
+      data: {
+        token: refreshToken,
+        userId: user.id,
+        expiresAt: refreshExpiry,
+      },
+    });
+
     return {
-      accessToken: 'mock_access_token_' + user.id,
-      refreshToken: 'mock_refresh_token_' + user.id,
+      accessToken,
+      refreshToken,
       user: { id: user.id, email: user.email, phone: user.phone, role: user.role, name: user.name }
     };
   }
 
+  private constantTimeCompare(a: string, b: string): boolean {
+    if (a.length !== b.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  }
+
   async refresh(refreshToken: string) {
-    return { accessToken: 'new_mock_token' };
+    const secret = this.config.get<string>('JWT_SECRET');
+    if (!secret) {
+      throw new Error('JWT_SECRET not configured');
+    }
+
+    let payload: any;
+    try {
+      payload = jwt.verify(refreshToken, secret);
+    } catch (error) {
+      throw new UnauthorizedException('Invalid token');
+    }
+
+    if (payload.type !== 'refresh') {
+      throw new UnauthorizedException('Invalid token type');
+    }
+
+    const storedToken = await this.prisma.refreshToken.findFirst({
+      where: {
+        token: refreshToken,
+        userId: payload.sub,
+        expiresAt: { gt: new Date() },
+        revokedAt: null,
+      },
+    });
+
+    if (!storedToken) {
+      throw new UnauthorizedException('Token not found or expired');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const accessToken = jwt.sign(
+      { sub: user.id, email: user.email, role: user.role },
+      secret as jwt.Secret,
+      { expiresIn: this.config.get<string>('JWT_ACCESS_EXPIRY') || '15m' } as SignOptions
+    );
+
+    return { accessToken };
   }
 
   // User Management
   async findAllUsers() {
-    return this.prisma.user.findMany();
+    try {
+      return await this.prisma.user.findMany();
+    } catch (error) {
+      this.logger.error('Failed to fetch all users', String(error).replace(/[\n\r]/g, ''));
+      throw new BadRequestException('Could not fetch users');
+    }
   }
 
   async findUserById(id: string) {
@@ -223,25 +306,37 @@ export class AuthService {
   }
 
   async inviteUser(inviteDto: InviteUserDto) {
-    const exists = await this.prisma.user.findUnique({ where: { email: inviteDto.email } });
-    if (exists) throw new BadRequestException('User already exists');
+    try {
+      const exists = await this.prisma.user.findUnique({ where: { email: inviteDto.email } });
+      if (exists) throw new BadRequestException('User already exists');
 
-    return this.prisma.user.create({
-      data: {
-        email: inviteDto.email,
-        role: inviteDto.role as any,
-        name: inviteDto.email.split('@')[0],
-        status: 'Invited'
-      }
-    });
+      return await this.prisma.user.create({
+        data: {
+          email: inviteDto.email,
+          role: inviteDto.role as any,
+          name: inviteDto.email.split('@')[0],
+          status: 'Invited'
+        }
+      });
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      this.logger.error(`Failed to invite user: ${inviteDto.email}`, String(error).replace(/[\n\r]/g, ''));
+      throw new BadRequestException('Could not invite user');
+    }
   }
 
   async updateUser(id: string, updateDto: UpdateUserDto) {
-    const user = await this.findUserById(id);
-    return this.prisma.user.update({
-      where: { id },
-      data: updateDto
-    });
+    try {
+      const user = await this.findUserById(id);
+      return await this.prisma.user.update({
+        where: { id },
+        data: updateDto
+      });
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      this.logger.error(`Failed to update user ${id}`, String(error).replace(/[\n\r]/g, ''));
+      throw new BadRequestException('Could not update user');
+    }
   }
 
   async deleteUser(id: string) {

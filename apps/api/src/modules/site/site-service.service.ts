@@ -87,7 +87,7 @@ export class SiteService {
     const sites = await this.prisma.site.findMany({
       include: { stations: true, leaseDetails: true, documents: true }
     });
-    return sites.map((site) => this.formatSite(site));
+    return sites.map((site: any) => this.formatSite(site));
   }
 
   async findSiteById(id: string) {
@@ -199,7 +199,7 @@ export class SiteService {
     });
 
     // Map database fields to frontend interface
-    return documents.map(doc => ({
+    return documents.map((doc: any) => ({
       id: doc.id,
       siteId: doc.siteId,
       title: doc.name,

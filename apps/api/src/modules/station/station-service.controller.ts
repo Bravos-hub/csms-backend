@@ -48,14 +48,22 @@ export class StationController {
   }
 
   @Get(':id/swaps-today')
-  getSwaps(@Param('id') id: string) {
-    return this.stationService.getSwapsToday(id);
+  async getSwaps(@Param('id') id: string) {
+    try {
+      return await this.stationService.getSwapsToday(id);
+    } catch (error) {
+      throw error;
+    }
   }
 
   // Microservice EventHandler
   @EventPattern('ocpp.events')
   async handleOcppMessage(@Payload() message: any) {
-    await this.stationService.handleOcppMessage(message);
+    try {
+      await this.stationService.handleOcppMessage(message);
+    } catch (error) {
+      throw error;
+    }
   }
 }
 

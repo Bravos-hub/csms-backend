@@ -18,13 +18,21 @@ export class SiteController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.siteService.findSiteById(id);
+  async findOne(@Param('id') id: string) {
+    try {
+      return await this.siteService.findSiteById(id);
+    } catch (error) {
+      throw error;
+    }
   }
 
   @Get(':id/stats')
-  getStats(@Param('id') id: string) {
-    return this.siteService.getSiteStats(id);
+  async getStats(@Param('id') id: string) {
+    try {
+      return await this.siteService.getSiteStats(id);
+    } catch (error) {
+      throw error;
+    }
   }
 
   @Patch(':id')

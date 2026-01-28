@@ -121,15 +121,18 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
     // RESOLVE OCPP ID from ChargePoint UUID
     let targetOcppId = command.chargePointId;
     if (command.chargePointId) {
-      // Assuming chargePointId is a UUID, we need the OCPP Identity
       const cp = await this.prisma.chargePoint.findUnique({ where: { id: command.chargePointId } });
       if (cp) {
         targetOcppId = cp.ocppId;
       } else {
-        // Optimization: If not found by ID, maybe it IS the OCPP ID? (Legacy support)
-        // But for now, we assume if it fails lookup, we might fail or try sending anyway.
-        // Let's log a warning but try sending as-is in case it was already an OCPP ID.
+        await this.failOutbox(outbox, 'ChargePoint not found');
+        return;
       }
+    }
+
+    if (!targetOcppId) {
+      await this.failOutbox(outbox, 'Unable to resolve OCPP ID');
+      return;
     }
 
     const request = {
@@ -143,38 +146,39 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
     };
 
     try {
-      // Assuming commandRequests topic exists
       await this.kafka.publish(
-        'ocpp.commands', // Hardcoded topic based on plan
+        'ocpp.commands',
         JSON.stringify(request),
-        targetOcppId! // Use resolved ID as Key
+        targetOcppId
       );
 
       const now = new Date();
-      await this.prisma.commandOutbox.update({
-        where: { id: outbox.id },
-        data: {
-          status: 'Published',
-          publishedAt: now,
-          updatedAt: now,
-          lastError: null,
-        }
-      });
-      await this.prisma.command.update({
-        where: { id: command.id },
-        data: {
-          status: 'Sent',
-          sentAt: now,
-          error: null,
-        }
-      });
-      await this.prisma.commandEvent.create({
-        data: {
-          commandId: command.id,
-          status: 'Sent',
-          payload: { commandType: command.commandType },
-          occurredAt: now,
-        }
+      await this.prisma.$transaction(async (tx: any) => {
+        await tx.commandOutbox.update({
+          where: { id: outbox.id },
+          data: {
+            status: 'Published',
+            publishedAt: now,
+            updatedAt: now,
+            lastError: null,
+          }
+        });
+        await tx.command.update({
+          where: { id: command.id },
+          data: {
+            status: 'Sent',
+            sentAt: now,
+            error: null,
+          }
+        });
+        await tx.commandEvent.create({
+          data: {
+            commandId: command.id,
+            status: 'Sent',
+            payload: { commandType: command.commandType },
+            occurredAt: now,
+          }
+        });
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Publish failed';
@@ -184,28 +188,34 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
 
   private async failOutbox(outbox: CommandOutbox, message: string): Promise<void> {
     const now = new Date();
-    await this.prisma.commandOutbox.update({
-      where: { id: outbox.id },
-      data: {
-        status: 'Failed',
-        updatedAt: now,
-        lastError: message,
-      }
-    });
-    await this.prisma.command.update({
-      where: { id: outbox.commandId },
-      data: {
-        status: 'Failed',
-        error: message,
-      }
-    });
-    await this.prisma.commandEvent.create({
-      data: {
-        commandId: outbox.commandId,
-        status: 'Failed',
-        payload: { error: message },
-        occurredAt: now,
-      }
-    });
+    try {
+      await this.prisma.$transaction(async (tx: any) => {
+        await tx.commandOutbox.update({
+          where: { id: outbox.id },
+          data: {
+            status: 'Failed',
+            updatedAt: now,
+            lastError: message,
+          }
+        });
+        await tx.command.update({
+          where: { id: outbox.commandId },
+          data: {
+            status: 'Failed',
+            error: message,
+          }
+        });
+        await tx.commandEvent.create({
+          data: {
+            commandId: outbox.commandId,
+            status: 'Failed',
+            payload: { error: message },
+            occurredAt: now,
+          }
+        });
+      });
+    } catch (error) {
+      this.logger.error('Failed to update outbox failure state', error);
+    }
   }
 }

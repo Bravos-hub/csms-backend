@@ -25,13 +25,16 @@ export class MailService {
         this.transporter = nodemailer.createTransport({
             host,
             port: port || 587,
-            secure: port === 465, // true for 465, false for other ports
+            secure: true,
             auth: {
                 user,
                 pass,
             },
+            requireTLS: true,
             tls: {
-                rejectUnauthorized: false
+                minVersion: 'TLSv1.2',
+                ciphers: 'HIGH:!aNULL:!MD5',
+                rejectUnauthorized: true,
             }
         });
 
@@ -71,7 +74,7 @@ export class MailService {
     }
 
     async sendVerificationEmail(email: string, token: string) {
-        const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5173';
+        const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'https://localhost:5173';
         const link = `${frontendUrl}/auth/verify-email?token=${token}&email=${encodeURIComponent(email)}`;
 
         const html = `

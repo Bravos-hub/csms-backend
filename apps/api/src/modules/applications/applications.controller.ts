@@ -99,12 +99,16 @@ export class ApplicationsController {
         @UploadedFile() file: Express.Multer.File,
         @Request() req: any,
     ) {
-        if (!file) {
-            throw new Error('No file uploaded');
-        }
+        try {
+            if (!file) {
+                throw new Error('No file uploaded');
+            }
 
-        const userId = req?.user?.id || 'system';
-        return this.applicationsService.uploadSignedLease(id, file, userId);
+            const userId = req?.user?.id || 'system';
+            return await this.applicationsService.uploadSignedLease(id, file, userId);
+        } catch (error) {
+            throw error;
+        }
     }
 
     @Post(':id/deposit/verify')

@@ -1,9 +1,11 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Req, UseGuards, Logger, BadRequestException } from '@nestjs/common';
 import { AuthService } from './auth-service.service';
 import { LoginDto, RefreshTokenDto, InviteUserDto, UpdateUserDto } from './dto/auth.dto';
 
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(private readonly authService: AuthService) { }
 
   @Post('login')
@@ -31,34 +33,27 @@ export class AuthController {
   // OTP Endpoints
   @Post('otp/send')
   requestOtp(@Body() body: { phone?: string, email?: string }) {
-    if (!body.phone && !body.email) throw new Error('Phone or Email is required');
+    if (!body.phone && !body.email) throw new BadRequestException('Phone or Email is required');
     return this.authService.requestOtp(body.phone || body.email || '');
   }
 
   @Post('otp/verify')
   verifyOtp(@Body() body: { phone?: string, email?: string, code: string }) {
-    if ((!body.phone && !body.email) || !body.code) throw new Error('Phone/Email and code are required');
+    if ((!body.phone && !body.email) || !body.code) throw new BadRequestException('Phone/Email and code are required');
     return this.authService.verifyOtp(body.phone || body.email || '', body.code);
   }
 
   @Post('password/reset')
   resetPassword(@Body() body: any) {
-    console.log('Password reset request body:', JSON.stringify(body, null, 2));
+    this.logger.log('Password reset request received');
 
     const identifier = body.email || body.phone || body.identifier;
     const otp = body.code || body.token || body.otp;
     const pass = body.newPassword || body.password;
 
-    console.log('Extracted values:', { identifier, otp, pass });
-
     if (!identifier || !otp || !pass) {
-      console.error('Missing required fields:', {
-        hasIdentifier: !!identifier,
-        hasOtp: !!otp,
-        hasPassword: !!pass,
-        receivedKeys: Object.keys(body)
-      });
-      throw new Error('Email/Phone, OTP code, and new password are required');
+      this.logger.warn('Password reset failed: missing required fields');
+      throw new BadRequestException('Email/Phone, OTP code, and new password are required');
     }
     return this.authService.resetPassword(identifier, otp, pass);
   }
@@ -90,9 +85,13 @@ export class UsersController {
   }
 
   @Patch('me')
-  updateMe(@Req() req: any, @Body() updateDto: UpdateUserDto) {
-    const userId = req.headers['x-user-id'] || 'mock-id';
-    return this.authService.updateUser(userId, updateDto);
+  async updateMe(@Req() req: any, @Body() updateDto: UpdateUserDto) {
+    try {
+      const userId = req.headers['x-user-id'] || 'mock-id';
+      return await this.authService.updateUser(userId, updateDto);
+    } catch (error) {
+      throw error;
+    }
   }
 
   @Patch(':id')

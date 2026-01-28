@@ -4,6 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 enum UserRole {
@@ -629,4 +630,18 @@ model CommandEvent {
   occurredAt DateTime @map("occurred_at")
 
   @@map("command_events")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@map("refresh_tokens")
+  @@index([userId])
+  @@index([token])
 }

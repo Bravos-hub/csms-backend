@@ -45,16 +45,25 @@ export class BookingService {
     // If Prisma validation fails on foreign key 'mock-user-id', we need a real user.
     // Since we aren't creating a real user here, this might fail `db push` constraints if fk enabled.
     // However, I will look for *any* user or create one for safety if I want this to run.
-    const user = await this.prisma.user.findFirst();
-    if (user) userId = user.id;
+    try {
+      const user = await this.prisma.user.findFirst();
+      if (user) userId = user.id;
+    } catch (error) {
+      throw new BadRequestException('Failed to retrieve user data');
+    }
 
     // Station Check
     if (!stationId) {
       // Fallback or error?
       // Trying to find first station
-      const station = await this.prisma.station.findFirst();
-      if (station) stationId = station.id;
-      else throw new BadRequestException('No station available');
+      try {
+        const station = await this.prisma.station.findFirst();
+        if (station) stationId = station.id;
+        else throw new BadRequestException('No station available');
+      } catch (error) {
+        if (error instanceof BadRequestException) throw error;
+        throw new BadRequestException('Failed to retrieve station data');
+      }
     }
 
     return this.prisma.booking.create({
