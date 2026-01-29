@@ -59,7 +59,7 @@ graph TD
 
 | Service | Port | Description |
 | :--- | :--- | :--- |
-| **Auth Service** | `3000` | User management, Authentication (JWT), RBAC. |
+| **Auth Service** | `3000` | User management, **Cookie-based Authentication (httpOnly)**, RBAC. |
 | **Station Service** | `3001` | Charger registry, status tracking, auto-provisioning. |
 | **Session Service** | `3002` | Charging session tracking (Start/Stop transactions). |
 | **OCPP Gateway** | `3003` | WebSocket handling for OCPP 1.6/2.0 chargers. |
@@ -74,6 +74,23 @@ graph TD
 ### Prerequisites
 *   [Docker Desktop](https://www.docker.com/products/docker-desktop) (Running)
 *   [Node.js](https://nodejs.org/) (v16+)
+
+### Environment Variables
+
+Ensure `.env` contains:
+```env
+# Authentication
+JWT_SECRET=your-secure-secret
+JWT_ACCESS_EXPIRY=15m
+JWT_REFRESH_EXPIRY=7d
+CORS_ORIGINS=http://localhost:5173,https://portal.evzonecharging.com
+
+# Database & Infrastructure
+DATABASE_URL="postgresql://user:pass@localhost:5432/evzone"
+KAFKA_BROKERS=localhost:9092
+REDIS_HOST=localhost
+REDIS_PORT=6379
+```
 
 ### Quick Start (Windows)
 
@@ -97,11 +114,21 @@ We provide a **Master Startup Script** that launches:
     npx nest start station-service --watch
     ```
 
-## 🧪 Verification
+## 🧪 Verification & Documentation
 
+### API Documentation (Swagger)
+*   URL: [`http://localhost:3000/api/docs`](http://localhost:3000/api/docs)
+*   Features: Full API reference with cookie-based auth support.
+
+### Auth Metrics
+*   URL: [`http://localhost:3000/api/v1/auth/metrics`](http://localhost:3000/api/v1/auth/metrics)
+*   Provides: Login/Logout/Refresh success rates and latency.
+
+### Manual Verification
 1.  **Auth API**:
-    *   POST `http://localhost:3000/auth/register`
-    *   Body: `{"email": "admin@test.com", "password": "pass", "name": "Admin", "role": "SUPER_ADMIN"}`
+    *   POST `http://localhost:3000/api/v1/auth/login`
+    *   Body: `{"email": "admin@test.com", "password": "pass"}`
+    *   **Result**: 200 OK + `evzone_access_token` and `evzone_refresh_token` cookies (httpOnly).
 
 2.  **OCPP Connection**:
     *   Connect WebSocket Client to `ws://localhost:3003/ocpp/TEST_CP_001`
@@ -115,8 +142,9 @@ We provide a **Master Startup Script** that launches:
 
 *   **Framework**: [NestJS](https://nestjs.com/) (Monorepo Mode)
 *   **Language**: TypeScript
+*   **Authentication**: JWT in httpOnly Cookies + Refresh Token Revocation
 *   **Database**: PostgreSQL + TypeORM
 *   **Message Broker**: Apache Kafka
 *   **Cache**: Redis
 *   **Validation**: class-validator
-*   **Documentation**: Mermaid, Markdown
+*   **Documentation**: Swagger, Mermaid, Markdown

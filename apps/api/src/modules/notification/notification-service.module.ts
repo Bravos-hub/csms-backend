@@ -9,7 +9,7 @@ import { TwilioService } from './twilio.service';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule,
     DatabaseModule,
   ],
   controllers: [NotificationController],

@@ -35,6 +35,7 @@ import { WalletModule } from './modules/wallet/wallet.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { WithdrawalsModule } from './modules/withdrawals/withdrawals.module';
 import { SseModule } from './modules/sse/sse.module'; // Imported SSE
+import { OcpiInternalModule } from './modules/ocpi-internal/ocpi-internal.module';
 
 @Module({
   imports: [
@@ -72,6 +73,7 @@ import { SseModule } from './modules/sse/sse.module'; // Imported SSE
     WebhooksModule,
     WithdrawalsModule,
     SseModule,
+    OcpiInternalModule,
   ],
   controllers: [AppController],
   providers: [AppService],

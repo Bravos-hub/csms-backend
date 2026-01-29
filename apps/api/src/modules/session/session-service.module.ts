@@ -7,6 +7,7 @@ import { SessionController } from './session-service.controller';
 import { SessionService } from './session-service.service';
 import { NotificationServiceModule } from '../notification/notification-service.module';
 import { PrismaService } from '../../prisma.service';
+import { OcpiTokenSyncService } from '../../common/services/ocpi-token-sync.service';
 
 @Module({
   imports: [
@@ -30,6 +31,6 @@ import { PrismaService } from '../../prisma.service';
     ]),
   ],
   controllers: [SessionController],
-  providers: [SessionService, PrismaService],
+  providers: [SessionService, PrismaService, OcpiTokenSyncService],
 })
 export class SessionServiceModule { }

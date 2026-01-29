@@ -14,7 +14,7 @@ describe('AnalyticsServiceController', () => {
     analyticsServiceController = app.get<AnalyticsServiceController>(AnalyticsServiceController);
   });
 
-  describe('root', () => {
+  describe('getHello', () => {
     it('should return "Hello World!"', () => {
       expect(analyticsServiceController.getHello()).toBe('Hello World!');
     });

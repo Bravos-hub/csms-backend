@@ -77,4 +77,10 @@ export class CommandsService {
       },
     })
   }
+
+  async getCommandById(commandId: string) {
+    return this.prisma.command.findUnique({
+      where: { id: commandId },
+    })
+  }
 }

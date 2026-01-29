@@ -1,49 +1,185 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Req, UseGuards, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Req,
+  Res,
+  UseGuards,
+  Logger,
+  BadRequestException,
+} from '@nestjs/common';
+import type { Response, Request } from 'express';
+import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiCookieAuth } from '@nestjs/swagger';
 import { AuthService } from './auth-service.service';
-import { LoginDto, RefreshTokenDto, InviteUserDto, UpdateUserDto } from './dto/auth.dto';
+import { MetricsService } from '../../common/services/metrics.service';
+import {
+  LoginDto,
+  RefreshTokenDto,
+  InviteUserDto,
+  UpdateUserDto,
+  ServiceTokenRequestDto,
+} from './dto/auth.dto';
+import { COOKIE_NAMES, getCookieOptions } from '../../common/utils/cookie.config';
 
+@ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
 
-  constructor(private readonly authService: AuthService) { }
+  constructor(
+    private readonly authService: AuthService,
+    private readonly metricsService: MetricsService,
+  ) { }
+
+  @Get('metrics')
+  @ApiOperation({ summary: 'Get authentication metrics' })
+  getMetrics() {
+    return this.metricsService.getMetricsSummary();
+  }
 
   @Post('login')
-  login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto);
+  @ApiOperation({
+    summary: 'User login',
+    description: 'Authenticates user and sets httpOnly cookies for access and refresh tokens',
+  })
+  @ApiBody({ type: LoginDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Login successful. Cookies set: evzone_access_token, evzone_refresh_token',
+  })
+  @ApiResponse({ status: 401, description: 'Invalid credentials' })
+  async login(
+    @Body() loginDto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.login(loginDto);
+
+    // Set httpOnly cookies
+    res.cookie(COOKIE_NAMES.ACCESS_TOKEN, result.accessToken, getCookieOptions(false));
+    res.cookie(COOKIE_NAMES.REFRESH_TOKEN, result.refreshToken, getCookieOptions(true));
+
+    // Return user data only (no tokens in response body)
+    return {
+      user: result.user,
+    };
   }
 
   @Post('refresh')
-  refresh(@Body() refreshDto: RefreshTokenDto) {
-    return this.authService.refresh(refreshDto.refreshToken);
+  @ApiCookieAuth('evzone_refresh_token')
+  @ApiOperation({
+    summary: 'Refresh access token',
+    description: 'Uses refresh token cookie to generate new access token',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Token refreshed successfully. New cookies set.',
+  })
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    // Extract refresh token from cookie
+    const refreshToken = req.cookies?.[COOKIE_NAMES.REFRESH_TOKEN];
+
+    if (!refreshToken) {
+      throw new BadRequestException('Refresh token not found');
+    }
+
+    const result = await this.authService.refresh(refreshToken);
+
+    // Set new httpOnly cookies
+    res.cookie(COOKIE_NAMES.ACCESS_TOKEN, result.accessToken, getCookieOptions(false));
+    res.cookie(COOKIE_NAMES.REFRESH_TOKEN, result.refreshToken, getCookieOptions(true));
+
+    // Return user data only
+    return {
+      user: result.user,
+    };
   }
 
   @Post('register')
-  register(@Body() createUserDto: any) { // using any or CreateUserDto if imported
+  @ApiOperation({ summary: 'Register new user' })
+  async register(
+    @Body() createUserDto: any,
+  ) {
+    // Registration only initiates verification, it does not log in the user
     return this.authService.register(createUserDto);
   }
 
   @Post('logout')
-  logout() {
-    // In a real app, this would invalidate the refresh token
-    // For now, just return success since client handles token removal
-    return { success: true, message: 'Logged out successfully' };
+  @ApiOperation({
+    summary: 'User logout',
+    description: 'Revokes refresh token and clears authentication cookies',
+  })
+  async logout(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    // Extract refresh token from cookie
+    const refreshToken = req.cookies?.[COOKIE_NAMES.REFRESH_TOKEN];
+
+    if (refreshToken) {
+      // Revoke the refresh token in database
+      await this.authService.revokeRefreshToken(refreshToken);
+    }
+
+    // Clear cookies
+    res.clearCookie(COOKIE_NAMES.ACCESS_TOKEN);
+    res.clearCookie(COOKIE_NAMES.REFRESH_TOKEN);
+
+    return {
+      success: true,
+      message: 'Logged out successfully',
+    };
+  }
+
+  @Post('service/token')
+  @ApiOperation({ summary: 'Issue service account token' })
+  serviceToken(@Req() req: any, @Body() body: ServiceTokenRequestDto) {
+    const authHeader = req.headers.authorization as string | undefined;
+    let clientId = body.clientId;
+    let clientSecret = body.clientSecret;
+
+    if (authHeader?.startsWith('Basic ')) {
+      const encoded = authHeader.substring(6).trim();
+      const decoded = Buffer.from(encoded, 'base64').toString('utf8');
+      const separatorIndex = decoded.indexOf(':');
+      if (separatorIndex > 0) {
+        clientId = clientId || decoded.slice(0, separatorIndex);
+        clientSecret = clientSecret || decoded.slice(separatorIndex + 1);
+      }
+    }
+
+    if (!clientId || !clientSecret) {
+      throw new BadRequestException('clientId and clientSecret are required');
+    }
+
+    return this.authService.issueServiceToken(clientId, clientSecret, body.scope);
   }
 
   // OTP Endpoints
   @Post('otp/send')
-  requestOtp(@Body() body: { phone?: string, email?: string }) {
-    if (!body.phone && !body.email) throw new BadRequestException('Phone or Email is required');
+  @ApiOperation({ summary: 'Request OTP' })
+  requestOtp(@Body() body: { phone?: string; email?: string }) {
+    if (!body.phone && !body.email)
+      throw new BadRequestException('Phone or Email is required');
     return this.authService.requestOtp(body.phone || body.email || '');
   }
 
   @Post('otp/verify')
-  verifyOtp(@Body() body: { phone?: string, email?: string, code: string }) {
-    if ((!body.phone && !body.email) || !body.code) throw new BadRequestException('Phone/Email and code are required');
+  @ApiOperation({ summary: 'Verify OTP' })
+  verifyOtp(@Body() body: { phone?: string; email?: string; code: string }) {
+    if ((!body.phone && !body.email) || !body.code)
+      throw new BadRequestException('Phone/Email and code are required');
     return this.authService.verifyOtp(body.phone || body.email || '', body.code);
   }
 
   @Post('password/reset')
+  @ApiOperation({ summary: 'Reset password' })
   resetPassword(@Body() body: any) {
     this.logger.log('Password reset request received');
 
@@ -53,7 +189,9 @@ export class AuthController {
 
     if (!identifier || !otp || !pass) {
       this.logger.warn('Password reset failed: missing required fields');
-      throw new BadRequestException('Email/Phone, OTP code, and new password are required');
+      throw new BadRequestException(
+        'Email/Phone, OTP code, and new password are required',
+      );
     }
     return this.authService.resetPassword(identifier, otp, pass);
   }

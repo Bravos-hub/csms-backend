@@ -6,7 +6,7 @@ export class AnalyticsService {
     return 'Analytics Service Operational';
   }
 
-  getDashboard(period: string) {
+  getDashboard(period: string): Record<string, unknown> {
     return {
       totalEnergy: 54000,
       totalSessions: 1200,
@@ -17,7 +17,7 @@ export class AnalyticsService {
     };
   }
 
-  getUptime(stationId?: string) {
+  getUptime(stationId?: string): Record<string, unknown> {
     return {
       uptime: 99.8,
       downtime: 0.2,

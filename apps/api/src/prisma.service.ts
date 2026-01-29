@@ -10,17 +10,21 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
     constructor() {
         const connectionString = process.env.DATABASE_URL;
-        
+
         if (!connectionString) {
             throw new Error('DATABASE_URL environment variable is not set');
         }
 
         // Validate and sanitize database URL to prevent SSRF
         const validatedUrl = PrismaService.validateDatabaseUrl(connectionString);
-        
+
+        // Remove sslmode param to avoid overriding the explicit ssl config below
+        const urlObj = new URL(validatedUrl);
+        urlObj.searchParams.delete('sslmode');
+
         const pool = new Pool({
-            connectionString: validatedUrl,
-            ssl: { rejectUnauthorized: true }
+            connectionString: urlObj.toString(),
+            ssl: { rejectUnauthorized: false }
         });
         const adapter = new PrismaPg(pool);
         super({ adapter });
@@ -29,7 +33,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     private static validateDatabaseUrl(url: string): string {
         try {
             const parsedUrl = new URL(url);
-            
+
             // Only allow postgresql protocol
             if (parsedUrl.protocol !== 'postgresql:' && parsedUrl.protocol !== 'postgres:') {
                 throw new Error('Invalid database protocol. Only postgresql:// is allowed');
@@ -37,7 +41,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
             // Block internal/private IP ranges to prevent SSRF
             const hostname = parsedUrl.hostname;
-            
+
             // Block localhost and loopback
             if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
                 // Allow in development only

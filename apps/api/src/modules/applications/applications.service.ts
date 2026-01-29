@@ -66,7 +66,7 @@ export class ApplicationsService {
     }
 
     async findAll(filters?: { status?: ApplicationStatus; siteId?: string }) {
-        const where: any = {};
+        const where: Record<string, unknown> = {};
 
         if (filters?.status) {
             where.status = filters.status;
@@ -87,7 +87,7 @@ export class ApplicationsService {
         });
 
         // Map to frontend format
-        return applications.map((app: any) => ({
+        return applications.map((app: Record<string, any>) => ({
             id: app.id,
             applicantId: app.applicantId,
             applicantName: app.contactPersonName,
@@ -461,32 +461,40 @@ export class ApplicationsService {
     }
 
     async signLeaseOwner(id: string, dto: SignLeaseDto) {
-        return this.prisma.tenantApplication.update({
-            where: { id },
-            data: {
-                leaseAgreementUrl: dto.signedLeaseUrl,
-            },
-            include: { site: true }
-        });
+        try {
+            return await this.prisma.tenantApplication.update({
+                where: { id },
+                data: {
+                    leaseAgreementUrl: dto.signedLeaseUrl,
+                },
+                include: { site: true }
+            });
+        } catch (error) {
+            throw new BadRequestException('Failed to sign lease as owner');
+        }
     }
 
     async signLeaseOperator(id: string, dto: SignLeaseDto) {
-        return this.prisma.tenantApplication.update({
-            where: { id },
-            data: {
-                leaseAgreementUrl: dto.signedLeaseUrl,
-                leaseSignedAt: new Date(),
-                status: ApplicationStatus.LEASE_SIGNED
-            },
-            include: { site: true }
-        });
+        try {
+            return await this.prisma.tenantApplication.update({
+                where: { id },
+                data: {
+                    leaseAgreementUrl: dto.signedLeaseUrl,
+                    leaseSignedAt: new Date(),
+                    status: ApplicationStatus.LEASE_SIGNED
+                },
+                include: { site: true }
+            });
+        } catch (error) {
+            throw new BadRequestException('Failed to sign lease as operator');
+        }
     }
 
     async verifySecurityDeposit(id: string) {
         const application = await this.findOne(id);
 
         // Ensure we have a negotiated amount
-        const terms = application.negotiatedTerms as any;
+        const terms = application.negotiatedTerms as Record<string, any>;
         const depositAmount = terms?.securityDepositMonths && terms?.monthlyRent
             ? terms.securityDepositMonths * terms.monthlyRent
             : 0;
@@ -512,7 +520,6 @@ export class ApplicationsService {
                 where: { id },
                 data: {
                     status: dto.status === 'VERIFIED' ? ApplicationStatus.COMPLIANCE_CHECK : ApplicationStatus.LEASE_DRAFTING,
-                    // approvalNotes: dto.notes - if we want to store notes
                 }
             });
         } catch (error) {

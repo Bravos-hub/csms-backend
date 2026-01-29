@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum UserRole {
@@ -632,6 +631,134 @@ model CommandEvent {
   @@map("command_events")
 }
 
+model OcpiPartner {
+  id          String    @id @default(uuid())
+  name        String
+  partyId     String    @db.VarChar(3) @map("party_id")
+  countryCode String    @db.VarChar(2) @map("country_code")
+  role        String
+  status      String    @default("PENDING")
+  version     String    @default("2.2.1")
+  versionsUrl String?   @map("versions_url")
+  tokenA      String?   @map("token_a")
+  tokenB      String?   @map("token_b")
+  tokenC      String?   @map("token_c")
+  roles       Json?
+  endpoints   Json?
+  lastSyncAt  DateTime? @map("last_sync_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("ocpi_partners")
+  @@index([status])
+  @@index([partyId, countryCode])
+}
+
+model OcpiPartnerLocation {
+  id          String   @id @default(uuid())
+  countryCode String   @db.VarChar(2) @map("country_code")
+  partyId     String   @db.VarChar(3) @map("party_id")
+  locationId  String   @map("location_id")
+  version     String   @default("2.2.1")
+  data        Json
+  lastUpdated DateTime @map("last_updated")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("ocpi_partner_locations")
+  @@unique([countryCode, partyId, locationId, version])
+  @@index([partyId, countryCode])
+}
+
+model OcpiPartnerTariff {
+  id          String   @id @default(uuid())
+  countryCode String   @db.VarChar(2) @map("country_code")
+  partyId     String   @db.VarChar(3) @map("party_id")
+  tariffId    String   @map("tariff_id")
+  version     String   @default("2.2.1")
+  data        Json
+  lastUpdated DateTime @map("last_updated")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("ocpi_partner_tariffs")
+  @@unique([countryCode, partyId, tariffId, version])
+  @@index([partyId, countryCode])
+}
+
+model OcpiPartnerToken {
+  id          String   @id @default(uuid())
+  countryCode String   @db.VarChar(2) @map("country_code")
+  partyId     String   @db.VarChar(3) @map("party_id")
+  tokenUid    String   @map("token_uid")
+  tokenType   String   @map("token_type")
+  version     String   @default("2.2.1")
+  data        Json
+  lastUpdated DateTime @map("last_updated")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("ocpi_partner_tokens")
+  @@unique([countryCode, partyId, tokenUid, tokenType, version])
+  @@index([partyId, countryCode])
+}
+
+model OcpiToken {
+  id          String   @id @default(uuid())
+  countryCode String   @db.VarChar(2) @map("country_code")
+  partyId     String   @db.VarChar(3) @map("party_id")
+  tokenUid    String   @map("token_uid")
+  tokenType   String   @map("token_type")
+  data        Json
+  lastUpdated DateTime @map("last_updated")
+  valid       Boolean  @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("ocpi_tokens")
+  @@unique([countryCode, partyId, tokenUid, tokenType])
+  @@index([partyId, countryCode])
+}
+
+model OcpiPartnerSession {
+  id          String   @id @default(uuid())
+  countryCode String   @db.VarChar(2) @map("country_code")
+  partyId     String   @db.VarChar(3) @map("party_id")
+  sessionId   String   @map("session_id")
+  version     String   @default("2.2.1")
+  data        Json
+  lastUpdated DateTime @map("last_updated")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("ocpi_partner_sessions")
+  @@unique([countryCode, partyId, sessionId, version])
+  @@index([partyId, countryCode])
+}
+
+model OcpiPartnerCdr {
+  id          String   @id @default(uuid())
+  countryCode String   @db.VarChar(2) @map("country_code")
+  partyId     String   @db.VarChar(3) @map("party_id")
+  cdrId       String   @map("cdr_id")
+  version     String   @default("2.2.1")
+  data        Json
+  lastUpdated DateTime @map("last_updated")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("ocpi_partner_cdrs")
+  @@unique([countryCode, partyId, cdrId, version])
+  @@index([partyId, countryCode])
+}
+
 model RefreshToken {
   id        String   @id @default(uuid())
   token     String   @unique
@@ -644,4 +771,25 @@ model RefreshToken {
   @@map("refresh_tokens")
   @@index([userId])
   @@index([token])
+  @@index([expiresAt]) // For cleanup and expiry queries
+  @@index([revokedAt]) // For revoked token queries
+  @@index([userId, expiresAt]) // Composite for user token validation
+  @@index([token, revokedAt, expiresAt]) // Composite for refresh validation
+}
+
+model ServiceAccount {
+  id         String    @id @default(uuid())
+  name       String
+  clientId   String    @unique @map("client_id")
+  secretHash String    @map("secret_hash")
+  secretSalt String    @map("secret_salt")
+  scopes     Json?     @map("scopes")
+  status     String    @default("ACTIVE")
+  lastUsedAt DateTime? @map("last_used_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("service_accounts")
+  @@index([status])
 }

@@ -2,9 +2,9 @@ export interface CommandRequest {
     commandId?: string;
     stationId?: string;
     chargePointId?: string;
-    connectorId?: number | string;
+    connectorId?: number;
     commandType: string;
-    payload: Record<string, any>;
+    payload: Record<string, unknown>;
     requestedBy?: {
         userId?: string;
     };

@@ -60,8 +60,24 @@ export class UpdateUserDto {
 
 export class InviteUserDto {
     @IsEmail()
+    @IsNotEmpty()
     email: string;
 
     @IsString()
+    @IsNotEmpty()
     role: Role;
+}
+
+export class ServiceTokenRequestDto {
+    @IsString()
+    @IsOptional()
+    clientId?: string;
+
+    @IsString()
+    @IsOptional()
+    clientSecret?: string;
+
+    @IsString()
+    @IsOptional()
+    scope?: string; // space-delimited, OAuth-style
 }

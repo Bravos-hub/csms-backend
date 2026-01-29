@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
 import { NotificationService } from '../notification/notification-service.service';
 import { StopSessionDto, SessionFilterDto } from './dto/session.dto';
+import { OcpiTokenSyncService } from '../../common/services/ocpi-token-sync.service';
 
 @Injectable()
 export class SessionService {
@@ -10,6 +11,7 @@ export class SessionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
+    private readonly ocpiTokenSync: OcpiTokenSyncService,
   ) { }
 
   async getActiveSessions() {
@@ -117,6 +119,8 @@ export class SessionService {
         stationId: chargePoint.stationId,
       },
     });
+
+    await this.syncIdTagTokenSafe(payload.idTag);
   }
 
   private async handleStopTransaction(ocppId: string, payload: any) {
@@ -147,6 +151,14 @@ export class SessionService {
       }
     } else {
       this.logger.warn(`Session not found for transaction ${txId}`);
+    }
+  }
+
+  private async syncIdTagTokenSafe(idTag?: string) {
+    try {
+      await this.ocpiTokenSync.syncIdTagToken(idTag || null);
+    } catch (error) {
+      this.logger.warn('Failed to sync OCPI token for idTag', String(error).replace(/[\n\r]/g, ''));
     }
   }
 }

@@ -93,7 +93,9 @@ export class ApplicationsController {
     }
 
     @Post(':id/lease/upload')
-    @UseInterceptors(FileInterceptor('file'))
+    @UseInterceptors(FileInterceptor('file', {
+        limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    }))
     async uploadSignedLease(
         @Param('id') id: string,
         @UploadedFile() file: Express.Multer.File,
@@ -107,7 +109,8 @@ export class ApplicationsController {
             const userId = req?.user?.id || 'system';
             return await this.applicationsService.uploadSignedLease(id, file, userId);
         } catch (error) {
-            throw error;
+            const message = error instanceof Error ? error.message : 'Failed to upload signed lease';
+            throw new Error(`Lease upload failed: ${message}`);
         }
     }
 
