@@ -42,6 +42,30 @@ export class CreateUserDto {
     @IsString()
     @IsOptional()
     organizationId?: string;
+
+    @IsString()
+    @IsOptional()
+    country?: string;
+
+    @IsString()
+    @IsOptional()
+    region?: string;
+
+    @IsString()
+    @IsOptional()
+    subscribedPackage?: string;
+
+    @IsString()
+    @IsOptional()
+    accountType?: 'COMPANY' | 'INDIVIDUAL';
+
+    @IsString()
+    @IsOptional()
+    companyName?: string;
+
+    @IsString()
+    @IsOptional()
+    ownerCapability?: 'CHARGE' | 'SWAP' | 'BOTH';
 }
 
 export class UpdateUserDto {

@@ -93,18 +93,42 @@ export class AuthService {
     const verificationToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
 
-    const user = await this.prisma.user.create({
-      data: {
-        email: createUserDto.email,
-        name: createUserDto.name,
-        phone: createUserDto.phone,
-        role: (createUserDto.role as any) || 'SITE_OWNER',
-        status: 'Pending',
-        passwordHash: hashedPassword,
-      }
+    // Registration Transaction
+    const result = await this.prisma.$transaction(async (tx) => {
+      // 1. Create Organization
+      const orgType = createUserDto.accountType || 'COMPANY';
+      const orgName = orgType === 'COMPANY'
+        ? (createUserDto.companyName || `${createUserDto.name}'s Corp`)
+        : (createUserDto.companyName || createUserDto.name);
+
+      const organization = await tx.organization.create({
+        data: {
+          name: orgName,
+          type: orgType,
+        }
+      });
+
+      // 2. Create User linked to Org
+      const user = await tx.user.create({
+        data: {
+          email: createUserDto.email,
+          name: createUserDto.name,
+          phone: createUserDto.phone,
+          role: (createUserDto.role as any) || 'SITE_OWNER',
+          status: 'Pending',
+          passwordHash: hashedPassword,
+          country: createUserDto.country,
+          region: createUserDto.region,
+          subscribedPackage: createUserDto.subscribedPackage || 'Free',
+          ownerCapability: createUserDto.ownerCapability as any,
+          organizationId: organization.id,
+        }
+      });
+
+      return { user, organization };
     });
 
-    await this.syncOcpiTokenSafe(user);
+    await this.syncOcpiTokenSafe(result.user);
 
     try {
       await this.mailService.sendVerificationEmail(createUserDto.email, verificationToken);
@@ -112,12 +136,19 @@ export class AuthService {
       this.logger.error('Failed to send verification email', String(error).replace(/[\n\r]/g, ''));
     }
 
-    return { success: true, message: 'Registration successful. Please check your email.' };
+    return {
+      success: true,
+      message: 'Registration successful. Please check your email.',
+      user: {
+        id: result.user.id,
+        email: result.user.email,
+        organizationId: result.organization.id
+      }
+    };
   }
 
   async requestOtp(identifier: string) {
     const isEmail = identifier.includes('@');
-    // Ensure identifier is not undefined
     if (!identifier) throw new BadRequestException('Identifier required');
 
     let user = await this.prisma.user.findFirst({
@@ -125,20 +156,7 @@ export class AuthService {
     });
 
     if (!user) {
-      // For now, if user doesn't exist, we might create one or throw.
-      // The user scenario "Forgot Password" implies user should exist.
-      // But if it's a login flow via OTP, auto-creation is common.
-      // Given the "User does not exist" complaint, let's create if not found for mobile logic, 
-      // but for email usually we expect it to exist or we shouldn't leak existence.
-      // However, to satisfy "User does not exist" yet "User already exists" confusion, handling both clearly.
-
       if (isEmail) {
-        // If it's an email that doesn't exist, we probably shouldn't create a random user with just email for OTP if it's "Forgot Password". 
-        // But sticking to the existing pattern of auto-create for phone:
-        // Let's AUTO-CREATE for now to match strict "User does not exist" fix, 
-        // or better, throw meaningful error if this is strictly for password reset.
-        // Wait, the UI said "Forgot password?". So this IS password reset. 
-        // We should NOT create a user if they don't exist in forgot password flow.
         throw new NotFoundException('User not found');
       }
 
@@ -152,15 +170,13 @@ export class AuthService {
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const expires = new Date(Date.now() + 5 * 60 * 1000);
 
-    // Update
     await this.prisma.user.update({
       where: { id: user.id },
       data: { otpCode: code, otpExpiresAt: expires }
     });
 
-    // Send via SMS or Email based on type
     if (isEmail) {
-      await this.mailService.sendMail(user.email!, 'Password Reset OTP', `<p>Your OTP is <b>${code}</b></p>`);
+      await this.mailService.sendMail(user.email!, 'Verification OTP', `<p>Your OTP is <b>${code}</b></p>`);
     } else {
       await this.notificationService.sendSms(identifier, `EvZone: Your verification code is ${code}`);
     }
@@ -175,9 +191,6 @@ export class AuthService {
     });
     if (!user) throw new UnauthorizedException('User not found');
 
-    // Check if user is active or pending? 
-    // Usually verifying OTP might activate them or just log them in.
-
     if (!user.otpCode || user.otpCode !== code) {
       throw new UnauthorizedException('Invalid OTP');
     }
@@ -186,10 +199,9 @@ export class AuthService {
       throw new UnauthorizedException('OTP Expired');
     }
 
-    // Valid
     const updatedUser = await this.prisma.user.update({
       where: { id: user.id },
-      data: { status: 'Active' }
+      data: { status: 'Active', otpCode: null, otpExpiresAt: null }
     });
 
     await this.syncOcpiTokenSafe(updatedUser);
@@ -204,7 +216,6 @@ export class AuthService {
     });
     if (!user) throw new UnauthorizedException('User not found');
 
-    // Use constant-time comparison to prevent timing attacks
     if (!user.otpCode || !this.constantTimeCompare(user.otpCode, code)) {
       throw new UnauthorizedException('Invalid OTP');
     }
@@ -215,7 +226,6 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    // Valid - update password and clear OTP
     const updatedUser = await this.prisma.user.update({
       where: { id: user.id },
       data: {
@@ -263,107 +273,16 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
-      user: { id: user.id, email: user.email, phone: user.phone, role: user.role, name: user.name, ownerCapability: user.ownerCapability }
-    };
-  }
-
-  async issueServiceToken(
-    clientId: string,
-    clientSecret: string,
-    scope?: string
-  ) {
-    const account = await this.prisma.serviceAccount.findUnique({
-      where: { clientId },
-    });
-
-    if (!account || account.status !== 'ACTIVE') {
-      throw new UnauthorizedException('Invalid service credentials');
-    }
-
-    const isValid = this.verifyServiceSecret(clientSecret, account.secretSalt, account.secretHash);
-    if (!isValid) {
-      throw new UnauthorizedException('Invalid service credentials');
-    }
-
-    const allowedScopes = this.normalizeScopes(account.scopes);
-    const requestedScopes = this.normalizeScopes(scope);
-
-    if (allowedScopes.length > 0 && requestedScopes.length > 0) {
-      const isSubset = requestedScopes.every((s) => allowedScopes.includes(s));
-      if (!isSubset) {
-        throw new UnauthorizedException('Requested scope is not allowed');
+      user: {
+        id: user.id,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        name: user.name,
+        ownerCapability: user.ownerCapability,
+        organizationId: user.organizationId
       }
-    }
-
-    const finalScopes = requestedScopes.length > 0 ? requestedScopes : allowedScopes;
-
-    const secret = this.config.get<string>('JWT_SERVICE_SECRET');
-    if (!secret) {
-      throw new Error('JWT_SERVICE_SECRET not configured');
-    }
-
-    const issuer = this.config.get<string>('JWT_SERVICE_ISSUER');
-    const audience = this.config.get<string>('JWT_SERVICE_AUDIENCE');
-    const expiresIn = this.config.get<string>('JWT_SERVICE_EXPIRY') || '5m';
-
-    const signOptions: SignOptions = { expiresIn: expiresIn as any };
-    if (issuer) signOptions.issuer = issuer;
-    if (audience) signOptions.audience = audience;
-
-    const accessToken = jwt.sign(
-      {
-        sub: account.id,
-        clientId: account.clientId,
-        type: 'service',
-        scope: finalScopes.join(' '),
-        scopes: finalScopes,
-      },
-      secret as jwt.Secret,
-      signOptions
-    );
-
-    await this.prisma.serviceAccount.update({
-      where: { clientId: account.clientId },
-      data: { lastUsedAt: new Date() },
-    });
-
-    return {
-      accessToken,
-      tokenType: 'Bearer',
-      expiresIn,
-      scope: finalScopes.join(' '),
     };
-  }
-
-
-
-  private verifyServiceSecret(secret: string, salt: string, expectedHash: string): boolean {
-    const hash = this.hashServiceSecret(secret, salt);
-    const expected = Buffer.from(expectedHash, 'hex');
-    const actual = Buffer.from(hash, 'hex');
-    if (expected.length !== actual.length) {
-      return false;
-    }
-    return crypto.timingSafeEqual(expected, actual);
-  }
-
-  private hashServiceSecret(secret: string, salt: string): string {
-    return crypto.scryptSync(secret, salt, 64).toString('hex');
-  }
-
-  private normalizeScopes(input: unknown): string[] {
-    if (typeof input === 'string') {
-      return input
-        .split(' ')
-        .map((value) => value.trim())
-        .filter(Boolean);
-    }
-    if (Array.isArray(input)) {
-      return input
-        .map((value) => String(value).trim())
-        .filter(Boolean);
-    }
-    return [];
   }
 
   async refresh(refreshToken: string) {
@@ -371,9 +290,7 @@ export class AuthService {
     const secret = this.config.get<string>('JWT_SECRET');
 
     try {
-      if (!secret) {
-        throw new Error('JWT_SECRET not configured');
-      }
+      if (!secret) throw new Error('JWT_SECRET not configured');
 
       let payload: any;
       try {
@@ -382,11 +299,6 @@ export class AuthService {
         throw new UnauthorizedException('Invalid token');
       }
 
-      if (payload.type !== 'refresh') {
-        throw new UnauthorizedException('Invalid token type');
-      }
-
-      // Check if refresh token exists and is not revoked
       const storedToken = await this.prisma.refreshToken.findFirst({
         where: {
           token: refreshToken,
@@ -396,27 +308,16 @@ export class AuthService {
         },
       });
 
-      if (!storedToken) {
-        throw new UnauthorizedException('Token not found, expired, or revoked');
-      }
+      if (!storedToken) throw new UnauthorizedException('Token not found, expired, or revoked');
 
       const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
-      if (!user) {
-        throw new UnauthorizedException('User not found');
-      }
+      if (!user) throw new UnauthorizedException('User not found');
 
-      // Generate new access token
       const accessToken = jwt.sign(
         { sub: user.id, email: user.email, role: user.role },
         secret as jwt.Secret,
         { expiresIn: this.config.get<string>('JWT_ACCESS_EXPIRY') || '15m' } as SignOptions
       );
-
-      const result = {
-        accessToken,
-        refreshToken,
-        user: { id: user.id, email: user.email, phone: user.phone, role: user.role, name: user.name, ownerCapability: user.ownerCapability },
-      };
 
       this.metrics.recordAuthMetric({
         operation: 'refresh',
@@ -426,8 +327,19 @@ export class AuthService {
         timestamp: new Date(),
       });
 
-      // Return both tokens (refresh token stays the same)
-      return result;
+      return {
+        accessToken,
+        refreshToken,
+        user: {
+          id: user.id,
+          email: user.email,
+          phone: user.phone,
+          role: user.role,
+          name: user.name,
+          ownerCapability: user.ownerCapability,
+          organizationId: user.organizationId
+        },
+      };
     } catch (error) {
       this.metrics.recordAuthMetric({
         operation: 'refresh',
@@ -440,10 +352,6 @@ export class AuthService {
     }
   }
 
-  /**
-   * Revoke a refresh token (mark as revoked in database)
-   * Used during logout to invalidate the refresh token
-   */
   async revokeRefreshToken(token: string): Promise<void> {
     const startTime = Date.now();
     try {
@@ -451,8 +359,6 @@ export class AuthService {
         where: { token, revokedAt: null },
         data: { revokedAt: new Date() },
       });
-      this.logger.log('Refresh token revoked successfully');
-
       this.metrics.recordAuthMetric({
         operation: 'logout',
         success: true,
@@ -460,8 +366,6 @@ export class AuthService {
         timestamp: new Date(),
       });
     } catch (error) {
-      this.logger.error('Failed to revoke refresh token', error);
-
       this.metrics.recordAuthMetric({
         operation: 'logout',
         success: false,
@@ -469,18 +373,11 @@ export class AuthService {
         error: error instanceof Error ? error.message : String(error),
         timestamp: new Date(),
       });
-      // Don't throw - logout should succeed even if revocation fails
     }
   }
 
-  // User Management
   async findAllUsers() {
-    try {
-      return await this.prisma.user.findMany();
-    } catch (error) {
-      this.logger.error('Failed to fetch all users', String(error).replace(/[\n\r]/g, ''));
-      throw new BadRequestException('Could not fetch users');
-    }
+    return this.prisma.user.findMany();
   }
 
   async findUserById(id: string) {
@@ -490,34 +387,14 @@ export class AuthService {
   }
 
   async getCurrentUser(id: string) {
-    return this.prisma.user.findUnique({ where: { id } });
-  }
-
-  async inviteUser(inviteDto: InviteUserDto) {
-    try {
-      const exists = await this.prisma.user.findUnique({ where: { email: inviteDto.email } });
-      if (exists) throw new BadRequestException('User already exists');
-
-      const user = await this.prisma.user.create({
-        data: {
-          email: inviteDto.email,
-          role: inviteDto.role as any,
-          name: inviteDto.email.split('@')[0],
-          status: 'Invited'
-        }
-      });
-      await this.syncOcpiTokenSafe(user);
-      return user;
-    } catch (error) {
-      if (error instanceof BadRequestException) throw error;
-      this.logger.error(`Failed to invite user: ${inviteDto.email}`, String(error).replace(/[\n\r]/g, ''));
-      throw new BadRequestException('Could not invite user');
-    }
+    return this.prisma.user.findUnique({
+      where: { id },
+      include: { organization: true }
+    });
   }
 
   async updateUser(id: string, updateDto: UpdateUserDto) {
     try {
-      const user = await this.findUserById(id);
       const updated = await this.prisma.user.update({
         where: { id },
         data: updateDto
@@ -525,7 +402,6 @@ export class AuthService {
       await this.syncOcpiTokenSafe(updated);
       return updated;
     } catch (error) {
-      if (error instanceof NotFoundException) throw error;
       this.logger.error(`Failed to update user ${id}`, String(error).replace(/[\n\r]/g, ''));
       throw new BadRequestException('Could not update user');
     }
@@ -534,10 +410,9 @@ export class AuthService {
   async deleteUser(id: string) {
     return this.prisma.user.delete({ where: { id } });
   }
+
   private constantTimeCompare(a: string, b: string): boolean {
-    if (a.length !== b.length) {
-      return false;
-    }
+    if (a.length !== b.length) return false;
     return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
   }
 
@@ -547,5 +422,23 @@ export class AuthService {
     } catch (error) {
       this.logger.warn('Failed to sync OCPI token for user', String(error).replace(/[\n\r]/g, ''));
     }
+  }
+
+  private normalizeScopes(input: unknown): string[] {
+    if (typeof input === 'string') {
+      return input.split(' ').map((v) => v.trim()).filter(Boolean);
+    }
+    if (Array.isArray(input)) {
+      return input.map((v) => String(v).trim()).filter(Boolean);
+    }
+    return [];
+  }
+
+  private verifyServiceSecret(secret: string, salt: string, expectedHash: string): boolean {
+    const hash = crypto.scryptSync(secret, salt, 64).toString('hex');
+    const expected = Buffer.from(expectedHash, 'hex');
+    const actual = Buffer.from(hash, 'hex');
+    if (expected.length !== actual.length) return false;
+    return crypto.timingSafeEqual(expected, actual);
   }
 }

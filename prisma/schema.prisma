@@ -35,7 +35,14 @@ model User {
   status          String                  @default("Pending")
   ownerCapability StationOwnerCapability? // Only for STATION_OWNER
 
+  // Registration & Onboarding Fields
+  country           String?
+  region            String?
+  subscribedPackage String? // Free, Starter, Growth, Pro, Enterprise
+  organizationId    String?
+
   // Relations
+  organization         Organization?       @relation(fields: [organizationId], references: [id])
   applications         TenantApplication[] @relation("Applications")
   reviewedApplications TenantApplication[] @relation("ReviewedApplications")
 
@@ -63,6 +70,32 @@ model User {
   updatedAt DateTime @updatedAt
 
   @@map("users")
+}
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  logoUrl     String?
+  type        String   @default("COMPANY") // COMPANY, INDIVIDUAL
+  
+  // Financials
+  paymentProvider String?  // MTN, AIRTEL, M-PESA
+  walletNumber    String?
+  taxId           String?
+  regId           String?
+  
+  // Address
+  address         String?
+  city            String?
+  
+  users       User[]
+  sites       Site[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("organizations")
 }
 
 model Station {
@@ -267,9 +300,11 @@ model Site {
   amenities       String      @default("[]") // JSON array
   tags            String      @default("[]") // JSON array
   ownerId         String
+  organizationId  String?
 
   // Relations
   owner              User                 @relation(fields: [ownerId], references: [id])
+  organization       Organization?        @relation(fields: [organizationId], references: [id])
   stations           Station[]
   tenants            Tenant[]
   leaseDetails       SiteLeaseDetails?
