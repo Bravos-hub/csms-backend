@@ -47,22 +47,45 @@ async function main() {
     });
     console.log('Site seeded');
 
-    // 3. Create Station (the one failing with 404 in frontend)
-    const stationId = '0b0817eb-fc2a-413c-94f7-c8826ad57967';
-    const station = await prisma.station.upsert({
-        where: { id: stationId },
-        update: {},
-        create: {
-            id: stationId,
-            name: 'Main Charging Station',
-            latitude: -1.286389,
-            longitude: 36.817223,
-            address: 'CBD Nairobi',
-            status: 'ACTIVE',
-            siteId: stationId
-        }
-    });
-    console.log('Station seeded');
+    // 3. Create Stations (diverse global locations for MapLibre testing)
+    const stationsData = [
+        { id: 'st-101', name: 'City Mall Roof', latitude: 0.3476, longitude: 32.5825, address: 'Plot 7 Jinja Rd', status: 'ACTIVE' },
+        { id: 'st-102', name: 'Tech Park A', latitude: 0.0630, longitude: 32.4631, address: 'Block 4', status: 'PAUSED' },
+        { id: 'st-103', name: 'Airport East', latitude: -1.2864, longitude: 36.8172, address: 'Terminal C', status: 'ACTIVE' },
+        { id: 'st-104', name: 'Central Hub', latitude: -6.7924, longitude: 39.2083, address: 'Industrial Area', status: 'ACTIVE' },
+        { id: 'st-105', name: 'Business Park', latitude: 52.5200, longitude: 13.4050, address: 'Building 5', status: 'MAINTENANCE' },
+        { id: 'st-106', name: 'Kampala North', latitude: 0.3800, longitude: 32.5600, address: 'Kawempe', status: 'ACTIVE' },
+        { id: 'st-107', name: 'Nairobi West', latitude: -1.2600, longitude: 36.8000, address: 'Westlands', status: 'OFFLINE' },
+        { id: 'st-108', name: 'Entebbe Pier', latitude: 0.0500, longitude: 32.4500, address: 'Lakeside', status: 'ACTIVE' },
+        { id: 'st-109', name: 'Berlin Hauptbahnhof', latitude: 52.5250, longitude: 13.3690, address: 'Europaplatz 1', status: 'ACTIVE' },
+        { id: 'st-110', name: 'Mombasa Port', latitude: -4.0435, longitude: 39.6682, address: 'Kilindini', status: 'ACTIVE' },
+        // Large cluster in Kampala
+        ...Array.from({ length: 15 }).map((_, i) => ({
+            id: `st-cluster-kampala-${i}`,
+            name: `Kampala CBD ${i + 1}`,
+            latitude: 0.31 + (Math.random() * 0.02 - 0.01),
+            longitude: 32.58 + (Math.random() * 0.02 - 0.01),
+            address: `CBD Street ${i + 1}`,
+            status: Math.random() > 0.8 ? 'OFFLINE' : 'ACTIVE'
+        }))
+    ];
+
+    for (const s of stationsData) {
+        await prisma.station.upsert({
+            where: { id: s.id },
+            update: {},
+            create: {
+                id: s.id,
+                name: s.name,
+                latitude: s.latitude,
+                longitude: s.longitude,
+                address: s.address,
+                status: s.status,
+                siteId: siteId // Link to main site
+            }
+        });
+    }
+    console.log(`${stationsData.length} stations seeded`);
 
     // 4. Create Site for the station (using the same ID the frontend is requesting)
     const frontendSiteId = '0b0817eb-fc2a-413c-94f7-c8826ad57967';

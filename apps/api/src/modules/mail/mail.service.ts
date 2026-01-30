@@ -75,14 +75,29 @@ export class MailService {
 
     async sendVerificationEmail(email: string, token: string) {
         const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'https://localhost:5173';
-        const link = `${frontendUrl}/auth/verify-email?token=${token}&email=${encodeURIComponent(email)}`;
+        const link = `${frontendUrl}/auth/verify-email?token=${token}`;
 
         const html = `
       <h1>Verify your email</h1>
       <p>Welcome to EV Zone! Please click the link below to verify your email address:</p>
-      <a href="${link}">Verify Email</a>
+      <a href="${link}" style="display: inline-block; padding: 10px 20px; background-color: #007bff; color: white; text-decoration: none; border-radius: 4px;">Verify Email</a>
+      <p>This link will expire in 24 hours.</p>
+      <p>If you did not request this verification, please ignore this email.</p>
     `;
 
         await this.sendMail(email, 'Verify your email', html);
+    }
+
+    async sendInvitationEmail(email: string) {
+        const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'https://localhost:5173';
+        const link = `${frontendUrl}/auth/register?email=${encodeURIComponent(email)}`;
+
+        const html = `
+      <h1>You've been invited!</h1>
+      <p>You have been invited to join the EV Zone portal. Please click the link below to complete your registration:</p>
+      <a href="${link}">Accept Invitation</a>
+    `;
+
+        await this.sendMail(email, 'Invitation to join EV Zone', html);
     }
 }

@@ -195,6 +195,36 @@ export class AuthController {
     }
     return this.authService.resetPassword(identifier, otp, pass);
   }
+
+  @Post('verify-email')
+  @ApiOperation({ summary: 'Verify email with token' })
+  @ApiBody({ schema: { properties: { token: { type: 'string' } } } })
+  @ApiResponse({
+    status: 200,
+    description: 'Email verified successfully',
+  })
+  @ApiResponse({ status: 400, description: 'Invalid or expired token' })
+  async verifyEmail(@Body() body: { token: string }) {
+    if (!body.token) {
+      throw new BadRequestException('Verification token is required');
+    }
+    return this.authService.verifyEmailToken(body.token);
+  }
+
+  @Post('resend-verification-email')
+  @ApiOperation({ summary: 'Resend verification email' })
+  @ApiBody({ schema: { properties: { email: { type: 'string' } } } })
+  @ApiResponse({
+    status: 200,
+    description: 'Verification email sent',
+  })
+  async resendVerificationEmail(@Body() body: { email: string }) {
+    if (!body.email) {
+      throw new BadRequestException('Email is required');
+    }
+    await this.authService.resendVerificationEmail(body.email);
+    return { success: true, message: 'Verification email sent' };
+  }
 }
 
 @Controller('users')

@@ -1,5 +1,6 @@
 import { Injectable, UnauthorizedException, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
+import { UserRole } from '@prisma/client';
 import { LoginDto, CreateUserDto, UpdateUserDto, InviteUserDto } from './dto/auth.dto';
 import { NotificationService } from '../notification/notification-service.service';
 import { MailService } from '../mail/mail.service';
@@ -73,7 +74,7 @@ export class AuthService {
     const exists = await this.prisma.user.findUnique({ where: { email: createUserDto.email } });
     if (exists) {
       if (exists.status === 'Pending') {
-        const verificationToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
+        const verificationToken = await this.generateEmailVerificationToken(exists.id);
         try {
           await this.mailService.sendVerificationEmail(createUserDto.email, verificationToken);
         } catch (error) {
@@ -90,7 +91,6 @@ export class AuthService {
       if (phoneExists) throw new BadRequestException('User with this phone number already exists');
     }
 
-    const verificationToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
 
     // Registration Transaction
@@ -131,6 +131,7 @@ export class AuthService {
     await this.syncOcpiTokenSafe(result.user);
 
     try {
+      const verificationToken = await this.generateEmailVerificationToken(result.user.id);
       await this.mailService.sendVerificationEmail(createUserDto.email, verificationToken);
     } catch (error) {
       this.logger.error('Failed to send verification email', String(error).replace(/[\n\r]/g, ''));
@@ -144,6 +145,69 @@ export class AuthService {
         email: result.user.email,
         organizationId: result.organization.id
       }
+    };
+  }
+
+  async inviteUser(inviteDto: InviteUserDto) {
+    const exists = await this.prisma.user.findUnique({ where: { email: inviteDto.email } });
+    if (exists) throw new BadRequestException('User already exists');
+
+    const user = await this.prisma.user.create({
+      data: {
+        email: inviteDto.email,
+        name: inviteDto.email.split('@')[0],
+        role: inviteDto.role as unknown as UserRole,
+        status: 'Invited',
+      },
+    });
+
+    try {
+      await this.mailService.sendInvitationEmail(inviteDto.email);
+    } catch (error) {
+      this.logger.error('Failed to send invitation email', String(error).replace(/[\n\r]/g, ''));
+    }
+
+    return { success: true, user };
+  }
+
+  async issueServiceToken(clientId: string, clientSecret: string, scope?: string) {
+    const serviceAccount = await this.prisma.serviceAccount.findUnique({
+      where: { clientId },
+    });
+
+    if (!serviceAccount || serviceAccount.status !== 'ACTIVE') {
+      throw new UnauthorizedException('Invalid or inactive service account');
+    }
+
+    const isValid = this.verifyServiceSecret(
+      clientSecret,
+      serviceAccount.secretSalt,
+      serviceAccount.secretHash,
+    );
+
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid service credentials');
+    }
+
+    const requestedScopes = this.normalizeScopes(scope);
+    const allowedScopes = this.normalizeScopes(serviceAccount.scopes);
+
+    const payload = {
+      sub: serviceAccount.id,
+      clientId: serviceAccount.clientId,
+      scopes: requestedScopes.length > 0 ? requestedScopes : allowedScopes,
+      type: 'SERVICE',
+    };
+
+    const token = jwt.sign(payload, this.config.get<string>('JWT_SERVICE_SECRET') || 'dev_secret', {
+      expiresIn: (this.config.get('JWT_SERVICE_EXPIRY') as SignOptions['expiresIn']) || '1y',
+      issuer: this.config.get('JWT_SERVICE_ISSUER'),
+      audience: this.config.get('JWT_SERVICE_AUDIENCE'),
+    });
+
+    return {
+      accessToken: token,
+      expiresIn: this.config.get('JWT_SERVICE_EXPIRY') || '1y',
     };
   }
 
@@ -441,4 +505,87 @@ export class AuthService {
     if (expected.length !== actual.length) return false;
     return crypto.timingSafeEqual(expected, actual);
   }
-}
+
+  /**
+   * Generate an email verification token
+   */
+  async generateEmailVerificationToken(userId: string, expiresIn: number = 86400000): Promise<string> {
+    const token = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + expiresIn); // 24 hours by default
+
+    await this.prisma.emailVerificationToken.create({
+      data: {
+        token,
+        userId,
+        expiresAt,
+      },
+    });
+
+    this.logger.log(`Generated email verification token for user ${userId}`);
+    return token;
+  }
+
+  /**
+   * Verify an email verification token
+   */
+  async verifyEmailToken(token: string): Promise<{ userId: string; email: string }> {
+    const verificationToken = await this.prisma.emailVerificationToken.findUnique({
+      where: { token },
+      include: { user: true },
+    });
+
+    if (!verificationToken) {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    // Check if token has expired
+    if (verificationToken.expiresAt < new Date()) {
+      await this.prisma.emailVerificationToken.delete({ where: { id: verificationToken.id } });
+      throw new BadRequestException('Verification token has expired');
+    }
+
+    // Mark email as verified
+    const user = await this.prisma.user.update({
+      where: { id: verificationToken.userId },
+      data: { emailVerifiedAt: new Date() },
+    });
+
+    // Delete the used token
+    await this.prisma.emailVerificationToken.delete({
+      where: { id: verificationToken.id },
+    });
+
+    this.logger.log(`Email verified for user ${user.id}`);
+    return { userId: user.id, email: user.email || '' };
+  }
+
+  /**
+   * Resend verification email
+   */
+  async resendVerificationEmail(email: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.emailVerifiedAt) {
+      throw new BadRequestException('Email is already verified');
+    }
+
+    // Delete any existing tokens for this user
+    await this.prisma.emailVerificationToken.deleteMany({
+      where: { userId: user.id },
+    });
+
+    // Generate new token
+    const token = await this.generateEmailVerificationToken(user.id);
+
+    // Send email
+    try {
+      await this.mailService.sendVerificationEmail(email, token);
+    } catch (error) {
+      this.logger.error(`Failed to send verification email to ${email}`, String(error).replace(/[\n\r]/g, ''));
+      throw new Error('Failed to send verification email');
+    }
+  }}

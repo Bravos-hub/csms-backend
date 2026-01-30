@@ -8,9 +8,18 @@ datasource db {
 
 enum UserRole {
   SUPER_ADMIN
+  EVZONE_ADMIN
+  EVZONE_OPERATOR
   SITE_OWNER
   STATION_OWNER
+  OWNER
   STATION_OPERATOR
+  STATION_ADMIN
+  MANAGER
+  ATTENDANT
+  CASHIER
+  TECHNICIAN_ORG
+  TECHNICIAN_PUBLIC
   DRIVER
 }
 
@@ -49,6 +58,10 @@ model User {
   // OTP
   otpCode      String?
   otpExpiresAt DateTime?
+
+  // Email Verification
+  emailVerifiedAt         DateTime?
+  emailVerificationTokens EmailVerificationToken[]
 
   // Relations
   wallet           Wallet?
@@ -792,6 +805,20 @@ model OcpiPartnerCdr {
   @@map("ocpi_partner_cdrs")
   @@unique([countryCode, partyId, cdrId, version])
   @@index([partyId, countryCode])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@map("email_verification_tokens")
+  @@index([token])
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model RefreshToken {
