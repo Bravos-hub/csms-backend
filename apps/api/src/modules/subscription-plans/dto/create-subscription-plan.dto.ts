@@ -5,12 +5,16 @@ import { ApiProperty } from '@nestjs/swagger';
 export class CreatePlanFeatureDto {
     @ApiProperty()
     @IsString()
-    name: string;
+    featureKey: string;
+
+    @ApiProperty()
+    @IsString()
+    featureValue: string;
 
     @ApiProperty({ required: false })
     @IsOptional()
     @IsString()
-    category?: string;
+    description?: string;
 
     @ApiProperty({ required: false })
     @IsOptional()
@@ -30,12 +34,7 @@ export class CreatePlanPermissionDto {
     @ApiProperty({ required: false })
     @IsOptional()
     @IsString()
-    scope?: string;
-
-    @ApiProperty({ required: false })
-    @IsOptional()
-    @IsNumber()
-    limit?: number;
+    description?: string;
 }
 
 export class CreateSubscriptionPlanDto {

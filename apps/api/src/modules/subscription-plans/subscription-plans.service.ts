@@ -8,7 +8,7 @@ import { UserRole } from '@prisma/client';
 export class SubscriptionPlansService {
     constructor(private readonly prisma: PrismaService) { }
 
-    async findAll(filters?: { role?: UserRole; isActive?: boolean; isPublic?: boolean }) {
+    async findAll(filters?: { role?: any; isActive?: boolean; isPublic?: boolean }) {
         return this.prisma.subscriptionPlan.findMany({
             where: {
                 ...(filters?.role && { role: filters.role }),
@@ -16,9 +16,7 @@ export class SubscriptionPlansService {
                 ...(filters?.isPublic !== undefined && { isPublic: filters.isPublic }),
             },
             include: {
-                features: {
-                    orderBy: { order: 'asc' },
-                },
+                features: true,
                 permissions: true,
             },
             orderBy: [
@@ -112,7 +110,7 @@ export class SubscriptionPlansService {
             where: { id },
             data: {
                 ...planData,
-                ...(planData.role && { role: planData.role as UserRole }),
+                ...(planData.role && { role: planData.role as any }),
                 ...(features && {
                     features: {
                         deleteMany: {},

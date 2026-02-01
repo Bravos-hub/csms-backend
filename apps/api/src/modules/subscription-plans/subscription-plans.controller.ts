@@ -32,7 +32,7 @@ export class SubscriptionPlansController {
         @Query('isPublic') isPublic?: string,
     ) {
         return this.plansService.findAll({
-            role,
+            role: role as any,
             isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
             isPublic: isPublic === 'true' ? true : isPublic === 'false' ? false : undefined,
         });

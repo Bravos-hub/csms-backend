@@ -111,6 +111,60 @@ model Organization {
   @@map("organizations")
 }
 
+model SubscriptionPlan {
+  id          String   @id @default(uuid())
+  name        String
+  code        String   @unique
+  description String?
+  role        UserRole
+  price       Float    @default(0)
+  currency    String   @default("USD")
+  billingCycle String  @default("MONTHLY") // MONTHLY, YEARLY
+  isActive    Boolean  @default(true)
+  isPublic    Boolean  @default(true)
+  isPopular   Boolean  @default(false)
+  
+  // Relations
+  features    PlanFeature[]
+  permissions PlanPermission[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("subscription_plans")
+}
+
+model PlanFeature {
+  id          String   @id @default(uuid())
+  planId      String
+  featureKey  String
+  featureValue String
+  description String?
+  order       Int      @default(0)
+  
+  plan        SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("plan_features")
+}
+
+model PlanPermission {
+  id          String   @id @default(uuid())
+  planId      String
+  resource    String
+  action      String
+  description String?
+  
+  plan        SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("plan_permissions")
+}
+
 model Station {
   id        String  @id @default(uuid())
   name      String

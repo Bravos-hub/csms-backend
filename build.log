@@ -1,0 +1,38 @@
+﻿
+> evzone-backend@0.0.1 build
+> nest build
+
+[1m[31mERROR[39m[22m in [1m./apps/api/src/modules/subscription-plans/subscription-plans.service.ts:81:17[39m[22m
+TS2322: Type '{ create: CreatePlanFeatureDto[]; }' is not assignable to type 'PlanFeatureUncheckedCreateNestedManyWithoutPlanInput | PlanFeatureCreateNestedManyWithoutPlanInput | undefined'.
+  Types of property 'create' are incompatible.
+    Type 'CreatePlanFeatureDto[]' is not assignable to type '(Without<PlanFeatureCreateWithoutPlanInput, PlanFeatureUncheckedCreateWithoutPlanInput> & PlanFeatureUncheckedCreateWithoutPlanInput) | (Without<...> & PlanFeatureCreateWithoutPlanInput) | PlanFeatureCreateWithoutPlanInput[] | PlanFeatureUncheckedCreateWithoutPlanInput[] | undefined'.
+      Type 'CreatePlanFeatureDto[]' is not assignable to type 'PlanFeatureCreateWithoutPlanInput[]'.
+        Type 'CreatePlanFeatureDto' is missing the following properties from type 'PlanFeatureCreateWithoutPlanInput': featureKey, featureValue
+  [0m [90m 79 |[39m                 [33m...[39mplanData[33m,[39m
+   [90m 80 |[39m                 role[33m:[39m planData[33m.[39mrole [36mas[39m [33mUserRole[39m[33m,[39m
+  [31m[1m>[22m[39m[90m 81 |[39m                 features[33m:[39m features
+   [90m    |[39m                 [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+   [90m 82 |[39m                     [33m?[39m {
+   [90m 83 |[39m                         create[33m:[39m features[33m,[39m
+   [90m 84 |[39m                     }[0m
+
+[1m[31mERROR[39m[22m in [1m./apps/api/src/modules/subscription-plans/subscription-plans.service.ts:111:13[39m[22m
+TS2322: Type '{ permissions?: { deleteMany: {}; create: CreatePlanPermissionDto[]; } | undefined; features?: { deleteMany: {}; create: CreatePlanFeatureDto[]; } | undefined; ... 10 more ...; limits?: any; }' is not assignable to type '(Without<SubscriptionPlanUpdateInput, SubscriptionPlanUncheckedUpdateInput> & SubscriptionPlanUncheckedUpdateInput) | (Without<...> & SubscriptionPlanUpdateInput)'.
+  Type '{ permissions?: { deleteMany: {}; create: CreatePlanPermissionDto[]; } | undefined; features?: { deleteMany: {}; create: CreatePlanFeatureDto[]; } | undefined; ... 10 more ...; limits?: any; }' is not assignable to type 'Without<SubscriptionPlanUncheckedUpdateInput, SubscriptionPlanUpdateInput> & SubscriptionPlanUpdateInput'.
+    Type '{ permissions?: { deleteMany: {}; create: CreatePlanPermissionDto[]; } | undefined; features?: { deleteMany: {}; create: CreatePlanFeatureDto[]; } | undefined; ... 10 more ...; limits?: any; }' is not assignable to type 'SubscriptionPlanUpdateInput'.
+      Types of property 'features' are incompatible.
+        Type '{ deleteMany: {}; create: CreatePlanFeatureDto[]; } | undefined' is not assignable to type 'PlanFeatureUpdateManyWithoutPlanNestedInput | undefined'.
+          Type '{ deleteMany: {}; create: CreatePlanFeatureDto[]; }' is not assignable to type 'PlanFeatureUpdateManyWithoutPlanNestedInput'.
+            Types of property 'create' are incompatible.
+              Type 'CreatePlanFeatureDto[]' is not assignable to type '(Without<PlanFeatureCreateWithoutPlanInput, PlanFeatureUncheckedCreateWithoutPlanInput> & PlanFeatureUncheckedCreateWithoutPlanInput) | (Without<...> & PlanFeatureCreateWithoutPlanInput) | PlanFeatureCreateWithoutPlanInput[] | PlanFeatureUncheckedCreateWithoutPlanInput[] | undefined'.
+                Type 'CreatePlanFeatureDto[]' is not assignable to type 'PlanFeatureCreateWithoutPlanInput[]'.
+                  Type 'CreatePlanFeatureDto' is missing the following properties from type 'PlanFeatureCreateWithoutPlanInput': featureKey, featureValue
+  [0m [90m 109 |[39m         [36mreturn[39m [36mthis[39m[33m.[39mprisma[33m.[39msubscriptionPlan[33m.[39mupdate({
+   [90m 110 |[39m             where[33m:[39m { id }[33m,[39m
+  [31m[1m>[22m[39m[90m 111 |[39m             data[33m:[39m {
+   [90m     |[39m             [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+   [90m 112 |[39m                 [33m...[39mplanData[33m,[39m
+   [90m 113 |[39m                 [33m...[39m(planData[33m.[39mrole [33m&&[39m { role[33m:[39m planData[33m.[39mrole [36mas[39m any })[33m,[39m
+   [90m 114 |[39m                 [33m...[39m(features [33m&&[39m {[0m
+
+webpack 5.104.1 compiled with [1m[31m2 errors[39m[22m in 13592 ms
