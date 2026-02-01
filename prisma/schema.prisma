@@ -79,6 +79,9 @@ model User {
   proposedNegotiations  NegotiationRound[] @relation("ProposedNegotiations")
   respondedNegotiations NegotiationRound[] @relation("RespondedNegotiations")
 
+  // Technician Status
+  technicianStatus TechnicianAvailability?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -807,6 +810,34 @@ model OcpiPartnerToken {
   @@map("ocpi_partner_tokens")
   @@unique([countryCode, partyId, tokenUid, tokenType, version])
   @@index([partyId, countryCode])
+}
+
+model FeatureFlag {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  description String?
+  isEnabled   Boolean  @default(false)
+  rules       Json?    // For targeting specific users/regions
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("feature_flags")
+}
+
+model TechnicianAvailability {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  status    String   // 'active', 'break', 'offline', 'busy'
+  location  String?  // Current assignment or geocoords
+  lastPulse DateTime @default(now())
+  
+  user      User     @relation(fields: [userId], references: [id])
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("technician_availability")
 }
 
 model OcpiToken {

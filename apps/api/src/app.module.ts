@@ -39,6 +39,8 @@ import { OcpiInternalModule } from './modules/ocpi-internal/ocpi-internal.module
 import { SubscriptionPlansModule } from './modules/subscription-plans/subscription-plans.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
+import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
+import { TechniciansModule } from './technicians/technicians.module';
 
 @Module({
   imports: [
@@ -80,6 +82,8 @@ import { ApprovalsModule } from './modules/approvals/approvals.module';
     SubscriptionPlansModule,
     AuditLogsModule,
     ApprovalsModule,
+    FeatureFlagsModule,
+    TechniciansModule,
   ],
   controllers: [AppController],
   providers: [AppService],
