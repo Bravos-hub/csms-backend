@@ -855,3 +855,25 @@ model ServiceAccount {
   @@map("service_accounts")
   @@index([status])
 }
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  timestamp    DateTime @default(now())
+  actor        String   // User ID or system identifier
+  actorName    String?  @map("actor_name") // Cached name for display
+  action       String   // CREATE, UPDATE, DELETE, LOGIN, etc.
+  resource     String   // Resource type (User, Station, Plan, etc.)
+  resourceId   String?  @map("resource_id") // ID of affected resource
+  details      Json?    // Additional context
+  ipAddress    String?  @map("ip_address")
+  userAgent    String?  @map("user_agent")
+  status       String   @default("SUCCESS") // SUCCESS, FAILURE
+  errorMessage String?  @map("error_message")
+
+  @@map("audit_logs")
+  @@index([actor])
+  @@index([timestamp])
+  @@index([resource])
+  @@index([action])
+  @@index([status])
+}

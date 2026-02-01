@@ -36,6 +36,9 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { WithdrawalsModule } from './modules/withdrawals/withdrawals.module';
 import { SseModule } from './modules/sse/sse.module'; // Imported SSE
 import { OcpiInternalModule } from './modules/ocpi-internal/ocpi-internal.module';
+import { SubscriptionPlansModule } from './modules/subscription-plans/subscription-plans.module';
+import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
+import { ApprovalsModule } from './modules/approvals/approvals.module';
 
 @Module({
   imports: [
@@ -74,6 +77,9 @@ import { OcpiInternalModule } from './modules/ocpi-internal/ocpi-internal.module
     WithdrawalsModule,
     SseModule,
     OcpiInternalModule,
+    SubscriptionPlansModule,
+    AuditLogsModule,
+    ApprovalsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

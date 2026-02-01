@@ -1,11 +1,56 @@
 import { PrismaClient, SitePurpose, LeaseType, Footfall } from '@prisma/client';
+import * as dotenv from 'dotenv';
+import * as bcrypt from 'bcrypt';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
+import { URL } from 'url';
 
-const prisma = new PrismaClient();
+// Load environment variables
+dotenv.config();
+
+// Debug: Check if DATABASE_URL is loaded
+console.log('DATABASE_URL loaded:', !!process.env.DATABASE_URL);
+
+let prisma: PrismaClient;
 
 async function main() {
+    // Initialize Prisma client with pg adapter (same as PrismaService)
+    const connectionString = process.env.DATABASE_URL;
+
+    if (!connectionString) {
+        throw new Error('DATABASE_URL environment variable is not set');
+    }
+
+    // Remove sslmode param to avoid overriding the explicit ssl config
+    const urlObj = new URL(connectionString);
+    urlObj.searchParams.delete('sslmode');
+
+    const pool = new Pool({
+        connectionString: urlObj.toString(),
+        ssl: { rejectUnauthorized: false }
+    });
+    const adapter = new PrismaPg(pool);
+    prisma = new PrismaClient({ adapter });
+
     console.log('Seeding database...');
 
-    // 1. Create Mock User
+    // 1. Create Super Admin User
+    const superAdminPassword = await bcrypt.hash('Password123.', 10);
+    const superAdmin = await prisma.user.upsert({
+        where: { email: 'delta@evzone.app' },
+        update: {},
+        create: {
+            name: 'Delta Admin',
+            email: 'delta@evzone.app',
+            role: 'SUPER_ADMIN',
+            status: 'Active',
+            passwordHash: superAdminPassword,
+            emailVerifiedAt: new Date()
+        }
+    });
+    console.log('Super admin user seeded:', superAdmin.email);
+
+    // 2. Create Mock User
     const mockUserId = 'mock-id';
     const mockUser = await prisma.user.upsert({
         where: { id: mockUserId },
@@ -187,7 +232,9 @@ async function main() {
             sustainabilityCommitments: 'All energy will be sourced from renewable sources',
             additionalServices: JSON.stringify(['EV Maintenance', 'Retail']),
             estimatedStartDate: '2026-03-01',
-            status: 'Pending',
+            status: 'PENDING_REVIEW',
+
+
             message: 'We are excited to partner with you to expand EV infrastructure'
         }
     });
@@ -212,13 +259,326 @@ async function main() {
             proposedRent: 1500,
             proposedTerm: 36,
             numberOfChargingPoints: 12,
-            status: 'Approved',
+            status: 'APPROVED',
+
             responseMessage: 'We are pleased to approve your application. Please review the proposed terms.',
             respondedAt: new Date('2026-01-15')
         }
     });
 
     console.log('Sample tenant applications seeded');
+
+    // 6. Seed Subscription Plans
+    console.log('Seeding subscription plans...');
+
+    // Station Owner Plans
+    const ownerStarter = await prisma.subscriptionPlan.upsert({
+        where: { code: 'owner-starter' },
+        update: {},
+        create: {
+            code: 'owner-starter',
+            name: 'Starter',
+            description: 'Perfect for getting started with your first charging station',
+            role: 'STATION_OWNER',
+            price: 0,
+            currency: 'UGX',
+            billingCycle: 'MONTHLY',
+            isActive: true,
+            isPublic: true,
+            isPopular: false,
+            limits: { maxStations: 5, maxChargers: 25, maxUsers: 3 },
+            features: {
+                create: [
+                    { name: 'Up to 5 chargers', category: 'CAPACITY', order: 1 },
+                    { name: 'Basic reporting', category: 'ANALYTICS', order: 2 },
+                    { name: 'Email support', category: 'SUPPORT', order: 3 },
+                ]
+            },
+            permissions: {
+                create: [
+                    { resource: 'stations', action: 'read', scope: 'own', limit: 5 },
+                    { resource: 'stations', action: 'create', scope: 'own', limit: 5 },
+                    { resource: 'analytics', action: 'read', scope: 'basic' },
+                    { resource: 'billing', action: 'read', scope: 'own' },
+                ]
+            }
+        }
+    });
+
+    const ownerGrowth = await prisma.subscriptionPlan.upsert({
+        where: { code: 'owner-growth' },
+        update: {},
+        create: {
+            code: 'owner-growth',
+            name: 'Growth',
+            description: 'Scale your charging network with advanced features',
+            role: 'STATION_OWNER',
+            price: 49000,
+            currency: 'UGX',
+            billingCycle: 'MONTHLY',
+            isActive: true,
+            isPublic: true,
+            isPopular: true,
+            limits: { maxStations: 25, maxChargers: 100, maxUsers: 10 },
+            features: {
+                create: [
+                    { name: 'Up to 25 chargers', category: 'CAPACITY', order: 1 },
+                    { name: 'Smart charging', category: 'FEATURES', order: 2 },
+                    { name: 'Priority support', category: 'SUPPORT', order: 3 },
+                    { name: 'Advanced analytics', category: 'ANALYTICS', order: 4 },
+                ]
+            },
+            permissions: {
+                create: [
+                    { resource: 'stations', action: 'read', scope: 'own', limit: 25 },
+                    { resource: 'stations', action: 'create', scope: 'own', limit: 25 },
+                    { resource: 'stations', action: 'update', scope: 'own' },
+                    { resource: 'analytics', action: 'read', scope: 'advanced' },
+                    { resource: 'billing', action: 'read', scope: 'own' },
+                    { resource: 'billing', action: 'update', scope: 'own' },
+                    { resource: 'tou', action: 'manage', scope: 'own' },
+                ]
+            }
+        }
+    });
+
+    const ownerEnterprise = await prisma.subscriptionPlan.upsert({
+        where: { code: 'owner-enterprise' },
+        update: {},
+        create: {
+            code: 'owner-enterprise',
+            name: 'Enterprise',
+            description: 'Unlimited scale with dedicated support',
+            role: 'STATION_OWNER',
+            price: 0, // Custom pricing
+            currency: 'UGX',
+            billingCycle: 'MONTHLY',
+            isActive: true,
+            isPublic: true,
+            isPopular: false,
+            limits: { maxStations: -1, maxChargers: -1, maxUsers: -1 }, // -1 = unlimited
+            features: {
+                create: [
+                    { name: 'Unlimited chargers', category: 'CAPACITY', order: 1 },
+                    { name: 'SLA guarantees', category: 'SUPPORT', order: 2 },
+                    { name: 'Dedicated account manager', category: 'SUPPORT', order: 3 },
+                    { name: 'OCPI Roaming', category: 'FEATURES', order: 4 },
+                    { name: 'Custom integrations', category: 'FEATURES', order: 5 },
+                ]
+            },
+            permissions: {
+                create: [
+                    { resource: 'stations', action: 'read', scope: 'own' },
+                    { resource: 'stations', action: 'create', scope: 'own' },
+                    { resource: 'stations', action: 'update', scope: 'own' },
+                    { resource: 'stations', action: 'delete', scope: 'own' },
+                    { resource: 'analytics', action: 'read', scope: 'all' },
+                    { resource: 'billing', action: 'manage', scope: 'own' },
+                    { resource: 'roaming', action: 'manage', scope: 'own' },
+                    { resource: 'settlement', action: 'manage', scope: 'own' },
+                    { resource: 'api', action: 'access', scope: 'own' },
+                ]
+            }
+        }
+    });
+
+    // Operator Plans
+    const operatorBasic = await prisma.subscriptionPlan.upsert({
+        where: { code: 'op-basic' },
+        update: {},
+        create: {
+            code: 'op-basic',
+            name: 'Basic',
+            description: 'Essential tools for station operations',
+            role: 'STATION_OPERATOR',
+            price: 0,
+            currency: 'UGX',
+            billingCycle: 'MONTHLY',
+            isActive: true,
+            isPublic: true,
+            limits: { maxStations: 3, maxUsers: 5 },
+            features: {
+                create: [
+                    { name: 'Up to 3 stations', category: 'CAPACITY', order: 1 },
+                    { name: 'Basic dashboard', category: 'FEATURES', order: 2 },
+                    { name: 'Email support', category: 'SUPPORT', order: 3 },
+                ]
+            },
+            permissions: {
+                create: [
+                    { resource: 'stations', action: 'read', scope: 'assigned', limit: 3 },
+                    { resource: 'sessions', action: 'read', scope: 'assigned' },
+                    { resource: 'incidents', action: 'create', scope: 'assigned' },
+                ]
+            }
+        }
+    });
+
+    const operatorPlus = await prisma.subscriptionPlan.upsert({
+        where: { code: 'op-plus' },
+        update: {},
+        create: {
+            code: 'op-plus',
+            name: 'Plus',
+            description: 'Advanced operations management',
+            role: 'STATION_OPERATOR',
+            price: 29000,
+            currency: 'UGX',
+            billingCycle: 'MONTHLY',
+            isActive: true,
+            isPublic: true,
+            isPopular: true,
+            limits: { maxStations: -1, maxUsers: 20 },
+            features: {
+                create: [
+                    { name: 'Unlimited stations', category: 'CAPACITY', order: 1 },
+                    { name: 'Team management', category: 'FEATURES', order: 2 },
+                    { name: 'Advanced analytics', category: 'ANALYTICS', order: 3 },
+                    { name: 'Priority support', category: 'SUPPORT', order: 4 },
+                ]
+            },
+            permissions: {
+                create: [
+                    { resource: 'stations', action: 'read', scope: 'assigned' },
+                    { resource: 'stations', action: 'update', scope: 'assigned' },
+                    { resource: 'sessions', action: 'read', scope: 'assigned' },
+                    { resource: 'incidents', action: 'manage', scope: 'assigned' },
+                    { resource: 'analytics', action: 'read', scope: 'advanced' },
+                    { resource: 'team', action: 'manage', scope: 'own' },
+                ]
+            }
+        }
+    });
+
+    // Technician Plans
+    const techFree = await prisma.subscriptionPlan.upsert({
+        where: { code: 'tech-free' },
+        update: {},
+        create: {
+            code: 'tech-free',
+            name: 'Freelance',
+            description: 'Access the public marketplace',
+            role: 'TECHNICIAN_ORG',
+            price: 0,
+            currency: 'UGX',
+            billingCycle: 'MONTHLY',
+            isActive: true,
+            isPublic: true,
+            features: {
+                create: [
+                    { name: 'Public marketplace', category: 'FEATURES', order: 1 },
+                    { name: 'Job notifications', category: 'FEATURES', order: 2 },
+                ]
+            },
+            permissions: {
+                create: [
+                    { resource: 'jobs', action: 'read', scope: 'public' },
+                    { resource: 'jobs', action: 'apply', scope: 'public' },
+                ]
+            }
+        }
+    });
+
+    const techPro = await prisma.subscriptionPlan.upsert({
+        where: { code: 'tech-pro' },
+        update: {},
+        create: {
+            code: 'tech-pro',
+            name: 'Pro',
+            description: 'Priority job matching and certification showcase',
+            role: 'TECHNICIAN_ORG',
+            price: 19000,
+            currency: 'UGX',
+            billingCycle: 'MONTHLY',
+            isActive: true,
+            isPublic: true,
+            isPopular: true,
+            features: {
+                create: [
+                    { name: 'Priority job matching', category: 'FEATURES', order: 1 },
+                    { name: 'Certification showcase', category: 'FEATURES', order: 2 },
+                    { name: 'Analytics dashboard', category: 'ANALYTICS', order: 3 },
+                ]
+            },
+            permissions: {
+                create: [
+                    { resource: 'jobs', action: 'read', scope: 'all' },
+                    { resource: 'jobs', action: 'apply', scope: 'priority' },
+                    { resource: 'certifications', action: 'manage', scope: 'own' },
+                    { resource: 'analytics', action: 'read', scope: 'own' },
+                ]
+            }
+        }
+    });
+
+    // Site Owner Plans
+    const siteBasic = await prisma.subscriptionPlan.upsert({
+        where: { code: 'so-basic' },
+        update: {},
+        create: {
+            code: 'so-basic',
+            name: 'Basic',
+            description: 'List your sites for charging stations',
+            role: 'SITE_OWNER',
+            price: 0,
+            currency: 'UGX',
+            billingCycle: 'MONTHLY',
+            isActive: true,
+            isPublic: true,
+            limits: { maxSites: 3 },
+            features: {
+                create: [
+                    { name: 'List up to 3 sites', category: 'CAPACITY', order: 1 },
+                    { name: 'Standard listing', category: 'FEATURES', order: 2 },
+                ]
+            },
+            permissions: {
+                create: [
+                    { resource: 'sites', action: 'read', scope: 'own', limit: 3 },
+                    { resource: 'sites', action: 'create', scope: 'own', limit: 3 },
+                    { resource: 'applications', action: 'read', scope: 'own' },
+                ]
+            }
+        }
+    });
+
+    const sitePro = await prisma.subscriptionPlan.upsert({
+        where: { code: 'so-pro' },
+        update: {},
+        create: {
+            code: 'so-pro',
+            name: 'Pro',
+            description: 'Maximize your site revenue potential',
+            role: 'SITE_OWNER',
+            price: 39000,
+            currency: 'UGX',
+            billingCycle: 'MONTHLY',
+            isActive: true,
+            isPublic: true,
+            isPopular: true,
+            limits: { maxSites: -1 },
+            features: {
+                create: [
+                    { name: 'Unlimited sites', category: 'CAPACITY', order: 1 },
+                    { name: 'Featured listings', category: 'FEATURES', order: 2 },
+                    { name: 'Revenue analytics', category: 'ANALYTICS', order: 3 },
+                    { name: 'Priority support', category: 'SUPPORT', order: 4 },
+                ]
+            },
+            permissions: {
+                create: [
+                    { resource: 'sites', action: 'read', scope: 'own' },
+                    { resource: 'sites', action: 'create', scope: 'own' },
+                    { resource: 'sites', action: 'update', scope: 'own' },
+                    { resource: 'applications', action: 'manage', scope: 'own' },
+                    { resource: 'analytics', action: 'read', scope: 'own' },
+                    { resource: 'featured', action: 'access', scope: 'own' },
+                ]
+            }
+        }
+    });
+
+    console.log('Subscription plans seeded');
 
     console.log('Seeding complete!');
 
