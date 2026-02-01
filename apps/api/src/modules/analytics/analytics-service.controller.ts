@@ -24,4 +24,14 @@ export class AnalyticsController {
   getRealtime() {
     return this.analyticsService.getRealtime();
   }
+
+  @Get('regions')
+  getRegionalMetrics() {
+    return this.analyticsService.getRegionalMetrics();
+  }
+
+  @Get('system-health')
+  getSystemHealth() {
+    return this.analyticsService.getSystemHealth();
+  }
 }

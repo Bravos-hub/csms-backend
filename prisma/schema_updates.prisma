@@ -1,0 +1,22 @@
+
+model ApprovalRequest {
+  id          String   @id @default(uuid())
+  type        String   @map("approval_type") // KYC, ACCESS_REQUEST, TENANT_APPLICATION
+  status      String   @default("PENDING")
+  applicantId String   @map("applicant_id")
+  resourceId  String?  @map("resource_id")
+  data        Json?
+  
+  submittedAt DateTime @default(now()) @map("submitted_at")
+  reviewedAt  DateTime? @map("reviewed_at")
+  reviewedBy  String?   @map("reviewed_by")
+  reviewNotes String?   @map("review_notes")
+  
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt      @map("updated_at")
+
+  @@map("approval_requests")
+  @@index([status])
+  @@index([type])
+  @@index([applicantId])
+}

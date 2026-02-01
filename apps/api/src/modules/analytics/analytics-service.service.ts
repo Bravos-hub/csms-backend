@@ -38,4 +38,27 @@ export class AnalyticsService {
       activeSessions: 12
     };
   }
+
+  getRegionalMetrics() {
+    return [
+      { region: 'North America', stations: 120, sessions: 4500, revenue: 125000, status: 'Healthy', uptime: 99.9, incidents: 0 },
+      { region: 'Europe', stations: 85, sessions: 3200, revenue: 98000, status: 'Healthy', uptime: 99.5, incidents: 1 },
+      { region: 'Asia Pacific', stations: 45, sessions: 1800, revenue: 45000, status: 'Warning', uptime: 98.2, incidents: 3 },
+      { region: 'Middle East', stations: 30, sessions: 1200, revenue: 28000, status: 'Healthy', uptime: 99.8, incidents: 0 },
+    ];
+  }
+
+  getSystemHealth() {
+    return {
+      status: 'Operational',
+      uptime: 99.98,
+      services: [
+        { name: 'Database', status: 'Operational', latency: 24, errors: 0.01 },
+        { name: 'Redis Cache', status: 'Operational', latency: 5, errors: 0 },
+        { name: 'OCPP Gateway', status: 'Operational', latency: 45, errors: 0.05 },
+        { name: 'Payment Gateway', status: 'Operational', latency: 120, errors: 0.1 },
+      ],
+      lastIncident: null
+    };
+  }
 }
