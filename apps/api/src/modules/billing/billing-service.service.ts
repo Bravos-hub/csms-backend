@@ -84,4 +84,28 @@ export class BillingService {
     // Schema update is painful (migration). I'll return mock for now as it's less critical.
     return [{ id: 'mock-tariff', name: 'Standard', rate: 0.50 }];
   }
+  // Admin - All Payments
+  async getAllPayments(query: any) {
+    const where: any = {};
+    // Apply filters from query (type, status, date, site, etc.)
+    // For now, return all transactions mapped
+    const transactions = await this.prisma.transaction.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: { wallet: { include: { user: true } } }
+    });
+
+    return transactions.map(t => ({
+      ref: t.reference || t.id,
+      type: t.type === 'CREDIT' ? 'TopUp' : 'Fee', // partial mapping
+      site: 'Unknown', // No site relation on transaction yet
+      method: 'Wallet',
+      amount: t.amount,
+      fee: 0,
+      net: t.amount,
+      date: t.createdAt,
+      status: 'Settled', // specific status field missing on Transaction
+      user: t.wallet?.user?.name
+    }));
+  }
 }

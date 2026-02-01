@@ -1,7 +1,15 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common'
+import { UsersService } from './users.service'
 
 @Controller('users')
 export class UsersController {
+  constructor(private readonly usersService: UsersService) { }
+
+  @Get('crm-stats')
+  async getCrmStats() {
+    return this.usersService.getCrmStats();
+  }
+
   @Get('me')
   getMe() {
     return { id: 'me' }
@@ -13,8 +21,8 @@ export class UsersController {
   }
 
   @Get()
-  getAll() {
-    return []
+  getAll(@Query('q') search?: string, @Query('role') role?: any) {
+    return this.usersService.findAll({ search, role });
   }
 
   @Get(':id/vehicles')

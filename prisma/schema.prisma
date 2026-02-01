@@ -81,6 +81,7 @@ model User {
 
   // Technician Status
   technicianStatus TechnicianAvailability?
+  assignedJobs     Job[] @relation("TechnicianJobs")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -186,6 +187,7 @@ model Station {
   site         Site?         @relation(fields: [siteId], references: [id])
   chargePoints ChargePoint[]
   incidents    Incident[]
+  jobs         Job[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -983,4 +985,26 @@ model ApprovalRequest {
   @@index([status])
   @@index([type])
   @@index([applicantId])
+}
+
+model Job {
+  id          String   @id @default(uuid())
+  title       String
+  stationId   String
+  priority    String   @default("Normal") // Urgent, High, Normal, Low
+  status      String   @default("AVAILABLE") // AVAILABLE, ACCEPTED, IN_PROGRESS, COMPLETED, CANCELLED
+  pay         Float    @default(0)
+  description String?
+  technicianId String?
+
+  station     Station  @relation(fields: [stationId], references: [id])
+  technician  User?    @relation("TechnicianJobs", fields: [technicianId], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("jobs")
+  @@index([status])
+  @@index([technicianId])
+  @@index([priority])
 }

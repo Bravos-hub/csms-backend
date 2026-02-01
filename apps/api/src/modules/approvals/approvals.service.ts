@@ -42,7 +42,7 @@ export class ApprovalsService {
         const userIds = [...new Set(requests.map(r => r.applicantId))];
         const users = await this.prisma.user.findMany({
             where: { id: { in: userIds } },
-            select: { id: true, firstName: true, lastName: true, email: true },
+            select: { id: true, name: true, email: true },
         });
         const userMap = new Map(users.map(u => [u.id, u]));
 
@@ -50,7 +50,7 @@ export class ApprovalsService {
             const user = userMap.get(req.applicantId);
             return {
                 ...req,
-                applicantName: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : 'Unknown User',
+                applicantName: user ? user.name || user.email : 'Unknown User',
             };
         });
     }

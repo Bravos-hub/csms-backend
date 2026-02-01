@@ -41,6 +41,7 @@ import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 import { TechniciansModule } from './technicians/technicians.module';
+import { OcpiModule } from './modules/ocpi/ocpi.module';
 
 @Module({
   imports: [
@@ -84,6 +85,7 @@ import { TechniciansModule } from './technicians/technicians.module';
     ApprovalsModule,
     FeatureFlagsModule,
     TechniciansModule,
+    OcpiModule,
   ],
   controllers: [AppController],
   providers: [AppService],
