@@ -91,6 +91,10 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Application for Admin Approval
+  application               UserApplication?    @relation("UserApplication")
+  reviewedUserApplications  UserApplication[]   @relation("ReviewedBy")
+
   @@map("users")
 }
 
@@ -118,6 +122,39 @@ model Organization {
   updatedAt   DateTime @updatedAt
 
   @@map("organizations")
+}
+
+model UserApplication {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  user            User     @relation("UserApplication", fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Application Details
+  companyName     String?
+  taxId           String?
+  country         String
+  region          String
+  accountType     String   @default("COMPANY") // COMPANY, INDIVIDUAL
+  role            String   // STATION_OWNER, STATION_OPERATOR, etc.
+  subscribedPackage String?
+  
+  // Documents (JSON array of document objects)
+  documents       Json?    @default("[]") // [{type: 'ID', url: '...'}, {type: 'Certificate', url: '...'}]
+  
+  // Approval Workflow
+  status          String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  reviewedBy      String?
+  reviewer        User?    @relation("ReviewedBy", fields: [reviewedBy], references: [id])
+  reviewedAt      DateTime?
+  rejectionReason String?
+  adminNotes      String?
+  
+  // Metadata
+  submittedAt     DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@map("user_applications")
 }
 
 model SubscriptionPlan {

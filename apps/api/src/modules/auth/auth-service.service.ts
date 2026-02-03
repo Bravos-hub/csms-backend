@@ -4,6 +4,7 @@ import { UserRole } from '@prisma/client';
 import { LoginDto, CreateUserDto, UpdateUserDto, InviteUserDto } from './dto/auth.dto';
 import { NotificationService } from '../notification/notification-service.service';
 import { MailService } from '../mail/mail.service';
+import { AdminApprovalService } from './admin-approval.service';
 import { ConfigService } from '@nestjs/config';
 import { MetricsService } from '../../common/services/metrics.service';
 import { OcpiTokenSyncService } from '../../common/services/ocpi-token-sync.service';
@@ -23,6 +24,7 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly metrics: MetricsService,
     private readonly ocpiTokenSync: OcpiTokenSyncService,
+    private readonly approvalService: AdminApprovalService,
   ) { }
 
   getHello(): string {
@@ -115,13 +117,28 @@ export class AuthService {
           name: createUserDto.name,
           phone: createUserDto.phone,
           role: (createUserDto.role as any) || 'SITE_OWNER',
-          status: 'Pending',
+          status: 'Pending', // User starts as Pending (email not verified)
           passwordHash: hashedPassword,
           country: createUserDto.country,
           region: createUserDto.region,
           subscribedPackage: createUserDto.subscribedPackage || 'Free',
           ownerCapability: createUserDto.ownerCapability as any,
           organizationId: organization.id,
+        }
+      });
+
+      // 3. Create User Application for Admin Approval
+      await tx.userApplication.create({
+        data: {
+          userId: user.id,
+          companyName: createUserDto.companyName,
+          taxId: createUserDto.taxId,
+          country: createUserDto.country || 'Unknown',
+          region: createUserDto.region || 'Unknown',
+          accountType: orgType,
+          role: createUserDto.role || 'SITE_OWNER',
+          subscribedPackage: createUserDto.subscribedPackage,
+          status: 'PENDING',
         }
       });
 
@@ -550,10 +567,13 @@ export class AuthService {
       throw new BadRequestException('Verification token has expired');
     }
 
-    // Mark email as verified
+    // Mark email as verified and update status to AwaitingApproval
     const user = await this.prisma.user.update({
       where: { id: verificationToken.userId },
-      data: { emailVerifiedAt: new Date() },
+      data: {
+        emailVerifiedAt: new Date(),
+        status: 'AwaitingApproval' // Move to approval stage after email verification
+      },
     });
 
     // Delete the used token
@@ -561,7 +581,16 @@ export class AuthService {
       where: { id: verificationToken.id },
     });
 
-    this.logger.log(`Email verified for user ${user.id}`);
+    // Send application received email
+    try {
+      if (user.email) {
+        await this.mailService.sendApplicationReceivedEmail(user.email, user.name);
+      }
+    } catch (error) {
+      this.logger.error('Failed to send application received email', String(error).replace(/[\n\r]/g, ''));
+    }
+
+    this.logger.log(`Email verified for user ${user.id}, now awaiting admin approval`);
     return { userId: user.id, email: user.email || '' };
   }
 

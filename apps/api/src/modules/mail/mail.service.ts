@@ -100,4 +100,48 @@ export class MailService {
 
         await this.sendMail(email, 'Invitation to join EV Zone', html);
     }
+
+    async sendApplicationReceivedEmail(email: string, name: string) {
+        const html = `
+      <h1>Application Received!</h1>
+      <p>Dear ${name},</p>
+      <p>Thank you for registering with EV Zone. Your application is currently under review by our team.</p>
+      <p>You will receive an email notification once your application has been reviewed.</p>
+      <p>If you have any questions, please contact us at support@evzone.com</p>
+      <p>Best regards,<br>EV Zone Team</p>
+    `;
+
+        await this.sendMail(email, 'Application Received - EV Zone', html);
+    }
+
+    async sendApplicationApprovedEmail(email: string, name: string) {
+        const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'https://localhost:5173';
+        const loginLink = `${frontendUrl}/auth/login`;
+
+        const html = `
+      <h1>Application Approved! 🎉</h1>
+      <p>Dear ${name},</p>
+      <p>Congratulations! Your registration application has been approved by our team.</p>
+      <p>You can now log in to your EV Zone dashboard and start managing your EV charging infrastructure.</p>
+      <a href="${loginLink}" style="display: inline-block; padding: 10px 20px; background-color: #28a745; color: white; text-decoration: none; border-radius: 4px; margin: 10px 0;">Login to Dashboard</a>
+      <p>If you have any questions or need assistance, please don't hesitate to contact us.</p>
+      <p>Welcome aboard!<br>EV Zone Team</p>
+    `;
+
+        await this.sendMail(email, 'Application Approved - EV Zone', html);
+    }
+
+    async sendApplicationRejectedEmail(email: string, name: string, reason: string) {
+        const html = `
+      <h1>Application Update</h1>
+      <p>Dear ${name},</p>
+      <p>Thank you for your interest in EV Zone. After careful review, we regret to inform you that your application could not be approved at this time.</p>
+      <p><strong>Reason:</strong> ${reason}</p>
+      <p>If you believe this decision was made in error or would like to reapply with additional information, please contact us at support@evzone.com</p>
+      <p>Best regards,<br>EV Zone Team</p>
+    `;
+
+        await this.sendMail(email, 'Application Update - EV Zone', html);
+    }
 }
+

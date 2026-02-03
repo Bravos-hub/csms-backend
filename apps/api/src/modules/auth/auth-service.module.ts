@@ -4,6 +4,8 @@ import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AuthController, UsersController } from './auth-service.controller';
 import { AuthService } from './auth-service.service';
+import { AdminApprovalService } from './admin-approval.service';
+import { AdminApprovalController } from './admin-approval.controller';
 import { TokenCleanupService } from './token-cleanup.service';
 import { MetricsService } from '../../common/services/metrics.service';
 import { OcpiTokenSyncService } from '../../common/services/ocpi-token-sync.service';
@@ -19,7 +21,7 @@ import { ServiceScopeGuard } from './service-scope.guard';
     ScheduleModule.forRoot(), // Enable scheduled tasks
     NotificationServiceModule,
   ],
-  controllers: [AuthController, UsersController],
+  controllers: [AuthController, UsersController, AdminApprovalController],
   providers: [
     AuthService,
     TokenCleanupService, // Add cleanup service
@@ -29,6 +31,7 @@ import { ServiceScopeGuard } from './service-scope.guard';
     JwtAuthGuard,
     ServiceAuthGuard,
     ServiceScopeGuard,
+    AdminApprovalService,
   ],
   exports: [JwtAuthGuard, ServiceAuthGuard, ServiceScopeGuard, MetricsService],
 })

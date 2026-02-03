@@ -65,6 +65,10 @@ export class CreateUserDto {
 
     @IsString()
     @IsOptional()
+    taxId?: string;
+
+    @IsString()
+    @IsOptional()
     ownerCapability?: 'CHARGE' | 'SWAP' | 'BOTH';
 }
 
