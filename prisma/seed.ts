@@ -38,12 +38,16 @@ async function main() {
     const superAdminPassword = await bcrypt.hash('Password123.', 10);
     const superAdmin = await prisma.user.upsert({
         where: { email: 'delta@evzone.app' },
-        update: {},
+        update: {
+            region: 'Africa',
+            status: 'Active'
+        },
         create: {
             name: 'Delta Admin',
             email: 'delta@evzone.app',
             role: 'SUPER_ADMIN',
             status: 'Active',
+            region: 'Africa',
             passwordHash: superAdminPassword,
             emailVerifiedAt: new Date()
         }
@@ -54,13 +58,17 @@ async function main() {
     const mockUserId = 'mock-id';
     const mockUser = await prisma.user.upsert({
         where: { id: mockUserId },
-        update: {},
+        update: {
+            region: 'Africa',
+            status: 'Active'
+        },
         create: {
             id: mockUserId,
             name: 'Mock User',
             email: 'mock@evzone.app',
             role: 'SITE_OWNER',
             status: 'Active',
+            region: 'Africa',
             passwordHash: 'password'
         }
     });
@@ -171,7 +179,15 @@ async function main() {
     for (const s of stationsData) {
         await prisma.station.upsert({
             where: { id: s.id },
-            update: {},
+            update: {
+                name: s.name,
+                latitude: s.latitude,
+                longitude: s.longitude,
+                address: s.address,
+                status: s.status,
+                siteId: siteId,
+                zoneId: s.zoneId
+            },
             create: {
                 id: s.id,
                 name: s.name,

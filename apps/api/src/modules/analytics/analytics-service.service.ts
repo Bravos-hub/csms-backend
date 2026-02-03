@@ -48,11 +48,14 @@ export class AnalyticsService {
 
   async getRegionalMetrics() {
     // Fetch all stations with relevant data
+    // Fetch all stations with relevant data
     const stations = await this.prisma.station.findMany({
       include: {
-        zone: true, // Include Station Zone
+        zone: {
+          include: { parent: { include: { parent: true } } }
+        },
         owner: {
-          include: { zone: true } // Include Owner Zone
+          include: { zone: true }
         },
         incidents: {
           where: { status: 'OPEN' }
@@ -76,12 +79,26 @@ export class AnalyticsService {
     }>();
 
     for (const station of stations) {
-      // Prioritize: Station Zone -> Owner Zone -> Owner Region String -> Unknown
+      // Prioritize: Station Zone Hierarchy -> Owner Zone -> Owner Region String -> Unknown
       let region = 'Unknown';
       const s = station as any;
 
       if (s.zone) {
-        region = s.zone.name;
+        // Traverse up to find Continent or root
+        let current = s.zone;
+        let found = false;
+        for (let i = 0; i < 5; i++) {
+          if (current.type === 'CONTINENT' || ['AFRICA', 'EUROPE', 'AMERICAS', 'ASIA', 'MIDDLE_EAST'].includes(current.code)) {
+            region = current.name;
+            found = true;
+            break;
+          }
+          if (!current.parent) break;
+          current = current.parent;
+        }
+        if (!found) {
+          region = current.name; // Use top-most found if no continent
+        }
       } else if (s.owner?.zone) {
         region = s.owner.zone.name;
       } else if (s.owner?.region) {

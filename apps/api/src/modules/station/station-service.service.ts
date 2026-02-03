@@ -46,23 +46,78 @@ export class StationService {
     });
   }
 
+  // Helper to walk up the zone hierarchy and find the continent or top-level region
+  private deriveRegion(station: any): string {
+    if (station.zone) {
+      let current = station.zone;
+      // Traverse up to 3 levels to find a Continent or root
+      for (let i = 0; i < 5; i++) {
+        if (current.type === 'CONTINENT' || ['AFRICA', 'EUROPE', 'AMERICAS', 'ASIA', 'MIDDLE_EAST'].includes(current.code)) {
+          return current.name; // Return "Africa", "Europe", etc.
+        }
+        if (!current.parent) break;
+        current = current.parent;
+      }
+      // If no continent found, return the top-most parent name found
+      return current.name;
+    }
+    // Fallback to legacy fields
+    return station.owner?.region || 'Unknown';
+  }
+
   async findAllStations() {
-    return this.prisma.station.findMany({ include: { chargePoints: true, site: true } });
+    const stations = await this.prisma.station.findMany({
+      include: {
+        chargePoints: true,
+        site: true,
+        zone: { include: { parent: { include: { parent: true } } } },
+        owner: { include: { zone: true } }
+      }
+    });
+
+    return stations.map(s => ({
+      ...s,
+      region: this.deriveRegion(s)
+    }));
   }
 
   async findStationById(id: string) {
-    const station = await this.prisma.station.findUnique({ where: { id }, include: { chargePoints: true, site: true } });
+    const station = await this.prisma.station.findUnique({
+      where: { id },
+      include: {
+        chargePoints: true,
+        site: true,
+        zone: { include: { parent: { include: { parent: true } } } },
+        owner: { include: { zone: true } }
+      }
+    });
     if (!station) throw new NotFoundException('Station not found');
-    return station;
+
+    return {
+      ...station,
+      region: this.deriveRegion(station)
+    };
   }
 
   async findStationByCode(code: string) {
     // Schema doesn't have code in previous step, adding it or mocking logic
     // Actually schema had: id, name, status, lat, long, address. No code.
     // Use ID as code or assume name
-    const station = await this.prisma.station.findFirst({ where: { name: code }, include: { chargePoints: true, site: true } });
+    const station = await this.prisma.station.findFirst({
+      where: { name: code },
+      include: {
+        chargePoints: true,
+        site: true,
+        zone: { include: { parent: { include: { parent: true } } } },
+        owner: { include: { zone: true } }
+      }
+    });
     if (!station) throw new NotFoundException('Station not found');
-    return station;
+
+    return {
+      ...station,
+      region: this.deriveRegion(station)
+    };
   }
 
   async updateStation(id: string, updateDto: UpdateStationDto) {
