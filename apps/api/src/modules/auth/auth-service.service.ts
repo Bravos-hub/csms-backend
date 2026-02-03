@@ -529,6 +529,12 @@ export class AuthService {
    * Verify an email verification token
    */
   async verifyEmailToken(token: string): Promise<{ userId: string; email: string }> {
+    // Validate token format (must be a UUID)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(token)) {
+      throw new BadRequestException('Invalid verification token format');
+    }
+
     const verificationToken = await this.prisma.emailVerificationToken.findUnique({
       where: { token },
       include: { user: true },
@@ -588,4 +594,5 @@ export class AuthService {
       this.logger.error(`Failed to send verification email to ${email}`, String(error).replace(/[\n\r]/g, ''));
       throw new Error('Failed to send verification email');
     }
-  }}
+  }
+}
