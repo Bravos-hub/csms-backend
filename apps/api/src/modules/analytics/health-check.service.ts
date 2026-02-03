@@ -149,7 +149,7 @@ export class HealthCheckService {
                     WHERE datname = current_database()
                 `;
                 metadata = {
-                    connections: result[0]?.connections || 0,
+                    connections: Number(result[0]?.connections || 0),
                 };
             } catch {
                 // Ignore if we can't get pool info

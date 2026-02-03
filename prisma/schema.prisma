@@ -46,9 +46,14 @@ model User {
 
   // Registration & Onboarding Fields
   country           String?
-  region            String?
+  region            String? // Legacy field, eventually replace with zone logic
+  postalCode        String?
+  zoneId            String?
   subscribedPackage String? // Free, Starter, Growth, Pro, Enterprise
   organizationId    String?
+
+  // Relations
+  zone                 GeographicZone?     @relation(fields: [zoneId], references: [id])
 
   // Relations
   organization         Organization?       @relation(fields: [organizationId], references: [id])
@@ -180,6 +185,11 @@ model Station {
   ownerId     String?
   operatorId  String?
   siteId      String?
+  postalCode  String?
+  zoneId      String?
+
+  // Relations
+  zone         GeographicZone? @relation(fields: [zoneId], references: [id])
 
   // Relations
   owner        User?         @relation("StationOwner", fields: [ownerId], references: [id])
@@ -370,9 +380,14 @@ model Site {
   longitude       Float?
   photos          String      @default("[]") // JSON array of photo URLs
   amenities       String      @default("[]") // JSON array
-  tags            String      @default("[]") // JSON array
+  tags            String      @default("[]") // JSON array of photo URLs
   ownerId         String
   organizationId  String?
+  postalCode      String?
+  zoneId          String?
+  
+  // Relations
+  zone               GeographicZone?      @relation(fields: [zoneId], references: [id])
 
   // Relations
   owner              User                 @relation(fields: [ownerId], references: [id])
@@ -1007,4 +1022,51 @@ model Job {
   @@index([status])
   @@index([technicianId])
   @@index([priority])
+}
+
+// ------------------------------------
+// GLOBAL GEOGRAPHIC SYSTEM
+// ------------------------------------
+
+enum ZoneType {
+  CONTINENT
+  SUB_REGION
+  COUNTRY
+  
+  // Generic Administrative Levels
+  ADM1            // State, Province, Region, County (Kenya), Governorate
+  ADM2            // County (US), District, Sub-county, Municipality
+  ADM3            // Ward, Commune, Village
+  
+  CITY            // Specific Locality
+  POSTAL_ZONE     // Optional: For countries where Zip Code = Zone
+}
+
+model GeographicZone {
+  id        String   @id @default(uuid())
+  code      String   @unique // e.g., "US", "US-CA", "AF", "NA" (North America)
+  name      String
+  type      ZoneType
+  parentId  String?
+  
+  // Hierarchy
+  parent    GeographicZone?  @relation("ZoneHierarchy", fields: [parentId], references: [id])
+  children  GeographicZone[] @relation("ZoneHierarchy")
+
+  // Relations to operational entities
+  stations  Station[] // Relation to Station
+  sites     Site[]    // Relation to Site
+  users     User[]    // Relation to User (for Address/Billing)
+  
+  // Metadata for Operations
+  currency        String?  // e.g. "USD" for countries
+  timezone        String?  // e.g. "America/New_York"
+  postalCodeRegex String? // Regex to validate postal codes for this zone (Country level)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("geographic_zones")
+  @@index([type])
+  @@index([parentId])
 }

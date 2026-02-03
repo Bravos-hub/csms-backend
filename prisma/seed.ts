@@ -1,4 +1,4 @@
-import { PrismaClient, SitePurpose, LeaseType, Footfall } from '@prisma/client';
+import { PrismaClient, SitePurpose, LeaseType, Footfall, ZoneType } from '@prisma/client';
 import * as dotenv from 'dotenv';
 import * as bcrypt from 'bcrypt';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -66,6 +66,58 @@ async function main() {
     });
     console.log('Mock user seeded');
 
+    // 2.5 Seed Geographic Zones (Crucial for Analytics)
+    console.log('Seeding Geographic Zones...');
+
+    // Continents
+    const africa = await prisma.geographicZone.upsert({
+        where: { code: 'AF' }, update: {},
+        create: { name: 'Africa', code: 'AF', type: ZoneType.CONTINENT }
+    });
+    const europe = await prisma.geographicZone.upsert({
+        where: { code: 'EU' }, update: {},
+        create: { name: 'Europe', code: 'EU', type: ZoneType.CONTINENT }
+    });
+
+    // Countries
+    const uganda = await prisma.geographicZone.upsert({
+        where: { code: 'UG' }, update: {},
+        create: {
+            name: 'Uganda', code: 'UG', type: ZoneType.COUNTRY,
+            parentId: africa.id, currency: 'UGX', timezone: 'Africa/Kampala'
+        }
+    });
+    const kenya = await prisma.geographicZone.upsert({
+        where: { code: 'KE' }, update: {},
+        create: {
+            name: 'Kenya', code: 'KE', type: ZoneType.COUNTRY,
+            parentId: africa.id, currency: 'KES', timezone: 'Africa/Nairobi'
+        }
+    });
+    const germany = await prisma.geographicZone.upsert({
+        where: { code: 'DE' }, update: {},
+        create: {
+            name: 'Germany', code: 'DE', type: ZoneType.COUNTRY,
+            parentId: europe.id, currency: 'EUR', timezone: 'Europe/Berlin'
+        }
+    });
+
+    // Cities / Regions
+    const kampala = await prisma.geographicZone.upsert({
+        where: { code: 'UG-102' }, update: {},
+        create: { name: 'Kampala', code: 'UG-102', type: ZoneType.ADM1, parentId: uganda.id }
+    });
+    const nairobi = await prisma.geographicZone.upsert({
+        where: { code: 'KE-30' }, update: {},
+        create: { name: 'Nairobi', code: 'KE-30', type: ZoneType.ADM1, parentId: kenya.id }
+    });
+    const berlin = await prisma.geographicZone.upsert({
+        where: { code: 'DE-BE' }, update: {},
+        create: { name: 'Berlin', code: 'DE-BE', type: ZoneType.ADM1, parentId: germany.id }
+    });
+
+    console.log('Geography seeded');
+
     // 2. Create Site
     const siteId = 'default-site-id';
     const site = await prisma.site.upsert({
@@ -94,16 +146,16 @@ async function main() {
 
     // 3. Create Stations (diverse global locations for MapLibre testing)
     const stationsData = [
-        { id: 'st-101', name: 'City Mall Roof', latitude: 0.3476, longitude: 32.5825, address: 'Plot 7 Jinja Rd', status: 'ACTIVE' },
-        { id: 'st-102', name: 'Tech Park A', latitude: 0.0630, longitude: 32.4631, address: 'Block 4', status: 'PAUSED' },
-        { id: 'st-103', name: 'Airport East', latitude: -1.2864, longitude: 36.8172, address: 'Terminal C', status: 'ACTIVE' },
-        { id: 'st-104', name: 'Central Hub', latitude: -6.7924, longitude: 39.2083, address: 'Industrial Area', status: 'ACTIVE' },
-        { id: 'st-105', name: 'Business Park', latitude: 52.5200, longitude: 13.4050, address: 'Building 5', status: 'MAINTENANCE' },
-        { id: 'st-106', name: 'Kampala North', latitude: 0.3800, longitude: 32.5600, address: 'Kawempe', status: 'ACTIVE' },
-        { id: 'st-107', name: 'Nairobi West', latitude: -1.2600, longitude: 36.8000, address: 'Westlands', status: 'OFFLINE' },
-        { id: 'st-108', name: 'Entebbe Pier', latitude: 0.0500, longitude: 32.4500, address: 'Lakeside', status: 'ACTIVE' },
-        { id: 'st-109', name: 'Berlin Hauptbahnhof', latitude: 52.5250, longitude: 13.3690, address: 'Europaplatz 1', status: 'ACTIVE' },
-        { id: 'st-110', name: 'Mombasa Port', latitude: -4.0435, longitude: 39.6682, address: 'Kilindini', status: 'ACTIVE' },
+        { id: 'st-101', name: 'City Mall Roof', latitude: 0.3476, longitude: 32.5825, address: 'Plot 7 Jinja Rd', status: 'ACTIVE', zoneId: kampala.id },
+        { id: 'st-102', name: 'Tech Park A', latitude: 0.0630, longitude: 32.4631, address: 'Block 4', status: 'PAUSED', zoneId: uganda.id },
+        { id: 'st-103', name: 'Airport East', latitude: -1.2864, longitude: 36.8172, address: 'Terminal C', status: 'ACTIVE', zoneId: nairobi.id },
+        { id: 'st-104', name: 'Central Hub', latitude: -6.7924, longitude: 39.2083, address: 'Industrial Area', status: 'ACTIVE', zoneId: africa.id }, // Dar es Salaam
+        { id: 'st-105', name: 'Business Park', latitude: 52.5200, longitude: 13.4050, address: 'Building 5', status: 'MAINTENANCE', zoneId: berlin.id },
+        { id: 'st-106', name: 'Kampala North', latitude: 0.3800, longitude: 32.5600, address: 'Kawempe', status: 'ACTIVE', zoneId: kampala.id },
+        { id: 'st-107', name: 'Nairobi West', latitude: -1.2600, longitude: 36.8000, address: 'Westlands', status: 'OFFLINE', zoneId: nairobi.id },
+        { id: 'st-108', name: 'Entebbe Pier', latitude: 0.0500, longitude: 32.4500, address: 'Lakeside', status: 'ACTIVE', zoneId: uganda.id },
+        { id: 'st-109', name: 'Berlin Hauptbahnhof', latitude: 52.5250, longitude: 13.3690, address: 'Europaplatz 1', status: 'ACTIVE', zoneId: berlin.id },
+        { id: 'st-110', name: 'Mombasa Port', latitude: -4.0435, longitude: 39.6682, address: 'Kilindini', status: 'ACTIVE', zoneId: kenya.id },
         // Large cluster in Kampala
         ...Array.from({ length: 15 }).map((_, i) => ({
             id: `st-cluster-kampala-${i}`,
@@ -111,7 +163,8 @@ async function main() {
             latitude: 0.31 + (Math.random() * 0.02 - 0.01),
             longitude: 32.58 + (Math.random() * 0.02 - 0.01),
             address: `CBD Street ${i + 1}`,
-            status: Math.random() > 0.8 ? 'OFFLINE' : 'ACTIVE'
+            status: Math.random() > 0.8 ? 'OFFLINE' : 'ACTIVE',
+            zoneId: kampala.id
         }))
     ];
 
@@ -126,7 +179,8 @@ async function main() {
                 longitude: s.longitude,
                 address: s.address,
                 status: s.status,
-                siteId: siteId // Link to main site
+                siteId: siteId, // Link to main site
+                zoneId: s.zoneId
             }
         });
     }
@@ -286,20 +340,19 @@ async function main() {
             isActive: true,
             isPublic: true,
             isPopular: false,
-            limits: { maxStations: 5, maxChargers: 25, maxUsers: 3 },
             features: {
                 create: [
-                    { name: 'Up to 5 chargers', category: 'CAPACITY', order: 1 },
-                    { name: 'Basic reporting', category: 'ANALYTICS', order: 2 },
-                    { name: 'Email support', category: 'SUPPORT', order: 3 },
+                    { featureKey: 'CAPACITY', featureValue: 'Up to 5 chargers', order: 1 },
+                    { featureKey: 'ANALYTICS', featureValue: 'Basic reporting', order: 2 },
+                    { featureKey: 'SUPPORT', featureValue: 'Email support', order: 3 },
                 ]
             },
             permissions: {
                 create: [
-                    { resource: 'stations', action: 'read', scope: 'own', limit: 5 },
-                    { resource: 'stations', action: 'create', scope: 'own', limit: 5 },
-                    { resource: 'analytics', action: 'read', scope: 'basic' },
-                    { resource: 'billing', action: 'read', scope: 'own' },
+                    { resource: 'stations', action: 'read', description: 'scope: own, limit: 5' },
+                    { resource: 'stations', action: 'create', description: 'scope: own, limit: 5' },
+                    { resource: 'analytics', action: 'read', description: 'scope: basic' },
+                    { resource: 'billing', action: 'read', description: 'scope: own' },
                 ]
             }
         }
@@ -319,24 +372,23 @@ async function main() {
             isActive: true,
             isPublic: true,
             isPopular: true,
-            limits: { maxStations: 25, maxChargers: 100, maxUsers: 10 },
             features: {
                 create: [
-                    { name: 'Up to 25 chargers', category: 'CAPACITY', order: 1 },
-                    { name: 'Smart charging', category: 'FEATURES', order: 2 },
-                    { name: 'Priority support', category: 'SUPPORT', order: 3 },
-                    { name: 'Advanced analytics', category: 'ANALYTICS', order: 4 },
+                    { featureKey: 'CAPACITY', featureValue: 'Up to 25 chargers', order: 1 },
+                    { featureKey: 'FEATURES', featureValue: 'Smart charging', order: 2 },
+                    { featureKey: 'SUPPORT', featureValue: 'Priority support', order: 3 },
+                    { featureKey: 'ANALYTICS', featureValue: 'Advanced analytics', order: 4 },
                 ]
             },
             permissions: {
                 create: [
-                    { resource: 'stations', action: 'read', scope: 'own', limit: 25 },
-                    { resource: 'stations', action: 'create', scope: 'own', limit: 25 },
-                    { resource: 'stations', action: 'update', scope: 'own' },
-                    { resource: 'analytics', action: 'read', scope: 'advanced' },
-                    { resource: 'billing', action: 'read', scope: 'own' },
-                    { resource: 'billing', action: 'update', scope: 'own' },
-                    { resource: 'tou', action: 'manage', scope: 'own' },
+                    { resource: 'stations', action: 'read', description: 'scope: own, limit: 25' },
+                    { resource: 'stations', action: 'create', description: 'scope: own, limit: 25' },
+                    { resource: 'stations', action: 'update', description: 'scope: own' },
+                    { resource: 'analytics', action: 'read', description: 'scope: advanced' },
+                    { resource: 'billing', action: 'read', description: 'scope: own' },
+                    { resource: 'billing', action: 'update', description: 'scope: own' },
+                    { resource: 'tou', action: 'manage', description: 'scope: own' },
                 ]
             }
         }
@@ -356,27 +408,26 @@ async function main() {
             isActive: true,
             isPublic: true,
             isPopular: false,
-            limits: { maxStations: -1, maxChargers: -1, maxUsers: -1 }, // -1 = unlimited
             features: {
                 create: [
-                    { name: 'Unlimited chargers', category: 'CAPACITY', order: 1 },
-                    { name: 'SLA guarantees', category: 'SUPPORT', order: 2 },
-                    { name: 'Dedicated account manager', category: 'SUPPORT', order: 3 },
-                    { name: 'OCPI Roaming', category: 'FEATURES', order: 4 },
-                    { name: 'Custom integrations', category: 'FEATURES', order: 5 },
+                    { featureKey: 'CAPACITY', featureValue: 'Unlimited chargers', order: 1 },
+                    { featureKey: 'SUPPORT', featureValue: 'SLA guarantees', order: 2 },
+                    { featureKey: 'SUPPORT', featureValue: 'Dedicated account manager', order: 3 },
+                    { featureKey: 'FEATURES', featureValue: 'OCPI Roaming', order: 4 },
+                    { featureKey: 'FEATURES', featureValue: 'Custom integrations', order: 5 },
                 ]
             },
             permissions: {
                 create: [
-                    { resource: 'stations', action: 'read', scope: 'own' },
-                    { resource: 'stations', action: 'create', scope: 'own' },
-                    { resource: 'stations', action: 'update', scope: 'own' },
-                    { resource: 'stations', action: 'delete', scope: 'own' },
-                    { resource: 'analytics', action: 'read', scope: 'all' },
-                    { resource: 'billing', action: 'manage', scope: 'own' },
-                    { resource: 'roaming', action: 'manage', scope: 'own' },
-                    { resource: 'settlement', action: 'manage', scope: 'own' },
-                    { resource: 'api', action: 'access', scope: 'own' },
+                    { resource: 'stations', action: 'read', description: 'scope: own' },
+                    { resource: 'stations', action: 'create', description: 'scope: own' },
+                    { resource: 'stations', action: 'update', description: 'scope: own' },
+                    { resource: 'stations', action: 'delete', description: 'scope: own' },
+                    { resource: 'analytics', action: 'read', description: 'scope: all' },
+                    { resource: 'billing', action: 'manage', description: 'scope: own' },
+                    { resource: 'roaming', action: 'manage', description: 'scope: own' },
+                    { resource: 'settlement', action: 'manage', description: 'scope: own' },
+                    { resource: 'api', action: 'access', description: 'scope: own' },
                 ]
             }
         }
@@ -396,19 +447,18 @@ async function main() {
             billingCycle: 'MONTHLY',
             isActive: true,
             isPublic: true,
-            limits: { maxStations: 3, maxUsers: 5 },
             features: {
                 create: [
-                    { name: 'Up to 3 stations', category: 'CAPACITY', order: 1 },
-                    { name: 'Basic dashboard', category: 'FEATURES', order: 2 },
-                    { name: 'Email support', category: 'SUPPORT', order: 3 },
+                    { featureKey: 'CAPACITY', featureValue: 'Up to 3 stations', order: 1 },
+                    { featureKey: 'FEATURES', featureValue: 'Basic dashboard', order: 2 },
+                    { featureKey: 'SUPPORT', featureValue: 'Email support', order: 3 },
                 ]
             },
             permissions: {
                 create: [
-                    { resource: 'stations', action: 'read', scope: 'assigned', limit: 3 },
-                    { resource: 'sessions', action: 'read', scope: 'assigned' },
-                    { resource: 'incidents', action: 'create', scope: 'assigned' },
+                    { resource: 'stations', action: 'read', description: 'scope: assigned, limit: 3' },
+                    { resource: 'sessions', action: 'read', description: 'scope: assigned' },
+                    { resource: 'incidents', action: 'create', description: 'scope: assigned' },
                 ]
             }
         }
@@ -428,23 +478,22 @@ async function main() {
             isActive: true,
             isPublic: true,
             isPopular: true,
-            limits: { maxStations: -1, maxUsers: 20 },
             features: {
                 create: [
-                    { name: 'Unlimited stations', category: 'CAPACITY', order: 1 },
-                    { name: 'Team management', category: 'FEATURES', order: 2 },
-                    { name: 'Advanced analytics', category: 'ANALYTICS', order: 3 },
-                    { name: 'Priority support', category: 'SUPPORT', order: 4 },
+                    { featureKey: 'CAPACITY', featureValue: 'Unlimited stations', order: 1 },
+                    { featureKey: 'FEATURES', featureValue: 'Team management', order: 2 },
+                    { featureKey: 'ANALYTICS', featureValue: 'Advanced analytics', order: 3 },
+                    { featureKey: 'SUPPORT', featureValue: 'Priority support', order: 4 },
                 ]
             },
             permissions: {
                 create: [
-                    { resource: 'stations', action: 'read', scope: 'assigned' },
-                    { resource: 'stations', action: 'update', scope: 'assigned' },
-                    { resource: 'sessions', action: 'read', scope: 'assigned' },
-                    { resource: 'incidents', action: 'manage', scope: 'assigned' },
-                    { resource: 'analytics', action: 'read', scope: 'advanced' },
-                    { resource: 'team', action: 'manage', scope: 'own' },
+                    { resource: 'stations', action: 'read', description: 'scope: assigned' },
+                    { resource: 'stations', action: 'update', description: 'scope: assigned' },
+                    { resource: 'sessions', action: 'read', description: 'scope: assigned' },
+                    { resource: 'incidents', action: 'manage', description: 'scope: assigned' },
+                    { resource: 'analytics', action: 'read', description: 'scope: advanced' },
+                    { resource: 'team', action: 'manage', description: 'scope: own' },
                 ]
             }
         }
@@ -466,14 +515,14 @@ async function main() {
             isPublic: true,
             features: {
                 create: [
-                    { name: 'Public marketplace', category: 'FEATURES', order: 1 },
-                    { name: 'Job notifications', category: 'FEATURES', order: 2 },
+                    { featureKey: 'FEATURES', featureValue: 'Public marketplace', order: 1 },
+                    { featureKey: 'FEATURES', featureValue: 'Job notifications', order: 2 },
                 ]
             },
             permissions: {
                 create: [
-                    { resource: 'jobs', action: 'read', scope: 'public' },
-                    { resource: 'jobs', action: 'apply', scope: 'public' },
+                    { resource: 'jobs', action: 'read', description: 'scope: public' },
+                    { resource: 'jobs', action: 'apply', description: 'scope: public' },
                 ]
             }
         }
@@ -495,17 +544,17 @@ async function main() {
             isPopular: true,
             features: {
                 create: [
-                    { name: 'Priority job matching', category: 'FEATURES', order: 1 },
-                    { name: 'Certification showcase', category: 'FEATURES', order: 2 },
-                    { name: 'Analytics dashboard', category: 'ANALYTICS', order: 3 },
+                    { featureKey: 'FEATURES', featureValue: 'Priority job matching', order: 1 },
+                    { featureKey: 'FEATURES', featureValue: 'Certification showcase', order: 2 },
+                    { featureKey: 'ANALYTICS', featureValue: 'Analytics dashboard', order: 3 },
                 ]
             },
             permissions: {
                 create: [
-                    { resource: 'jobs', action: 'read', scope: 'all' },
-                    { resource: 'jobs', action: 'apply', scope: 'priority' },
-                    { resource: 'certifications', action: 'manage', scope: 'own' },
-                    { resource: 'analytics', action: 'read', scope: 'own' },
+                    { resource: 'jobs', action: 'read', description: 'scope: all' },
+                    { resource: 'jobs', action: 'apply', description: 'scope: priority' },
+                    { resource: 'certifications', action: 'manage', description: 'scope: own' },
+                    { resource: 'analytics', action: 'read', description: 'scope: own' },
                 ]
             }
         }
@@ -525,18 +574,17 @@ async function main() {
             billingCycle: 'MONTHLY',
             isActive: true,
             isPublic: true,
-            limits: { maxSites: 3 },
             features: {
                 create: [
-                    { name: 'List up to 3 sites', category: 'CAPACITY', order: 1 },
-                    { name: 'Standard listing', category: 'FEATURES', order: 2 },
+                    { featureKey: 'CAPACITY', featureValue: 'List up to 3 sites', order: 1 },
+                    { featureKey: 'FEATURES', featureValue: 'Standard listing', order: 2 },
                 ]
             },
             permissions: {
                 create: [
-                    { resource: 'sites', action: 'read', scope: 'own', limit: 3 },
-                    { resource: 'sites', action: 'create', scope: 'own', limit: 3 },
-                    { resource: 'applications', action: 'read', scope: 'own' },
+                    { resource: 'sites', action: 'read', description: 'scope: own, limit: 3' },
+                    { resource: 'sites', action: 'create', description: 'scope: own, limit: 3' },
+                    { resource: 'applications', action: 'read', description: 'scope: own' },
                 ]
             }
         }
@@ -556,23 +604,22 @@ async function main() {
             isActive: true,
             isPublic: true,
             isPopular: true,
-            limits: { maxSites: -1 },
             features: {
                 create: [
-                    { name: 'Unlimited sites', category: 'CAPACITY', order: 1 },
-                    { name: 'Featured listings', category: 'FEATURES', order: 2 },
-                    { name: 'Revenue analytics', category: 'ANALYTICS', order: 3 },
-                    { name: 'Priority support', category: 'SUPPORT', order: 4 },
+                    { featureKey: 'CAPACITY', featureValue: 'Unlimited sites', order: 1 },
+                    { featureKey: 'FEATURES', featureValue: 'Featured listings', order: 2 },
+                    { featureKey: 'ANALYTICS', featureValue: 'Revenue analytics', order: 3 },
+                    { featureKey: 'SUPPORT', featureValue: 'Priority support', order: 4 },
                 ]
             },
             permissions: {
                 create: [
-                    { resource: 'sites', action: 'read', scope: 'own' },
-                    { resource: 'sites', action: 'create', scope: 'own' },
-                    { resource: 'sites', action: 'update', scope: 'own' },
-                    { resource: 'applications', action: 'manage', scope: 'own' },
-                    { resource: 'analytics', action: 'read', scope: 'own' },
-                    { resource: 'featured', action: 'access', scope: 'own' },
+                    { resource: 'sites', action: 'read', description: 'scope: own' },
+                    { resource: 'sites', action: 'create', description: 'scope: own' },
+                    { resource: 'sites', action: 'update', description: 'scope: own' },
+                    { resource: 'applications', action: 'manage', description: 'scope: own' },
+                    { resource: 'analytics', action: 'read', description: 'scope: own' },
+                    { resource: 'featured', action: 'access', description: 'scope: own' },
                 ]
             }
         }

@@ -108,4 +108,63 @@ export class BillingService {
       user: t.wallet?.user?.name
     }));
   }
+
+  // Settlements
+  async getSettlements(status?: string, region?: string) {
+    const where: any = {};
+
+    // In a real scenario, we might filtering by transaction type e.g. 'SETTLEMENT'
+    // For now, we will assume DEBIT transactions to Organization wallets are settlements
+    // or just fetch all DEBITs for users who have a region.
+
+    // Filter by Region via User
+    if (region) {
+      where.wallet = {
+        user: {
+          region: {
+            contains: region,
+            mode: 'insensitive'
+          }
+        }
+      };
+    }
+
+    const transactions = await this.prisma.transaction.findMany({
+      where: {
+        ...where,
+        // We might want to filter by type if we had 'SETTLEMENT' type
+        // type: 'DEBIT' 
+      },
+      include: {
+        wallet: {
+          include: {
+            user: {
+              select: {
+                name: true,
+                region: true,
+                organization: {
+                  select: { name: true }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50
+    });
+
+    return transactions.map(t => ({
+      id: t.id,
+      region: t.wallet.user.region || 'Unknown',
+      org: t.wallet.user.organization?.name || t.wallet.user.name,
+      type: 'Settlement', // Hardcoded for now as we don't have distinct types
+      amount: t.amount,
+      currency: t.wallet.currency,
+      status: 'completed', // Transactions are usually instant, so completed
+      startedAt: t.createdAt.toISOString(),
+      finishedAt: t.createdAt.toISOString(),
+      note: t.description
+    }));
+  }
 }

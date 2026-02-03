@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { HealthCheckService } from './health-check.service';
+import { PrismaService } from '../../prisma.service';
 
 @Injectable()
 export class AnalyticsService {
-  constructor(private readonly healthCheck: HealthCheckService) { }
+  constructor(
+    private readonly healthCheck: HealthCheckService,
+    private readonly prisma: PrismaService
+  ) { }
 
   getHello(): string {
     return 'Analytics Service Operational';
@@ -42,13 +46,92 @@ export class AnalyticsService {
     };
   }
 
-  getRegionalMetrics() {
-    return [
-      { region: 'North America', stations: 120, sessions: 4500, revenue: 125000, status: 'Healthy', uptime: 99.9, incidents: 0 },
-      { region: 'Europe', stations: 85, sessions: 3200, revenue: 98000, status: 'Healthy', uptime: 99.5, incidents: 1 },
-      { region: 'Asia Pacific', stations: 45, sessions: 1800, revenue: 45000, status: 'Warning', uptime: 98.2, incidents: 3 },
-      { region: 'Middle East', stations: 30, sessions: 1200, revenue: 28000, status: 'Healthy', uptime: 99.8, incidents: 0 },
-    ];
+  async getRegionalMetrics() {
+    // Fetch all stations with relevant data
+    const stations = await this.prisma.station.findMany({
+      include: {
+        zone: true, // Include Station Zone
+        owner: {
+          include: { zone: true } // Include Owner Zone
+        },
+        incidents: {
+          where: { status: 'OPEN' }
+        },
+        chargePoints: {
+          include: {
+            sessions: true
+          }
+        }
+      }
+    });
+
+    // Group by region
+    const regionMap = new Map<string, {
+      stations: number,
+      sessions: number,
+      revenue: number,
+      uptime: number,
+      incidents: number,
+      onlineStationCount: number
+    }>();
+
+    for (const station of stations) {
+      // Prioritize: Station Zone -> Owner Zone -> Owner Region String -> Unknown
+      let region = 'Unknown';
+      const s = station as any;
+
+      if (s.zone) {
+        region = s.zone.name;
+      } else if (s.owner?.zone) {
+        region = s.owner.zone.name;
+      } else if (s.owner?.region) {
+        region = s.owner.region;
+      }
+
+      if (!regionMap.has(region)) {
+        regionMap.set(region, {
+          stations: 0,
+          sessions: 0,
+          revenue: 0,
+          uptime: 0,
+          incidents: 0,
+          onlineStationCount: 0
+        });
+      }
+
+      const metrics = regionMap.get(region)!;
+      metrics.stations++;
+      metrics.incidents += s.incidents.length;
+
+      if (station.status === 'ACTIVE') {
+        metrics.onlineStationCount++;
+      }
+
+      // Aggregate sessions and revenue
+      for (const cp of s.chargePoints) {
+        metrics.sessions += cp.sessions.length;
+        metrics.revenue += cp.sessions.reduce((sum: number, session: any) => sum + (session.amount || 0), 0);
+      }
+    }
+
+    // Format output
+    return Array.from(regionMap.entries()).map(([region, metrics]) => {
+      // Simple uptime calculation: (online / total) * 100
+      const uptime = metrics.stations > 0
+        ? (metrics.onlineStationCount / metrics.stations) * 100
+        : 0;
+
+      return {
+        region,
+        stations: metrics.stations,
+        sessions: metrics.sessions,
+        revenue: metrics.revenue,
+        // Determine status based on uptime
+        status: uptime > 98 ? 'Healthy' : (uptime > 90 ? 'Warning' : 'Critical'),
+        uptime: parseFloat(uptime.toFixed(1)),
+        incidents: metrics.incidents
+      };
+    });
   }
 
   // Use real health checks instead of mocked data
