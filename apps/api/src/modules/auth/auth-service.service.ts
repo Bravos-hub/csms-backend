@@ -1,6 +1,6 @@
 import { Injectable, UnauthorizedException, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
-import { UserRole } from '@prisma/client';
+import { UserRole, StationOwnerCapability } from '@prisma/client';
 import { LoginDto, CreateUserDto, UpdateUserDto, InviteUserDto } from './dto/auth.dto';
 import { NotificationService } from '../notification/notification-service.service';
 import { MailService } from '../mail/mail.service';
@@ -34,6 +34,7 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     const startTime = Date.now();
     try {
+      this.logger.log(`Login attempt for ${loginDto.email}`);
       const user = await this.prisma.user.findUnique({ where: { email: loginDto.email } });
       if (!user) {
         throw new UnauthorizedException('Invalid credentials');
@@ -43,34 +44,50 @@ export class AuthService {
         throw new UnauthorizedException('Invalid credentials');
       }
 
-      const isValid = await bcrypt.compare(loginDto.password, user.passwordHash);
-
-      if (!isValid) {
+      const isPasswordValid = await bcrypt.compare(loginDto.password, user.passwordHash);
+      if (!isPasswordValid) {
         throw new UnauthorizedException('Invalid credentials');
       }
 
-      const result = await this.issueTokens(user as any);
+      // Check for awaiting approval status if not handled by frontend
+      if (user.status === 'AwaitingApproval') {
+        this.logger.log(`User ${user.email} is awaiting approval`);
+        // We still return the user/token so frontend can redirect, 
+        // OR we can throw a specific error. 
+        // For now, let's allow it but log it (frontend handles the redirect)
+      }
 
-      this.metrics.recordAuthMetric({
-        operation: 'login',
-        success: true,
-        duration: Date.now() - startTime,
-        userId: user.id,
-        timestamp: new Date(),
-      });
+      // Auto-activate Super Admin on successful login if not already active
+      if (user.role === UserRole.SUPER_ADMIN && user.status !== 'Active') {
+        this.logger.log(`Auto-activating Super Admin: ${user.email}`);
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { status: 'Active' }
+        });
+        user.status = 'Active';
+      }
 
-      return result;
+      return this.generateAuthResponse(user);
     } catch (error) {
-      this.metrics.recordAuthMetric({
-        operation: 'login',
-        success: false,
-        duration: Date.now() - startTime,
-        error: error instanceof Error ? error.message : String(error),
-        timestamp: new Date(),
-      });
+      this.logger.error(`Login error for ${loginDto.email}: ${error.message}`, error.stack);
       throw error;
     }
   }
+
+  private async generateAuthResponse(user: any) {
+    const result = await this.issueTokens(user);
+
+    this.metrics.recordAuthMetric({
+      operation: 'login',
+      success: true,
+      duration: 0,
+      userId: user.id,
+      timestamp: new Date()
+    });
+
+    return result;
+  }
+
 
   async register(createUserDto: CreateUserDto) {
     const exists = await this.prisma.user.findUnique({ where: { email: createUserDto.email } });
@@ -169,17 +186,38 @@ export class AuthService {
     const exists = await this.prisma.user.findUnique({ where: { email: inviteDto.email } });
     if (exists) throw new BadRequestException('User already exists');
 
+    const passwordHash = inviteDto.password
+      ? await bcrypt.hash(inviteDto.password, 10)
+      : undefined;
+
     const user = await this.prisma.user.create({
       data: {
         email: inviteDto.email,
         name: inviteDto.email.split('@')[0],
         role: inviteDto.role as unknown as UserRole,
-        status: 'Invited',
+        status: inviteDto.password ? 'Active' : 'Invited',
+        passwordHash,
+        ownerCapability: inviteDto.ownerCapability as unknown as StationOwnerCapability,
       },
     });
 
     try {
-      await this.mailService.sendInvitationEmail(inviteDto.email);
+      // Human-readable role name mapping (matching frontend labels roughly)
+      const roleLabels: any = {
+        'SUPER_ADMIN': 'Super Admin',
+        'EVZONE_ADMIN': 'EVzone Admin',
+        'EVZONE_OPERATOR': 'EVzone Operations',
+        'STATION_OPERATOR': 'Station Operator',
+        'SITE_OWNER': 'Site Owner',
+        'STATION_ADMIN': 'Station Admin',
+        'MANAGER': 'Manager',
+        'ATTENDANT': 'Attendant',
+        'CASHIER': 'Cashier',
+        'STATION_OWNER': 'Station Owner',
+      };
+
+      const roleName = roleLabels[inviteDto.role] || inviteDto.role;
+      await this.mailService.sendInvitationEmail(inviteDto.email, roleName, 'EV Zone');
     } catch (error) {
       this.logger.error('Failed to send invitation email', String(error).replace(/[\n\r]/g, ''));
     }
@@ -335,7 +373,7 @@ export class AuthService {
     );
 
     const refreshToken = jwt.sign(
-      { sub: user.id, type: 'refresh' },
+      { sub: user.id, type: 'refresh', jti: crypto.randomUUID() },
       secret as jwt.Secret,
       { expiresIn: this.config.get<string>('JWT_REFRESH_EXPIRY') || '7d' } as SignOptions
     );
@@ -360,6 +398,7 @@ export class AuthService {
         phone: user.phone,
         role: user.role,
         name: user.name,
+        status: user.status,
         ownerCapability: user.ownerCapability,
         organizationId: user.organizationId
       }
@@ -417,6 +456,7 @@ export class AuthService {
           phone: user.phone,
           role: user.role,
           name: user.name,
+          status: user.status,
           ownerCapability: user.ownerCapability,
           organizationId: user.organizationId
         },

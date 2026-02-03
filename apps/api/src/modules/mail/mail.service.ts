@@ -88,17 +88,50 @@ export class MailService {
         await this.sendMail(email, 'Verify your email', html);
     }
 
-    async sendInvitationEmail(email: string) {
+    async sendInvitationEmail(email: string, role?: string, organization: string = 'EV Zone') {
         const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'https://localhost:5173';
         const link = `${frontendUrl}/auth/register?email=${encodeURIComponent(email)}`;
 
         const html = `
-      <h1>You've been invited!</h1>
-      <p>You have been invited to join the EV Zone portal. Please click the link below to complete your registration:</p>
-      <a href="${link}">Accept Invitation</a>
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #1a1a1a; margin-top: 0;">You've been invited!</h1>
+        </div>
+        
+        <p style="font-size: 16px; color: #444; line-height: 1.6;">
+          Hello,
+        </p>
+        
+        <p style="font-size: 16px; color: #444; line-height: 1.6;">
+          You have been invited to join <strong>${organization}</strong> on the EV Zone portal.
+        </p>
+
+        ${role ? `<div style="background-color: #f8f9fa; padding: 15px; border-radius: 6px; margin: 20px 0;">
+          <p style="margin: 0; font-size: 14px; color: #666;">Position / Role:</p>
+          <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #333;">${role}</p>
+        </div>` : ''}
+
+        <p style="font-size: 16px; color: #444; line-height: 1.6;">
+          Please click the button below to complete your registration and set up your account:
+        </p>
+
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${link}" style="display: inline-block; padding: 14px 30px; background-color: #f59e0b; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">Accept Invitation</a>
+        </div>
+
+        <p style="font-size: 14px; color: #888; margin-top: 40px; border-top: 1px solid #eeeeee; padding-top: 20px; text-align: center;">
+          Best regards,<br>
+          <strong>The EV Zone Team</strong>
+        </p>
+        
+        <p style="font-size: 12px; color: #aaa; text-align: center; margin-top: 10px;">
+          If the button above doesn't work, copy and paste this link into your browser:<br>
+          <a href="${link}" style="color: #007bff;">${link}</a>
+        </p>
+      </div>
     `;
 
-        await this.sendMail(email, 'Invitation to join EV Zone', html);
+        await this.sendMail(email, `Invitation to join ${organization} on EV Zone`, html);
     }
 
     async sendApplicationReceivedEmail(email: string, name: string) {

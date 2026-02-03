@@ -94,6 +94,15 @@ export class InviteUserDto {
     @IsString()
     @IsNotEmpty()
     role: Role;
+
+    @IsString()
+    @IsOptional()
+    @MinLength(8)
+    password?: string;
+
+    @IsString()
+    @IsOptional()
+    ownerCapability?: string;
 }
 
 export class ServiceTokenRequestDto {
