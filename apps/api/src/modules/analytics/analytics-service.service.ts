@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import { HealthCheckService } from './health-check.service';
 
 @Injectable()
 export class AnalyticsService {
+  constructor(private readonly healthCheck: HealthCheckService) { }
+
   getHello(): string {
     return 'Analytics Service Operational';
   }
@@ -48,17 +51,9 @@ export class AnalyticsService {
     ];
   }
 
-  getSystemHealth() {
-    return {
-      status: 'Operational',
-      uptime: 99.98,
-      services: [
-        { name: 'Database', status: 'Operational', latency: 24, errors: 0.01 },
-        { name: 'Redis Cache', status: 'Operational', latency: 5, errors: 0 },
-        { name: 'OCPP Gateway', status: 'Operational', latency: 45, errors: 0.05 },
-        { name: 'Payment Gateway', status: 'Operational', latency: 120, errors: 0.1 },
-      ],
-      lastIncident: null
-    };
+  // Use real health checks instead of mocked data
+  async getSystemHealth() {
+    return this.healthCheck.getSystemHealth();
   }
 }
+

@@ -62,9 +62,11 @@ export class AuthController {
     res.cookie(COOKIE_NAMES.ACCESS_TOKEN, result.accessToken, getCookieOptions(false));
     res.cookie(COOKIE_NAMES.REFRESH_TOKEN, result.refreshToken, getCookieOptions(true));
 
-    // Return user data only (no tokens in response body)
+    // Return tokens and user data for localStorage persistence
     return {
       user: result.user,
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
     };
   }
 
@@ -72,21 +74,23 @@ export class AuthController {
   @ApiCookieAuth('evzone_refresh_token')
   @ApiOperation({
     summary: 'Refresh access token',
-    description: 'Uses refresh token cookie to generate new access token',
+    description: 'Uses refresh token from cookie or request body to generate new access token',
   })
+  @ApiBody({ type: RefreshTokenDto, required: false })
   @ApiResponse({
     status: 200,
     description: 'Token refreshed successfully. New cookies set.',
   })
   async refresh(
+    @Body() body: Partial<RefreshTokenDto>,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    // Extract refresh token from cookie
-    const refreshToken = req.cookies?.[COOKIE_NAMES.REFRESH_TOKEN];
+    // Extract refresh token from cookie or request body
+    const refreshToken = req.cookies?.[COOKIE_NAMES.REFRESH_TOKEN] || body.refreshToken;
 
     if (!refreshToken) {
-      throw new BadRequestException('Refresh token not found');
+      throw new BadRequestException('Refresh token not found in cookie or request body');
     }
 
     const result = await this.authService.refresh(refreshToken);
@@ -95,9 +99,11 @@ export class AuthController {
     res.cookie(COOKIE_NAMES.ACCESS_TOKEN, result.accessToken, getCookieOptions(false));
     res.cookie(COOKIE_NAMES.REFRESH_TOKEN, result.refreshToken, getCookieOptions(true));
 
-    // Return user data only
+    // Return tokens in body as well for localStorage persistence
     return {
       user: result.user,
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
     };
   }
 

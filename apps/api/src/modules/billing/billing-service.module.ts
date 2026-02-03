@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { DatabaseModule } from '@app/database';
 import { BillingController } from './billing-service.controller';
 import { FinanceController } from './finance.controller';
+import { SettlementsController } from './settlements.controller';
 import { BillingService } from './billing-service.service';
 import { PrismaService } from '../../prisma.service';
 
@@ -13,7 +14,7 @@ import { PrismaService } from '../../prisma.service';
     // DatabaseModule removed
     // TypeOrmModule removed
   ],
-  controllers: [BillingController, FinanceController],
+  controllers: [BillingController, FinanceController, SettlementsController],
   providers: [BillingService, PrismaService],
   exports: [BillingService],
 })

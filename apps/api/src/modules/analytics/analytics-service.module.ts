@@ -1,10 +1,14 @@
 import { Module } from '@nestjs/common';
 import { AnalyticsController } from './analytics-service.controller';
 import { AnalyticsService } from './analytics-service.service';
+import { HealthCheckService } from './health-check.service';
+import { ServiceManagerService } from './service-manager.service';
+import { DatabaseModule } from '@app/database';
 
 @Module({
-  imports: [],
+  imports: [DatabaseModule],
   controllers: [AnalyticsController],
-  providers: [AnalyticsService],
+  providers: [AnalyticsService, HealthCheckService, ServiceManagerService],
+  exports: [AnalyticsService, HealthCheckService],
 })
 export class AnalyticsServiceModule { }
