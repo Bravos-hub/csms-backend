@@ -5,6 +5,9 @@ services:
     dockerfile_path: Dockerfile
     source_dir: /
     http_port: 3000
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    run_command: node dist/apps/api/main
     routes:
       - path: /
     envs:
@@ -20,12 +23,16 @@ services:
       - key: KAFKA_BROKERS
         scope: RUN_TIME
         value: ${KAFKA_BROKERS}
-workers:
+      - key: NODE_ENV
+        scope: RUN_TIME
+        value: production
+
   - name: worker
     dockerfile_path: Dockerfile
     source_dir: /
     instance_count: 1
     instance_size_slug: basic-xxs
+    run_command: node dist/apps/worker/main
     envs:
       - key: APP_NAME
         scope: BUILD_TIME
@@ -39,6 +46,10 @@ workers:
       - key: KAFKA_BROKERS
         scope: RUN_TIME
         value: ${KAFKA_BROKERS}
+      - key: NODE_ENV
+        scope: RUN_TIME
+        value: production
+
 domains:
   - domain: api.evzonecharging.com
     type: PRIMARY
