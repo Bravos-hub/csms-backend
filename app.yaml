@@ -50,6 +50,18 @@ services:
         scope: RUN_TIME
         value: production
 
+jobs:
+  - name: db-migrate
+    kind: PRE_DEPLOY
+    dockerfile_path: Dockerfile
+    source_dir: /
+    run_command: npx prisma migrate deploy
+    instance_size_slug: basic-xxs
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${DATABASE_URL}
+
 domains:
   - domain: api.evzonecharging.com
     type: PRIMARY
