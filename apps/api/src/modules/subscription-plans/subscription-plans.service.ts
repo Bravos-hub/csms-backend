@@ -80,12 +80,12 @@ export class SubscriptionPlansService {
                 role: planData.role as UserRole,
                 features: features
                     ? {
-                        create: features,
+                        create: features as any,
                     }
                     : undefined,
                 permissions: permissions
                     ? {
-                        create: permissions,
+                        create: permissions as any,
                     }
                     : undefined,
             },
@@ -114,13 +114,13 @@ export class SubscriptionPlansService {
                 ...(features && {
                     features: {
                         deleteMany: {},
-                        create: features,
+                        create: features as any,
                     },
                 }),
                 ...(permissions && {
                     permissions: {
                         deleteMany: {},
-                        create: permissions,
+                        create: permissions as any,
                     },
                 }),
             },

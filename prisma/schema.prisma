@@ -222,6 +222,7 @@ model Station {
   ownerId     String?
   operatorId  String?
   siteId      String?
+  orgId       String?
   postalCode  String?
   zoneId      String?
 

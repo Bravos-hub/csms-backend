@@ -40,8 +40,10 @@ export class StationService {
         longitude: createDto.longitude,
         address: createDto.address || 'Unknown',
         status: 'ACTIVE',
-        siteId: site.id
-      },
+        siteId: site.id,
+        orgId: createDto.orgId,
+        ownerId: createDto.ownerId
+      } as any,
       include: { chargePoints: true, site: true }
     });
   }
@@ -75,8 +77,10 @@ export class StationService {
       }
     });
 
-    return stations.map(s => ({
+    return stations.map((s: any) => ({
       ...s,
+      ownerId: s.ownerId || s.site?.ownerId,
+      orgId: s.orgId || s.site?.organizationId,
       region: this.deriveRegion(s)
     }));
   }
@@ -94,7 +98,9 @@ export class StationService {
     if (!station) throw new NotFoundException('Station not found');
 
     return {
-      ...station,
+      ...(station as any),
+      ownerId: (station as any).ownerId || (station as any).site?.ownerId,
+      orgId: (station as any).orgId || (station as any).site?.organizationId,
       region: this.deriveRegion(station)
     };
   }

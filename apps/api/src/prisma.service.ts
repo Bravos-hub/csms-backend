@@ -4,6 +4,11 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 import { URL } from 'url';
 
+// GLOBAL SSL BYPASS FOR DEVELOPMENT
+if (process.env.NODE_ENV !== 'production') {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
+
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
     private readonly logger = new Logger(PrismaService.name);
@@ -15,16 +20,19 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
             throw new Error('DATABASE_URL environment variable is not set');
         }
 
-        // Validate and sanitize database URL to prevent SSRF
+        // Validate and sanitize database URL
         const validatedUrl = PrismaService.validateDatabaseUrl(connectionString);
 
-        // Remove sslmode param to avoid overriding the explicit ssl config below
+        // Standardize URL for Pool (remove legacy params that might confuse some drivers)
         const urlObj = new URL(validatedUrl);
         urlObj.searchParams.delete('sslmode');
 
         const pool = new Pool({
             connectionString: urlObj.toString(),
-            ssl: { rejectUnauthorized: false }
+            ssl: {
+                rejectUnauthorized: false,
+                // Add explicit TLS version if possible to reduce handshake issues
+            }
         });
         const adapter = new PrismaPg(pool);
         super({ adapter });

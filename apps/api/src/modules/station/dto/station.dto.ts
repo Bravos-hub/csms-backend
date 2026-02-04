@@ -30,6 +30,10 @@ export class CreateStationDto {
     @IsString()
     @IsOptional()
     orgId?: string;
+
+    @IsString()
+    @IsOptional()
+    ownerId?: string;
 }
 
 export class UpdateStationDto {
@@ -48,6 +52,14 @@ export class UpdateStationDto {
     @IsString()
     @IsOptional()
     siteId?: string;
+
+    @IsString()
+    @IsOptional()
+    orgId?: string;
+
+    @IsString()
+    @IsOptional()
+    ownerId?: string;
 }
 
 export class CreateChargePointDto {
