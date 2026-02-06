@@ -664,4 +664,56 @@ export class AuthService {
       throw new Error('Failed to send verification email');
     }
   }
+
+  /**
+   * Request a password reset for a user
+   */
+  async requestPasswordReset(userId: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.email) {
+      throw new NotFoundException('User not found or has no email');
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { otpCode: code, otpExpiresAt: expires },
+    });
+
+    try {
+      await this.mailService.sendMail(
+        user.email,
+        'Password Reset Request',
+        `<p>A password reset was requested for your account.</p>
+         <p>Your reset code is: <b>${code}</b></p>
+         <p>This code will expire in 15 minutes.</p>`
+      );
+    } catch (error) {
+      this.logger.error(`Failed to send password reset email to ${user.email}`, error);
+      throw new Error('Failed to send password reset email');
+    }
+  }
+
+  /**
+   * Force logout a user by revoking all their refresh tokens
+   */
+  async forceLogoutUser(userId: string): Promise<void> {
+    await this.prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    this.logger.log(`Forced logout for user ${userId}`);
+  }
+
+  /**
+   * Update whether a user is required to use MFA
+   */
+  async toggleMfaRequirement(userId: string, required: boolean): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { status: required ? 'MfaRequired' : 'Active' }
+    });
+  }
 }

@@ -60,7 +60,13 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
+    "@types/bcrypt": "^6.0.0",
+    "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.0.0",
+    "@types/nodemailer": "^7.0.9",
+    "@types/pg": "^8.16.0",
     "prettier": "^3.4.2",
     "prisma": "^7.3.0",
     "source-map-support": "^0.5.21",

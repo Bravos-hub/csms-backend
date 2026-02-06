@@ -277,4 +277,22 @@ export class UsersController {
   remove(@Param('id') id: string) {
     return this.authService.deleteUser(id);
   }
+
+  @Post(':id/reset-password')
+  @ApiOperation({ summary: 'Trigger password reset email for a user' })
+  requestReset(@Param('id') id: string) {
+    return this.authService.requestPasswordReset(id);
+  }
+
+  @Post(':id/force-logout')
+  @ApiOperation({ summary: 'Invalidate all sessions for a user' })
+  forceLogout(@Param('id') id: string) {
+    return this.authService.forceLogoutUser(id);
+  }
+
+  @Post(':id/mfa-requirement')
+  @ApiOperation({ summary: 'Toggle MFA requirement for a user' })
+  toggleMfa(@Param('id') id: string, @Body('required') required: boolean) {
+    return this.authService.toggleMfaRequirement(id, required);
+  }
 }

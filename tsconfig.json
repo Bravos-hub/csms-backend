@@ -20,6 +20,18 @@
     "noImplicitAny": true,
     "strictBindCallApply": true,
     "noFallthroughCasesInSwitch": true,
+    "typeRoots": [
+      "./node_modules/@types"
+    ],
+    "types": [
+      "node",
+      "bcrypt",
+      "cookie-parser",
+      "nodemailer",
+      "pg",
+      "multer",
+      "jsonwebtoken"
+    ],
     "paths": {
       "@app/core": [
         "packages/domain/src"

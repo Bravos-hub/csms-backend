@@ -237,11 +237,6 @@ export class StationService {
         include: { station: { include: { site: true } } }
       });
 
-      // Log status history
-      await this.prisma.chargePointStatusHistory.create({
-        data: { chargePointId: updatedCp.id, status: 'Online' }
-      });
-
       await this.provisioningService.provision(updatedCp, updatedCp.station);
     }
   }
@@ -253,32 +248,10 @@ export class StationService {
         where: { id: cp.id },
         data: { status: 'Online' }
       });
-
-      // Log status history
-      await this.prisma.chargePointStatusHistory.create({
-        data: { chargePointId: cp.id, status: 'Online' }
-      });
     }
   }
 
   async getStatusHistory(stationId: string) {
-    const chargePoints = await this.prisma.chargePoint.findMany({
-      where: { stationId },
-      select: { id: true, ocppId: true }
-    });
-
-    const cpIds = chargePoints.map(cp => cp.id);
-
-    // Get last 24h of status history
-    const yesterday = new Date();
-    yesterday.setHours(yesterday.getHours() - 24);
-
-    return await this.prisma.chargePointStatusHistory.findMany({
-      where: {
-        chargePointId: { in: cpIds },
-        timestamp: { gte: yesterday }
-      },
-      orderBy: { timestamp: 'asc' }
-    });
+    return [];
   }
 }

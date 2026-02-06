@@ -14,12 +14,14 @@ import { PrismaService } from '../../prisma.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { ServiceAuthGuard } from './service-auth.guard';
 import { ServiceScopeGuard } from './service-scope.guard';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
     ConfigModule,
     ScheduleModule.forRoot(), // Enable scheduled tasks
     NotificationServiceModule,
+    MailModule,
   ],
   controllers: [AuthController, UsersController, AdminApprovalController],
   providers: [

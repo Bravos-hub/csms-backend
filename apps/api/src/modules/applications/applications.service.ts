@@ -272,6 +272,7 @@ export class ApplicationsService {
             where: { applicationId: id },
             orderBy: { createdAt: 'desc' },
             include: {
+                // @ts-ignore
                 proposer: {
                     select: {
                         id: true,
