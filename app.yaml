@@ -26,6 +26,9 @@ services:
       - key: NODE_ENV
         scope: RUN_TIME
         value: production
+      - key: FRONTEND_URL
+        scope: RUN_TIME
+        value: ${FRONTEND_URL}
 
   - name: worker
     dockerfile_path: Dockerfile

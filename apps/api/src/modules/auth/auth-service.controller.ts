@@ -111,7 +111,11 @@ export class AuthController {
   @ApiOperation({ summary: 'Register new user' })
   async register(
     @Body() createUserDto: any,
+    @Req() req: Request,
   ) {
+    if (!createUserDto.frontendUrl) {
+      createUserDto.frontendUrl = req.headers.origin;
+    }
     // Registration only initiates verification, it does not log in the user
     return this.authService.register(createUserDto);
   }
@@ -254,7 +258,10 @@ export class UsersController {
   }
 
   @Post('invite')
-  invite(@Body() inviteDto: InviteUserDto) {
+  invite(@Body() inviteDto: InviteUserDto, @Req() req: Request) {
+    if (!inviteDto.frontendUrl) {
+      inviteDto.frontendUrl = req.headers.origin as string;
+    }
     return this.authService.inviteUser(inviteDto);
   }
 

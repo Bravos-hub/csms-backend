@@ -103,6 +103,10 @@ export class InviteUserDto {
     @IsString()
     @IsOptional()
     ownerCapability?: string;
+
+    @IsString()
+    @IsOptional()
+    frontendUrl?: string;
 }
 
 export class ServiceTokenRequestDto {

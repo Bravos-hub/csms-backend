@@ -89,13 +89,13 @@ export class AuthService {
   }
 
 
-  async register(createUserDto: CreateUserDto) {
+  async register(createUserDto: any) {
     const exists = await this.prisma.user.findUnique({ where: { email: createUserDto.email } });
     if (exists) {
       if (exists.status === 'Pending') {
         const verificationToken = await this.generateEmailVerificationToken(exists.id);
         try {
-          await this.mailService.sendVerificationEmail(createUserDto.email, verificationToken);
+          await this.mailService.sendVerificationEmail(createUserDto.email, verificationToken, createUserDto.frontendUrl);
         } catch (error) {
           this.logger.error('Failed to send verification email', String(error).replace(/[\n\r]/g, ''));
         }
@@ -166,7 +166,7 @@ export class AuthService {
 
     try {
       const verificationToken = await this.generateEmailVerificationToken(result.user.id);
-      await this.mailService.sendVerificationEmail(createUserDto.email, verificationToken);
+      await this.mailService.sendVerificationEmail(createUserDto.email, verificationToken, createUserDto.frontendUrl);
     } catch (error) {
       this.logger.error('Failed to send verification email', String(error).replace(/[\n\r]/g, ''));
     }
@@ -217,7 +217,7 @@ export class AuthService {
       };
 
       const roleName = roleLabels[inviteDto.role] || inviteDto.role;
-      await this.mailService.sendInvitationEmail(inviteDto.email, roleName, 'EV Zone');
+      await this.mailService.sendInvitationEmail(inviteDto.email, roleName, 'EV Zone', inviteDto.frontendUrl);
     } catch (error) {
       this.logger.error('Failed to send invitation email', String(error).replace(/[\n\r]/g, ''));
     }

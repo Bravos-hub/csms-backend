@@ -4,80 +4,80 @@ import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class MailService {
-    private transporter: nodemailer.Transporter;
-    private readonly logger = new Logger(MailService.name);
+  private transporter: nodemailer.Transporter;
+  private readonly logger = new Logger(MailService.name);
 
-    constructor(private readonly configService: ConfigService) {
-        this.initializeTransporter();
+  constructor(private readonly configService: ConfigService) {
+    this.initializeTransporter();
+  }
+
+  private initializeTransporter() {
+    const host = this.configService.get<string>('SMTP_HOST');
+    const port = this.configService.get<number>('SMTP_PORT');
+    const user = this.configService.get<string>('SMTP_USER');
+    const pass = this.configService.get<string>('SMTP_PASS');
+
+    if (!host || !user || !pass) {
+      this.logger.warn('SMTP configuration missing. Email sending will be disabled.');
+      return;
     }
 
-    private initializeTransporter() {
-        const host = this.configService.get<string>('SMTP_HOST');
-        const port = this.configService.get<number>('SMTP_PORT');
-        const user = this.configService.get<string>('SMTP_USER');
-        const pass = this.configService.get<string>('SMTP_PASS');
+    this.transporter = nodemailer.createTransport({
+      host,
+      port: port || 587,
+      secure: false,
+      auth: {
+        user,
+        pass,
+      },
+      requireTLS: true,
+      tls: {
+        minVersion: 'TLSv1.2',
+        ciphers: 'HIGH:!aNULL:!MD5',
+        rejectUnauthorized: true,
+      }
+    });
 
-        if (!host || !user || !pass) {
-            this.logger.warn('SMTP configuration missing. Email sending will be disabled.');
-            return;
-        }
+    this.verifyConnection();
+  }
 
-        this.transporter = nodemailer.createTransport({
-            host,
-            port: port || 587,
-            secure: false,
-            auth: {
-                user,
-                pass,
-            },
-            requireTLS: true,
-            tls: {
-                minVersion: 'TLSv1.2',
-                ciphers: 'HIGH:!aNULL:!MD5',
-                rejectUnauthorized: true,
-            }
-        });
+  private async verifyConnection() {
+    if (!this.transporter) return;
+    try {
+      await this.transporter.verify();
+      this.logger.log('SMTP connection established successfully');
+    } catch (error) {
+      this.logger.error('SMTP connection failed', error);
+    }
+  }
 
-        this.verifyConnection();
+  async sendMail(to: string, subject: string, html: string) {
+    if (!this.transporter) {
+      this.logger.warn(`Email to ${to} skipped (no transporter)`);
+      return;
     }
 
-    private async verifyConnection() {
-        if (!this.transporter) return;
-        try {
-            await this.transporter.verify();
-            this.logger.log('SMTP connection established successfully');
-        } catch (error) {
-            this.logger.error('SMTP connection failed', error);
-        }
+    const from = this.configService.get<string>('SMTP_FROM') || '"EV Zone" <noreply@evzone.com>';
+
+    try {
+      await this.transporter.sendMail({
+        from,
+        to,
+        subject,
+        html,
+      });
+      this.logger.log(`Email sent to ${to}`);
+    } catch (error) {
+      this.logger.error(`Failed to send email to ${to}`, error);
+      throw error;
     }
+  }
 
-    async sendMail(to: string, subject: string, html: string) {
-        if (!this.transporter) {
-            this.logger.warn(`Email to ${to} skipped (no transporter)`);
-            return;
-        }
+  async sendVerificationEmail(email: string, token: string, frontendUrl?: string) {
+    const baseUrl = frontendUrl || this.configService.get<string>('FRONTEND_URL') || 'https://localhost:5173';
+    const link = `${baseUrl}/auth/verify-email?token=${token}`;
 
-        const from = this.configService.get<string>('SMTP_FROM') || '"EV Zone" <noreply@evzone.com>';
-
-        try {
-            await this.transporter.sendMail({
-                from,
-                to,
-                subject,
-                html,
-            });
-            this.logger.log(`Email sent to ${to}`);
-        } catch (error) {
-            this.logger.error(`Failed to send email to ${to}`, error);
-            throw error;
-        }
-    }
-
-    async sendVerificationEmail(email: string, token: string) {
-        const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'https://localhost:5173';
-        const link = `${frontendUrl}/auth/verify-email?token=${token}`;
-
-        const html = `
+    const html = `
       <h1>Verify your email</h1>
       <p>Welcome to EV Zone! Please click the link below to verify your email address:</p>
       <a href="${link}" style="display: inline-block; padding: 10px 20px; background-color: #007bff; color: white; text-decoration: none; border-radius: 4px;">Verify Email</a>
@@ -85,14 +85,14 @@ export class MailService {
       <p>If you did not request this verification, please ignore this email.</p>
     `;
 
-        await this.sendMail(email, 'Verify your email', html);
-    }
+    await this.sendMail(email, 'Verify your email', html);
+  }
 
-    async sendInvitationEmail(email: string, role?: string, organization: string = 'EV Zone') {
-        const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'https://localhost:5173';
-        const link = `${frontendUrl}/auth/register?email=${encodeURIComponent(email)}`;
+  async sendInvitationEmail(email: string, role?: string, organization: string = 'EV Zone', frontendUrl?: string) {
+    const baseUrl = frontendUrl || this.configService.get<string>('FRONTEND_URL') || 'https://localhost:5173';
+    const link = `${baseUrl}/auth/register?email=${encodeURIComponent(email)}`;
 
-        const html = `
+    const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
         <div style="text-align: center; margin-bottom: 30px;">
           <h1 style="color: #1a1a1a; margin-top: 0;">You've been invited!</h1>
@@ -131,11 +131,11 @@ export class MailService {
       </div>
     `;
 
-        await this.sendMail(email, `Invitation to join ${organization} on EV Zone`, html);
-    }
+    await this.sendMail(email, `Invitation to join ${organization} on EV Zone`, html);
+  }
 
-    async sendApplicationReceivedEmail(email: string, name: string) {
-        const html = `
+  async sendApplicationReceivedEmail(email: string, name: string) {
+    const html = `
       <h1>Application Received!</h1>
       <p>Dear ${name},</p>
       <p>Thank you for registering with EV Zone. Your application is currently under review by our team.</p>
@@ -144,14 +144,14 @@ export class MailService {
       <p>Best regards,<br>EV Zone Team</p>
     `;
 
-        await this.sendMail(email, 'Application Received - EV Zone', html);
-    }
+    await this.sendMail(email, 'Application Received - EV Zone', html);
+  }
 
-    async sendApplicationApprovedEmail(email: string, name: string) {
-        const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'https://localhost:5173';
-        const loginLink = `${frontendUrl}/auth/login`;
+  async sendApplicationApprovedEmail(email: string, name: string, frontendUrl?: string) {
+    const baseUrl = frontendUrl || this.configService.get<string>('FRONTEND_URL') || 'https://localhost:5173';
+    const loginLink = `${baseUrl}/auth/login`;
 
-        const html = `
+    const html = `
       <h1>Application Approved! 🎉</h1>
       <p>Dear ${name},</p>
       <p>Congratulations! Your registration application has been approved by our team.</p>
@@ -161,11 +161,11 @@ export class MailService {
       <p>Welcome aboard!<br>EV Zone Team</p>
     `;
 
-        await this.sendMail(email, 'Application Approved - EV Zone', html);
-    }
+    await this.sendMail(email, 'Application Approved - EV Zone', html);
+  }
 
-    async sendApplicationRejectedEmail(email: string, name: string, reason: string) {
-        const html = `
+  async sendApplicationRejectedEmail(email: string, name: string, reason: string) {
+    const html = `
       <h1>Application Update</h1>
       <p>Dear ${name},</p>
       <p>Thank you for your interest in EV Zone. After careful review, we regret to inform you that your application could not be approved at this time.</p>
@@ -174,7 +174,7 @@ export class MailService {
       <p>Best regards,<br>EV Zone Team</p>
     `;
 
-        await this.sendMail(email, 'Application Update - EV Zone', html);
-    }
+    await this.sendMail(email, 'Application Update - EV Zone', html);
+  }
 }
 
