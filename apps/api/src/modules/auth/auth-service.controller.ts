@@ -11,6 +11,7 @@ import {
   UseGuards,
   Logger,
   BadRequestException,
+  Query,
 } from '@nestjs/common';
 import type { Response, Request } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiCookieAuth } from '@nestjs/swagger';
@@ -246,6 +247,12 @@ export class AuthController {
 export class UsersController {
   constructor(private readonly authService: AuthService) { }
 
+  @Get('crm-stats')
+  @ApiOperation({ summary: 'Get CRM user statistics' })
+  async getCrmStats() {
+    return this.authService.getCrmStats();
+  }
+
   @Get('me')
   getMe(@Req() req: any) {
     const userId = req.headers['x-user-id'] || 'mock-id';
@@ -253,8 +260,8 @@ export class UsersController {
   }
 
   @Get()
-  findAll() {
-    return this.authService.findAllUsers();
+  findAll(@Query('q') search?: string, @Query('role') role?: any) {
+    return this.authService.findAllUsers({ search, role });
   }
 
   @Get(':id')
