@@ -1,9 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@nestjs/common'
 import { UsersService } from './users.service'
+import { AuthService } from '../auth/auth-service.service'
 
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) { }
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly authService: AuthService
+  ) { }
 
   @Get('crm-stats')
   async getCrmStats() {
@@ -51,7 +55,14 @@ export class UsersController {
   }
 
   @Post('invite')
-  invite(@Body() payload: any) {
-    return payload
+  invite(@Body() inviteDto: any, @Req() req: any) {
+    if (!inviteDto.frontendUrl) {
+      const origin = req.headers.origin as string;
+      const host = req.headers.host;
+      if (origin && (!host || !origin.includes(host))) {
+        inviteDto.frontendUrl = origin;
+      }
+    }
+    return this.authService.inviteUser(inviteDto);
   }
 }

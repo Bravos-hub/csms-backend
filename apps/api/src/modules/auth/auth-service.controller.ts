@@ -114,7 +114,12 @@ export class AuthController {
     @Req() req: Request,
   ) {
     if (!createUserDto.frontendUrl) {
-      createUserDto.frontendUrl = req.headers.origin;
+      const origin = req.headers.origin as string;
+      const host = req.headers.host;
+      // Only use origin if it exists and is different from the backend's own host
+      if (origin && (!host || !origin.includes(host))) {
+        createUserDto.frontendUrl = origin;
+      }
     }
     // Registration only initiates verification, it does not log in the user
     return this.authService.register(createUserDto);
@@ -260,7 +265,12 @@ export class UsersController {
   @Post('invite')
   invite(@Body() inviteDto: InviteUserDto, @Req() req: Request) {
     if (!inviteDto.frontendUrl) {
-      inviteDto.frontendUrl = req.headers.origin as string;
+      const origin = req.headers.origin as string;
+      const host = req.headers.host;
+      // Only use origin if it exists and is different from the backend's own host
+      if (origin && (!host || !origin.includes(host))) {
+        inviteDto.frontendUrl = origin;
+      }
     }
     return this.authService.inviteUser(inviteDto);
   }
