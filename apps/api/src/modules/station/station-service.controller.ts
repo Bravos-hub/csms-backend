@@ -56,6 +56,11 @@ export class StationController {
     }
   }
 
+  @Get(':id/reliability-history')
+  async getReliabilityHistory(@Param('id') id: string) {
+    return this.stationService.getStatusHistory(id);
+  }
+
   // Microservice EventHandler
   @EventPattern('ocpp.events')
   async handleOcppMessage(@Payload() message: any) {

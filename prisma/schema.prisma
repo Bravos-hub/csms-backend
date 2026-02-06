@@ -259,6 +259,7 @@ model ChargePoint {
 
   station  Station   @relation(fields: [stationId], references: [id])
   sessions Session[]
+  statusHistory ChargePointStatusHistory[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1107,4 +1108,13 @@ model GeographicZone {
   @@map("geographic_zones")
   @@index([type])
   @@index([parentId])
+}
+model ChargePointStatusHistory {
+  id             String      @id @default(cuid())
+  chargePointId  String
+  chargePoint    ChargePoint @relation(fields: [chargePointId], references: [id])
+  status         String
+  timestamp      DateTime    @default(now())
+
+  @@index([chargePointId, timestamp])
 }

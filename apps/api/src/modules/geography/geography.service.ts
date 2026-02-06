@@ -1,6 +1,7 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
 import { ZoneType } from '@prisma/client';
+import * as h3 from 'h3-js';
 
 @Injectable()
 export class GeographyService implements OnModuleInit {
@@ -10,6 +11,33 @@ export class GeographyService implements OnModuleInit {
 
     async onModuleInit() {
         await this.seedDefaults();
+    }
+
+    /**
+     * Get H3 hexagon density for coverage layers.
+     */
+    async getH3Density(resolution: number = 4) {
+        try {
+            const stations = await this.prisma.station.findMany({
+                select: { latitude: true, longitude: true }
+            });
+
+            const hexCounts = new Map<string, number>();
+
+            for (const station of stations) {
+                const hex = h3.latLngToCell(station.latitude, station.longitude, resolution);
+                hexCounts.set(hex, (hexCounts.get(hex) || 0) + 1);
+            }
+
+            return Array.from(hexCounts.entries()).map(([hex, count]) => ({
+                hex,
+                count,
+                // boundary: h3.cellToBoundary(hex).map(([lat, lng]) => [lng, lat]) // lng, lat for MapLibre
+            }));
+        } catch (error) {
+            this.logger.error('Failed to generate H3 density', error);
+            throw new InternalServerErrorException('Failed to generate density data');
+        }
     }
 
     /**
@@ -91,6 +119,73 @@ export class GeographyService implements OnModuleInit {
             // Fallback if table doesn't exist yet (migration failure)
             this.logger.error('Failed to fetch zones. Database might not be migrated.', error);
             return [];
+        }
+    }
+
+    /**
+     * Generate a binary MVT tile for a given Z/X/Y.
+     * Uses PostGIS ST_AsMVT for maximum performance.
+     */
+    async getMvtTile(z: number, x: number, y: number, filters?: { status?: string, type?: string, region?: string }): Promise<Buffer> {
+        try {
+            // 1. Calculate the bounding box for the tile in Web Mercator (3857)
+            const worldSize = 40075016.68557849;
+            const tileSize = worldSize / Math.pow(2, z);
+            const xMin = -worldSize / 2 + x * tileSize;
+            const xMax = xMin + tileSize;
+            const yMax = worldSize / 2 - y * tileSize;
+            const yMin = yMax - tileSize;
+
+            // 2. Build filter clauses
+            let filterSql = '';
+            const params: any[] = [xMin, yMin, xMax, yMax];
+            let paramIdx = 5;
+
+            if (filters?.status && filters.status !== 'All') {
+                filterSql += ` AND status = $${paramIdx++}`;
+                params.push(filters.status.toUpperCase());
+            }
+            if (filters?.type && filters.type !== 'All') {
+                filterSql += ` AND type = $${paramIdx++}`;
+                params.push(filters.type.toUpperCase());
+            }
+            if (filters?.region && filters.region !== 'ALL') {
+                filterSql += ` AND region = $${paramIdx++}`;
+                params.push(filters.region.toUpperCase());
+            }
+
+            // 3. Execute raw SQL to fetch points as MVT
+            const query = `
+                WITH bounds AS (
+                    SELECT ST_MakeEnvelope($1, $2, $3, $4, 3857) AS geom
+                ),
+                mvt_geom AS (
+                    SELECT 
+                        id, name, status, type,
+                        ST_AsMVTGeom(
+                            ST_Transform(ST_SetSRID(ST_Point(longitude, latitude), 4326), 3857),
+                            bounds.geom,
+                            4096, 64, true
+                        ) AS geom
+                    FROM stations, bounds
+                    WHERE ST_Intersects(
+                        ST_Transform(ST_SetSRID(ST_Point(longitude, latitude), 4326), 3857), 
+                        bounds.geom
+                    ) ${filterSql}
+                )
+                SELECT ST_AsMVT(mvt_geom.*, 'stations') AS mvt FROM mvt_geom;
+            `;
+
+            const result: any[] = await this.prisma.$queryRawUnsafe(query, ...params);
+
+            if (!result || result.length === 0 || !result[0].mvt) {
+                return Buffer.alloc(0);
+            }
+
+            return result[0].mvt;
+        } catch (error) {
+            this.logger.error(`MVT Generation failed for ${z}/${x}/${y}`, error);
+            throw new InternalServerErrorException('Tile generation failed');
         }
     }
 
