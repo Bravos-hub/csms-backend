@@ -54,6 +54,14 @@ export class CreateStationDto {
 
     @IsOptional()
     open247?: boolean;
+
+    @IsString()
+    @IsOptional()
+    phone?: string;
+
+    @IsNumber()
+    @IsOptional()
+    bookingFee?: number;
 }
 
 export class UpdateStationDto {
@@ -99,6 +107,14 @@ export class UpdateStationDto {
 
     @IsOptional()
     open247?: boolean;
+
+    @IsString()
+    @IsOptional()
+    phone?: string;
+
+    @IsNumber()
+    @IsOptional()
+    bookingFee?: number;
 }
 
 export class CreateChargePointDto {

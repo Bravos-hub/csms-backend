@@ -48,7 +48,9 @@ export class StationService {
         price: createDto.price || 0,
         amenities: createDto.amenities || '[]',
         images: createDto.images || '[]',
-        open247: createDto.open247 || false
+        open247: createDto.open247 || false,
+        phone: createDto.phone,
+        bookingFee: createDto.bookingFee || 0
       } as any,
       include: { chargePoints: true, site: true }
     });
@@ -187,6 +189,8 @@ export class StationService {
       amenities,
       images,
       open247: s.open247,
+      phone: s.phone,
+      bookingFee: s.bookingFee || 0,
       ownerId: s.ownerId || s.site?.ownerId,
       orgId: s.orgId || s.site?.organizationId,
       region: this.deriveRegion(s)

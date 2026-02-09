@@ -232,6 +232,8 @@ model Station {
   amenities   String  @default("[]") // JSON array
   images      String  @default("[]") // JSON array
   open247     Boolean @default(false)
+  phone       String?
+  bookingFee  Float   @default(0)
 
   // Relations
   zone         GeographicZone? @relation(fields: [zoneId], references: [id])
