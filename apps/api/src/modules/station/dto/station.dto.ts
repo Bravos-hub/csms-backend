@@ -34,6 +34,26 @@ export class CreateStationDto {
     @IsString()
     @IsOptional()
     ownerId?: string;
+
+    // New Fields
+    @IsNumber()
+    @IsOptional()
+    rating?: number;
+
+    @IsNumber()
+    @IsOptional()
+    price?: number;
+
+    @IsString()
+    @IsOptional()
+    amenities?: string; // JSON string
+
+    @IsString()
+    @IsOptional()
+    images?: string; // JSON string
+
+    @IsOptional()
+    open247?: boolean;
 }
 
 export class UpdateStationDto {
@@ -60,6 +80,25 @@ export class UpdateStationDto {
     @IsString()
     @IsOptional()
     ownerId?: string;
+
+    @IsNumber()
+    @IsOptional()
+    rating?: number;
+
+    @IsNumber()
+    @IsOptional()
+    price?: number;
+
+    @IsString()
+    @IsOptional()
+    amenities?: string;
+
+    @IsString()
+    @IsOptional()
+    images?: string;
+
+    @IsOptional()
+    open247?: boolean;
 }
 
 export class CreateChargePointDto {
@@ -78,6 +117,14 @@ export class CreateChargePointDto {
     @IsString()
     @IsOptional()
     manufacturer?: string;
+
+    @IsString()
+    @IsOptional()
+    type?: string;
+
+    @IsNumber()
+    @IsOptional()
+    power?: number;
 }
 
 export class UpdateChargePointDto {
@@ -88,4 +135,12 @@ export class UpdateChargePointDto {
     @IsString()
     @IsOptional()
     firmwareVersion?: string;
+
+    @IsString()
+    @IsOptional()
+    type?: string;
+
+    @IsNumber()
+    @IsOptional()
+    power?: number;
 }

@@ -42,7 +42,13 @@ export class StationService {
         status: 'ACTIVE',
         siteId: site.id,
         orgId: createDto.orgId,
-        ownerId: createDto.ownerId
+        ownerId: createDto.ownerId,
+        // New Fields
+        rating: createDto.rating || 0,
+        price: createDto.price || 0,
+        amenities: createDto.amenities || '[]',
+        images: createDto.images || '[]',
+        open247: createDto.open247 || false
       } as any,
       include: { chargePoints: true, site: true }
     });
@@ -77,12 +83,7 @@ export class StationService {
       }
     });
 
-    return stations.map((s: any) => ({
-      ...s,
-      ownerId: s.ownerId || s.site?.ownerId,
-      orgId: s.orgId || s.site?.organizationId,
-      region: this.deriveRegion(s)
-    }));
+    return stations.map((s: any) => this.mapToFrontendStation(s));
   }
 
   async findStationById(id: string) {
@@ -97,18 +98,10 @@ export class StationService {
     });
     if (!station) throw new NotFoundException('Station not found');
 
-    return {
-      ...(station as any),
-      ownerId: (station as any).ownerId || (station as any).site?.ownerId,
-      orgId: (station as any).orgId || (station as any).site?.organizationId,
-      region: this.deriveRegion(station)
-    };
+    return this.mapToFrontendStation(station);
   }
 
   async findStationByCode(code: string) {
-    // Schema doesn't have code in previous step, adding it or mocking logic
-    // Actually schema had: id, name, status, lat, long, address. No code.
-    // Use ID as code or assume name
     const station = await this.prisma.station.findFirst({
       where: { name: code },
       include: {
@@ -120,10 +113,7 @@ export class StationService {
     });
     if (!station) throw new NotFoundException('Station not found');
 
-    return {
-      ...station,
-      region: this.deriveRegion(station)
-    };
+    return this.mapToFrontendStation(station);
   }
 
   async updateStation(id: string, updateDto: UpdateStationDto) {
@@ -134,11 +124,15 @@ export class StationService {
       if (!site) throw new NotFoundException('Site not found');
     }
 
-    return this.prisma.station.update({
+    const updated = await this.prisma.station.update({
       where: { id },
       data: updateDto,
       include: { chargePoints: true, site: true }
     });
+    // For update, we might want to return the raw entity or the mapped one. 
+    // Usually admin panels expect raw, but let's keep it consistent if it's used by frontend.
+    // For now, let's just return the raw updated entity as it was before, unless we know it breaks something.
+    return updated;
   }
 
   async removeStation(id: string) {
@@ -148,7 +142,55 @@ export class StationService {
   async getNearbyStations(lat: number, lng: number, radiusKm: number) {
     // Geo queries in Prisma are tricky without PostGIS raw queries
     // Returning top 10 for now
-    return this.prisma.station.findMany({ take: 10, include: { chargePoints: true, site: true } });
+    const stations = await this.prisma.station.findMany({ take: 10, include: { chargePoints: true, site: true } });
+    return stations.map(s => this.mapToFrontendStation(s));
+  }
+
+  // --- Helper ---
+  private mapToFrontendStation(s: any) {
+    // Calculate availability
+    const total = s.chargePoints ? s.chargePoints.length : 0;
+    const available = s.chargePoints ? s.chargePoints.filter((cp: any) => cp.status === 'AVAILABLE').length : 0;
+    const busy = s.chargePoints ? s.chargePoints.filter((cp: any) => cp.status === 'CHARGING' || cp.status === 'OCCUPIED').length : 0;
+    const offline = s.chargePoints ? s.chargePoints.filter((cp: any) => cp.status === 'OFFLINE' || cp.status === 'FAULTED').length : 0;
+
+    let amenities: string[] = [];
+    let images: string[] = [];
+    try {
+      amenities = JSON.parse(s.amenities || '[]');
+    } catch { amenities = []; }
+    try {
+      images = JSON.parse(s.images || '[]');
+    } catch { images = []; }
+
+    return {
+      ...s,
+      location: {
+        lat: s.latitude,
+        lng: s.longitude
+      },
+      availability: {
+        total,
+        available,
+        busy,
+        offline
+      },
+      connectors: s.chargePoints ? s.chargePoints.map((cp: any) => ({
+        id: cp.id,
+        type: cp.type || 'CCS2',
+        power: cp.power || 50,
+        status: cp.status.toLowerCase(),
+        price: s.price || 0
+      })) : [],
+      rating: s.rating || 0,
+      price: s.price || 0,
+      amenities,
+      images,
+      open247: s.open247,
+      ownerId: s.ownerId || s.site?.ownerId,
+      orgId: s.orgId || s.site?.organizationId,
+      region: this.deriveRegion(s)
+    };
   }
 
   async getStationStats(id: string) {
@@ -173,7 +215,9 @@ export class StationService {
       data: {
         ocppId: createDto.ocppId,
         stationId: createDto.stationId,
-        status: 'AVAILABLE'
+        status: 'AVAILABLE',
+        type: createDto.type || 'CCS2',
+        power: createDto.power || 50.0
       },
       include: { station: { include: { site: true } } }
     });

@@ -226,6 +226,13 @@ model Station {
   postalCode  String?
   zoneId      String?
 
+  // New Fields
+  rating      Float   @default(0)
+  price       Float   @default(0)
+  amenities   String  @default("[]") // JSON array
+  images      String  @default("[]") // JSON array
+  open247     Boolean @default(false)
+
   // Relations
   zone         GeographicZone? @relation(fields: [zoneId], references: [id])
 
@@ -251,6 +258,8 @@ model ChargePoint {
   model           String?
   vendor          String?
   firmwareVersion String?
+  type            String  @default("CCS2")
+  power           Float   @default(50.0)
 
   // Auth for OCPP Gateway
   clientSecretHash String?
