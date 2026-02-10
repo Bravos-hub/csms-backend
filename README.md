@@ -171,7 +171,7 @@ docker compose up -d api worker
 If production is failing with Prisma `P2022` for missing `stations` columns, apply the SQL hotfix:
 
 ```bash
-chmod +x scripts/hotfix-station-discovery-columns.sh
+chmod +x scripts/hotfix-station-discovery-columns.sh ]
 ./scripts/hotfix-station-discovery-columns.sh
 ```
 
@@ -186,12 +186,4 @@ Then restart API and verify:
 ```bash
 docker compose restart api
 docker logs csms-backend-api-1 --tail 100
-```
-
-If you see `PrismaClientInitializationError` with `libssl.so.1.1` missing, rebuild images after pulling latest Dockerfile changes, then re-run migrate:
-
-```bash
-docker compose build --no-cache api worker db-migrate
-docker compose run --rm db-migrate
-docker compose up -d api worker
 ```
