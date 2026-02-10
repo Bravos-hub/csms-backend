@@ -13,8 +13,14 @@ export class StationController {
   }
 
   @Get()
-  findAll() {
-    return this.stationService.findAllStations();
+  findAll(
+    @Query('north') north?: string,
+    @Query('south') south?: string,
+    @Query('east') east?: string,
+    @Query('west') west?: string
+  ) {
+    const bounds = this.parseBounds(north, south, east, west);
+    return this.stationService.findAllStations(bounds);
   }
 
   @Get('nearby')
@@ -69,6 +75,43 @@ export class StationController {
     } catch (error) {
       throw error;
     }
+  }
+
+  private parseBounds(north?: string, south?: string, east?: string, west?: string) {
+    const rawBounds = [north, south, east, west];
+    const hasAnyBounds = rawBounds.some((value) => value !== undefined);
+    const hasAllBounds = rawBounds.every((value) => value !== undefined);
+
+    if (!hasAnyBounds || !hasAllBounds) {
+      return undefined;
+    }
+
+    const parsedNorth = this.toFiniteNumber(north);
+    const parsedSouth = this.toFiniteNumber(south);
+    const parsedEast = this.toFiniteNumber(east);
+    const parsedWest = this.toFiniteNumber(west);
+
+    if (
+      parsedNorth === undefined
+      || parsedSouth === undefined
+      || parsedEast === undefined
+      || parsedWest === undefined
+    ) {
+      return undefined;
+    }
+
+    return {
+      north: Math.max(parsedNorth, parsedSouth),
+      south: Math.min(parsedNorth, parsedSouth),
+      east: Math.max(parsedEast, parsedWest),
+      west: Math.min(parsedEast, parsedWest)
+    };
+  }
+
+  private toFiniteNumber(value?: string): number | undefined {
+    if (value === undefined || value.trim() === '') return undefined;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
   }
 }
 

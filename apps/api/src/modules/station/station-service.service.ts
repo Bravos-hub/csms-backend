@@ -3,6 +3,13 @@ import { PrismaService } from '../../prisma.service';
 import { CreateStationDto, UpdateStationDto, CreateChargePointDto, UpdateChargePointDto } from './dto/station.dto';
 import { ChargerProvisioningService } from './provisioning/charger-provisioning.service';
 
+type StationBounds = {
+  north: number;
+  south: number;
+  east: number;
+  west: number;
+};
+
 @Injectable()
 export class StationService {
   private readonly logger = new Logger(StationService.name);
@@ -75,8 +82,14 @@ export class StationService {
     return station.owner?.region || 'Unknown';
   }
 
-  async findAllStations() {
+  async findAllStations(bounds?: StationBounds) {
     const stations = await this.prisma.station.findMany({
+      where: bounds
+        ? {
+          latitude: { gte: bounds.south, lte: bounds.north },
+          longitude: { gte: bounds.west, lte: bounds.east }
+        }
+        : undefined,
       include: {
         chargePoints: true,
         site: true,
@@ -145,7 +158,7 @@ export class StationService {
     // Geo queries in Prisma are tricky without PostGIS raw queries
     // Returning top 10 for now
     const stations = await this.prisma.station.findMany({ take: 10, include: { chargePoints: true, site: true } });
-    return stations.map(s => this.mapToFrontendStation(s));
+    return stations.map((s: any) => this.mapToFrontendStation(s));
   }
 
   // --- Helper ---

@@ -148,3 +148,42 @@ We provide a **Master Startup Script** that launches:
 *   **Cache**: Redis
 *   **Validation**: class-validator
 *   **Documentation**: Swagger, Mermaid, Markdown
+
+## Production Deploy (Docker Compose)
+
+Use this sequence to guarantee database migrations are applied before the API starts:
+
+```bash
+chmod +x scripts/deploy-compose.sh
+./scripts/deploy-compose.sh
+```
+
+Equivalent manual commands:
+
+```bash
+docker compose build api worker db-migrate
+docker compose run --rm db-migrate
+docker compose up -d api worker
+```
+
+## Incident Hotfix (Stations Schema Drift)
+
+If production is failing with Prisma `P2022` for missing `stations` columns, apply the SQL hotfix:
+
+```bash
+chmod +x scripts/hotfix-station-discovery-columns.sh
+./scripts/hotfix-station-discovery-columns.sh
+```
+
+Manual equivalent:
+
+```bash
+docker compose exec api sh -lc "npx prisma db execute --url \"$DATABASE_URL\" --file prisma/hotfixes/20260210_station_discovery_columns_hotfix.sql"
+```
+
+Then restart API and verify:
+
+```bash
+docker compose restart api
+docker logs csms-backend-api-1 --tail 100
+```
