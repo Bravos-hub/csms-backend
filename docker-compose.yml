@@ -25,6 +25,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: npx prisma migrate deploy
+    command: npx prisma@5.22.0 migrate deploy
     env_file: .env
     restart: "no"

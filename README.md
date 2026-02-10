@@ -187,3 +187,11 @@ Then restart API and verify:
 docker compose restart api
 docker logs csms-backend-api-1 --tail 100
 ```
+
+If you see `PrismaClientInitializationError` with `libssl.so.1.1` missing, rebuild images after pulling latest Dockerfile changes, then re-run migrate:
+
+```bash
+docker compose build --no-cache api worker db-migrate
+docker compose run --rm db-migrate
+docker compose up -d api worker
+```

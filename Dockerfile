@@ -4,7 +4,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Install dependencies needed for native modules
-RUN apk add --no-cache python3 make g++
+RUN apk add --no-cache python3 make g++ openssl
 
 # Copy root configuration
 COPY package*.json ./
@@ -31,6 +31,9 @@ WORKDIR /app
 
 # Set production environment
 ENV NODE_ENV=production
+
+# Prisma needs OpenSSL available at runtime for the query engine
+RUN apk add --no-cache openssl
 
 # Install only production dependencies
 COPY package*.json ./
