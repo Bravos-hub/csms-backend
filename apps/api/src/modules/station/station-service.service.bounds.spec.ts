@@ -82,4 +82,44 @@ describe('StationService bounds filtering', () => {
       })
     );
   });
+
+  it('applies case-insensitive text search when q is provided', async () => {
+    await service.findAllStations(undefined, 'kampala');
+
+    expect(prisma.station.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [
+            { name: { contains: 'kampala', mode: 'insensitive' } },
+            { address: { contains: 'kampala', mode: 'insensitive' } }
+          ]
+        }
+      })
+    );
+  });
+
+  it('combines bounds and text search when both are provided', async () => {
+    await service.findAllStations(
+      {
+        north: 0.578,
+        south: 0.561,
+        east: 32.646,
+        west: 32.637
+      },
+      'kampala'
+    );
+
+    expect(prisma.station.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          latitude: { gte: 0.561, lte: 0.578 },
+          longitude: { gte: 32.637, lte: 32.646 },
+          OR: [
+            { name: { contains: 'kampala', mode: 'insensitive' } },
+            { address: { contains: 'kampala', mode: 'insensitive' } }
+          ]
+        }
+      })
+    );
+  });
 });

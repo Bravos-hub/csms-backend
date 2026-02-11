@@ -82,14 +82,24 @@ export class StationService {
     return station.owner?.region || 'Unknown';
   }
 
-  async findAllStations(bounds?: StationBounds) {
+  async findAllStations(bounds?: StationBounds, q?: string) {
+    const where: any = {};
+
+    if (bounds) {
+      where.latitude = { gte: bounds.south, lte: bounds.north };
+      where.longitude = { gte: bounds.west, lte: bounds.east };
+    }
+
+    const trimmedQuery = q?.trim();
+    if (trimmedQuery) {
+      where.OR = [
+        { name: { contains: trimmedQuery, mode: 'insensitive' } },
+        { address: { contains: trimmedQuery, mode: 'insensitive' } }
+      ];
+    }
+
     const stations = await this.prisma.station.findMany({
-      where: bounds
-        ? {
-          latitude: { gte: bounds.south, lte: bounds.north },
-          longitude: { gte: bounds.west, lte: bounds.east }
-        }
-        : undefined,
+      where: Object.keys(where).length > 0 ? where : undefined,
       include: {
         chargePoints: true,
         site: true,

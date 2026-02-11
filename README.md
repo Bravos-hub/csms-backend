@@ -92,6 +92,30 @@ REDIS_HOST=localhost
 REDIS_PORT=6379
 ```
 
+### Prisma Client Drift Recovery
+
+Use root `.env` as the single source of truth for backend environment variables.
+
+- Keep `prisma/.env` empty (no active `KEY=value` entries).
+- If `prisma/.env` has active values, Prisma guardrails will fail fast.
+
+Commands:
+
+```bash
+npm run prisma:check
+npm run prisma:refresh
+```
+
+What they do:
+
+- `npm run prisma:check`: validates Prisma package version alignment, generated client integrity, runtime import targets, and env policy.
+- `npm run prisma:refresh`: deletes stale generated client artifacts and regenerates Prisma client with the local pinned CLI.
+
+Automatic guardrails:
+
+- `npm run start:dev` now runs Prisma checks first.
+- `npm run build` now runs Prisma checks first.
+
 ### Quick Start (Windows)
 
 We provide a **Master Startup Script** that launches:

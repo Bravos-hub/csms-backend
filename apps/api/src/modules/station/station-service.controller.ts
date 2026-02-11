@@ -17,10 +17,11 @@ export class StationController {
     @Query('north') north?: string,
     @Query('south') south?: string,
     @Query('east') east?: string,
-    @Query('west') west?: string
+    @Query('west') west?: string,
+    @Query('q') q?: string
   ) {
     const bounds = this.parseBounds(north, south, east, west);
-    return this.stationService.findAllStations(bounds);
+    return this.stationService.findAllStations(bounds, q);
   }
 
   @Get('nearby')
