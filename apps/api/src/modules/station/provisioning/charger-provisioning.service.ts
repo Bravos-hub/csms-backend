@@ -37,7 +37,7 @@ export class ChargerProvisioningService implements OnModuleInit, OnModuleDestroy
         this.redis.disconnect();
     }
 
-    async provision(chargePoint: ChargePoint, station: Station) {
+    async provision(chargePoint: ChargePoint, station: Station, ocppVersion: '1.6' | '2.0.1' | '2.1' = '1.6') {
         if (!chargePoint.ocppId) {
             this.logger.warn(`Cannot provision charge point without OCPP ID: ${chargePoint.id}`);
             return;
@@ -60,19 +60,23 @@ export class ChargerProvisioningService implements OnModuleInit, OnModuleDestroy
             stationId: station.id,
             tenantId: (station as any).site?.ownerId || 'unknown-owner', // Fallback or need deeper fetch
             status: 'active',
+            allowedProtocols: [this.gatewayVersion(ocppVersion)],
             auth: {
-                type: 'basic', // Default to basic auth using OCPP ID as username
+                type: 'basic',
                 username: chargePoint.ocppId,
-                // For security, we should generate a password/hash if one doesn't exist. 
-                // But for open/simple compatibility, we might leave secret blank or generate a default.
-                // If the gateway enforces secrets, this needs to be robust. 
-                // For this plan, we enable the charger to connect.
-                allowPlaintext: true
+                hashAlgorithm: 'sha256',
+                secretHash: chargePoint.clientSecretHash || undefined,
+                secretSalt: chargePoint.clientSecretSalt || undefined,
             },
             updatedAt: new Date().toISOString(),
         };
 
         await this.redis.set(key, JSON.stringify(identity));
         this.logger.log(`Provisioned charger ${chargePoint.ocppId} (Key: ${key})`);
+    }
+
+    private gatewayVersion(version: '1.6' | '2.0.1' | '2.1'): '1.6J' | '2.0.1' | '2.1' {
+        if (version === '2.0.1' || version === '2.1') return version;
+        return '1.6J';
     }
 }

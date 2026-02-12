@@ -1,22 +1,8 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { AnalyticsServiceController } from './analytics-service.controller';
-import { AnalyticsServiceService } from './analytics-service.service';
+import { AnalyticsController } from './analytics-service.controller';
 
-describe('AnalyticsServiceController', () => {
-  let analyticsServiceController: AnalyticsServiceController;
-
-  beforeEach(async () => {
-    const app: TestingModule = await Test.createTestingModule({
-      controllers: [AnalyticsServiceController],
-      providers: [AnalyticsServiceService],
-    }).compile();
-
-    analyticsServiceController = app.get<AnalyticsServiceController>(AnalyticsServiceController);
-  });
-
-  describe('getHello', () => {
-    it('should return "Hello World!"', () => {
-      expect(analyticsServiceController.getHello()).toBe('Hello World!');
-    });
+describe('AnalyticsController', () => {
+  it('should be defined', () => {
+    const controller = new AnalyticsController({} as any, {} as any);
+    expect(controller).toBeDefined();
   });
 });

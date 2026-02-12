@@ -20,7 +20,6 @@ import { DocumentsModule } from './modules/documents/documents.module';
 import { MailModule } from './modules/mail/mail.module';
 
 // Imported Modules from cpms-api
-import { ChargePointsModule } from './modules/charge-points/charge-points.module';
 import { CommandsModule } from './modules/commands/commands.module';
 import { DispatchesModule } from './modules/dispatches/dispatches.module';
 import { HealthModule } from './modules/health/health.module';
@@ -65,7 +64,6 @@ import { GeographyModule } from './modules/geography/geography.module';
     MailModule,
 
     // Imported
-    ChargePointsModule,
     CommandsModule,
     DispatchesModule,
     HealthModule,

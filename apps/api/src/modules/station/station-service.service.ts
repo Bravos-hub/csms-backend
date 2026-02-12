@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma.service';
 import { CreateStationDto, UpdateStationDto, CreateChargePointDto, UpdateChargePointDto } from './dto/station.dto';
 import { ChargerProvisioningService } from './provisioning/charger-provisioning.service';
@@ -237,20 +238,42 @@ export class StationService {
     return this.prisma.chargePoint.findUnique({ where: { id }, include: { station: true } });
   }
 
+  async findChargePointByOcppId(ocppId: string) {
+    return this.prisma.chargePoint.findUnique({ where: { ocppId }, include: { station: true } });
+  }
+
   async createChargePoint(createDto: CreateChargePointDto) {
+    const ocppVersion = this.normalizeOcppVersion(createDto.ocppVersion);
+    const oneTimePassword = randomBytes(18).toString('base64url');
+    const secretSalt = randomBytes(16).toString('hex');
+    const secretHash = createHash('sha256').update(secretSalt).update(oneTimePassword).digest('hex');
+
     const cp = await this.prisma.chargePoint.create({
       data: {
         ocppId: createDto.ocppId,
         stationId: createDto.stationId,
-        status: 'AVAILABLE',
+        status: 'Offline',
+        model: createDto.model,
+        vendor: createDto.manufacturer,
+        firmwareVersion: createDto.firmwareVersion,
+        clientSecretHash: secretHash,
+        clientSecretSalt: secretSalt,
         type: createDto.type || 'CCS2',
         power: createDto.power || 50.0
       },
       include: { station: { include: { site: true } } }
     });
 
-    await this.provisioningService.provision(cp, cp.station);
-    return cp;
+    await this.provisioningService.provision(cp, cp.station, ocppVersion);
+    return {
+      ...cp,
+      ocppCredentials: {
+        username: cp.ocppId,
+        password: oneTimePassword,
+        wsUrl: `wss://ocpp.evzonecharging.com/ocpp/${ocppVersion}/${cp.ocppId}`,
+        subprotocol: this.subprotocolForVersion(ocppVersion),
+      },
+    };
   }
 
   async updateChargePoint(id: string, updateDto: UpdateChargePointDto) {
@@ -324,5 +347,18 @@ export class StationService {
 
   async getStatusHistory(stationId: string) {
     return [];
+  }
+
+  private normalizeOcppVersion(version?: string): '1.6' | '2.0.1' | '2.1' {
+    if (version === '2.0.1' || version === '2.1') {
+      return version;
+    }
+    return '1.6';
+  }
+
+  private subprotocolForVersion(version: '1.6' | '2.0.1' | '2.1'): string {
+    if (version === '2.0.1') return 'ocpp2.0.1';
+    if (version === '2.1') return 'ocpp2.1';
+    return 'ocpp1.6';
   }
 }

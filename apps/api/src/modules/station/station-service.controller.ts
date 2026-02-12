@@ -125,6 +125,11 @@ export class ChargePointController {
     return this.stationService.findAllChargePoints();
   }
 
+  @Get('by-ocpp/:ocppId')
+  findByOcppId(@Param('ocppId') ocppId: string) {
+    return this.stationService.findChargePointByOcppId(ocppId);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.stationService.findChargePointById(id);

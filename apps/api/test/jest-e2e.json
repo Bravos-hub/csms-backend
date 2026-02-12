@@ -5,5 +5,15 @@
   "testRegex": ".e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "moduleNameMapper": {
+    "^@app/core$": "<rootDir>/../../../packages/domain/src",
+    "^@app/core/(.*)$": "<rootDir>/../../../packages/domain/src/$1",
+    "^@app/domain$": "<rootDir>/../../../packages/domain/src",
+    "^@app/domain/(.*)$": "<rootDir>/../../../packages/domain/src/$1",
+    "^@app/database$": "<rootDir>/../../../packages/db/src",
+    "^@app/database/(.*)$": "<rootDir>/../../../packages/db/src/$1",
+    "^@app/db$": "<rootDir>/../../../packages/db/src",
+    "^@app/db/(.*)$": "<rootDir>/../../../packages/db/src/$1"
   }
 }

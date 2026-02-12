@@ -68,6 +68,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
     "@nestjs/cli": "^11.0.16",
+    "@nestjs/testing": "^11.0.1",
     "@types/bcrypt": "^6.0.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.6",
@@ -105,11 +106,17 @@
     "testEnvironment": "node",
     "roots": [
       "<rootDir>/apps/",
-      "<rootDir>/libs/"
+      "<rootDir>/packages/"
     ],
     "moduleNameMapper": {
-      "^@app/core(|/.*)$": "<rootDir>/libs/core/src/$1",
-      "^@app/database(|/.*)$": "<rootDir>/libs/database/src/$1"
+      "^@app/core$": "<rootDir>/packages/domain/src",
+      "^@app/core/(.*)$": "<rootDir>/packages/domain/src/$1",
+      "^@app/domain$": "<rootDir>/packages/domain/src",
+      "^@app/domain/(.*)$": "<rootDir>/packages/domain/src/$1",
+      "^@app/database$": "<rootDir>/packages/db/src",
+      "^@app/database/(.*)$": "<rootDir>/packages/db/src/$1",
+      "^@app/db$": "<rootDir>/packages/db/src",
+      "^@app/db/(.*)$": "<rootDir>/packages/db/src/$1"
     }
   }
 }

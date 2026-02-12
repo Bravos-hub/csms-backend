@@ -136,11 +136,19 @@ export class CreateChargePointDto {
 
     @IsString()
     @IsOptional()
+    firmwareVersion?: string;
+
+    @IsString()
+    @IsOptional()
     type?: string;
 
     @IsNumber()
     @IsOptional()
     power?: number;
+
+    @IsEnum(['1.6', '2.0.1', '2.1'])
+    @IsOptional()
+    ocppVersion?: '1.6' | '2.0.1' | '2.1';
 }
 
 export class UpdateChargePointDto {
