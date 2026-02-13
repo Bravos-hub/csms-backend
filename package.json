@@ -26,6 +26,7 @@
     "start:worker": "nest start worker",
     "prisma:refresh": "node scripts/prisma-refresh.js",
     "prisma:check": "node scripts/prisma-check.js",
+    "backfill:user-org-region": "tsx ./prisma/backfill-user-org-region.ts",
     "seed": "prisma db seed",
     "lint": "eslint \"{src,apps,packages,test}/**/*.ts\" --fix",
     "test": "jest",

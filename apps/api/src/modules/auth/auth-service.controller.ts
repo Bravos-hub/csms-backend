@@ -25,6 +25,7 @@ import {
   ServiceTokenRequestDto,
 } from './dto/auth.dto';
 import { COOKIE_NAMES, getCookieOptions } from '../../common/utils/cookie.config';
+import { JwtAuthGuard } from './jwt-auth.guard';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -265,8 +266,9 @@ export class UsersController {
     @Query('role') role?: string,
     @Query('status') status?: string,
     @Query('region') region?: string,
+    @Query('zoneId') zoneId?: string,
   ) {
-    return this.authService.findAllUsers({ search, role, status, region });
+    return this.authService.findAllUsers({ search, role, status, region, zoneId });
   }
 
   @Get(':id')
@@ -275,7 +277,8 @@ export class UsersController {
   }
 
   @Post('invite')
-  invite(@Body() inviteDto: InviteUserDto, @Req() req: Request) {
+  @UseGuards(JwtAuthGuard)
+  invite(@Body() inviteDto: InviteUserDto, @Req() req: Request & { user?: { sub?: string } }) {
     if (!inviteDto.frontendUrl) {
       const origin = req.headers.origin as string;
       const host = req.headers.host;
@@ -284,7 +287,7 @@ export class UsersController {
         inviteDto.frontendUrl = origin;
       }
     }
-    return this.authService.inviteUser(inviteDto);
+    return this.authService.inviteUser(inviteDto, req.user?.sub);
   }
 
   @Patch('me')

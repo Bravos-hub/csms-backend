@@ -1,6 +1,6 @@
 import { Injectable, UnauthorizedException, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
-import { UserRole, StationOwnerCapability } from '@prisma/client';
+import { UserRole, StationOwnerCapability, Prisma } from '@prisma/client';
 import { LoginDto, CreateUserDto, UpdateUserDto, InviteUserDto } from './dto/auth.dto';
 import { NotificationService } from '../notification/notification-service.service';
 import { MailService } from '../mail/mail.service';
@@ -16,6 +16,24 @@ import * as bcrypt from 'bcrypt';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private readonly consistencyCounters = {
+    registerValidationFailures: 0,
+    inviteValidationFailures: 0,
+    usersMissingOrganization: 0,
+  };
+  private readonly evzoneRoles = new Set<UserRole>([
+    UserRole.SUPER_ADMIN,
+    UserRole.EVZONE_ADMIN,
+    UserRole.EVZONE_OPERATOR,
+  ]);
+  private readonly organizationSafeSelect = {
+    id: true,
+    name: true,
+    type: true,
+    city: true,
+    address: true,
+    logoUrl: true,
+  } as const;
   private readonly userSafeSelect = {
     id: true,
     name: true,
@@ -46,6 +64,97 @@ export class AuthService {
 
   getHello(): string {
     return 'Auth Service Operational';
+  }
+
+  private isEvzoneRole(role: UserRole | string | undefined): role is UserRole {
+    if (!role) return false;
+    return this.evzoneRoles.has(role as UserRole);
+  }
+
+  private normalizeRegionValue(region?: string | null): string | null {
+    if (!region) return null;
+    const normalized = region.trim().toUpperCase().replace(/[\s-]+/g, '_');
+    return normalized || null;
+  }
+
+  private incrementConsistencyCounter(
+    key: keyof typeof this.consistencyCounters,
+    reason: string,
+    context: string,
+  ) {
+    this.consistencyCounters[key] += 1;
+    this.logger.warn(
+      `[consistency] ${context}: ${reason} (counter=${key}, total=${this.consistencyCounters[key]})`,
+    );
+  }
+
+  private async ensureEvzoneOrganization(client: PrismaService | Prisma.TransactionClient = this.prisma) {
+    const existing = await client.organization.findFirst({
+      where: { name: { equals: 'EVZONE', mode: 'insensitive' } },
+    });
+    if (existing) return existing;
+
+    return client.organization.create({
+      data: {
+        name: 'EVZONE',
+        type: 'COMPANY',
+        description: 'Default EVZONE platform organization',
+      },
+    });
+  }
+
+  private async resolveGeography(
+    input: { zoneId?: string | null; region?: string | null; country?: string | null },
+    context: 'register' | 'invite',
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ): Promise<{ zoneId: string; region: string }> {
+    if (input.zoneId) {
+      const zone = await client.geographicZone.findUnique({ where: { id: input.zoneId } });
+      if (!zone) {
+        this.incrementConsistencyCounter(
+          context === 'register' ? 'registerValidationFailures' : 'inviteValidationFailures',
+          `invalid zoneId=${input.zoneId}`,
+          context,
+        );
+        throw new BadRequestException('Invalid zoneId: zone was not found');
+      }
+
+      return {
+        zoneId: zone.id,
+        region: this.normalizeRegionValue(input.region) || this.normalizeRegionValue(zone.name) || 'UNKNOWN',
+      };
+    }
+
+    const candidates = [input.region, input.country]
+      .map((value) => value?.trim())
+      .filter((value): value is string => Boolean(value));
+
+    for (const candidate of candidates) {
+      const zone = await client.geographicZone.findFirst({
+        where: {
+          OR: [
+            { code: { equals: candidate, mode: 'insensitive' } },
+            { name: { equals: candidate, mode: 'insensitive' } },
+          ],
+        },
+      });
+
+      if (zone) {
+        return {
+          zoneId: zone.id,
+          region: this.normalizeRegionValue(input.region) || this.normalizeRegionValue(zone.name) || 'UNKNOWN',
+        };
+      }
+    }
+
+    this.incrementConsistencyCounter(
+      context === 'register' ? 'registerValidationFailures' : 'inviteValidationFailures',
+      `unresolved geography (region=${input.region || 'n/a'}, country=${input.country || 'n/a'})`,
+      context,
+    );
+    throw new BadRequestException(
+      'Unable to resolve geography. Provide a valid zoneId or a region/country that maps to a configured geographic zone.',
+    );
   }
 
   async login(loginDto: LoginDto) {
@@ -106,7 +215,7 @@ export class AuthService {
   }
 
 
-  async register(createUserDto: any) {
+  async register(createUserDto: CreateUserDto & { frontendUrl?: string }) {
     const exists = await this.prisma.user.findUnique({ where: { email: createUserDto.email } });
     if (exists) {
       if (exists.status === 'Pending') {
@@ -128,21 +237,32 @@ export class AuthService {
     }
 
     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+    const requestedRole = (createUserDto.role as UserRole) || UserRole.SITE_OWNER;
 
     // Registration Transaction
     const result = await this.prisma.$transaction(async (tx) => {
-      // 1. Create Organization
-      const orgType = createUserDto.accountType || 'COMPANY';
-      const orgName = orgType === 'COMPANY'
-        ? (createUserDto.companyName || `${createUserDto.name}'s Corp`)
-        : (createUserDto.companyName || createUserDto.name);
+      const geography = await this.resolveGeography(
+        {
+          zoneId: createUserDto.zoneId,
+          region: createUserDto.region,
+          country: createUserDto.country,
+        },
+        'register',
+        tx,
+      );
 
-      const organization = await tx.organization.create({
-        data: {
-          name: orgName,
-          type: orgType,
-        }
-      });
+      const orgType = createUserDto.accountType || 'COMPANY';
+      const organization = this.isEvzoneRole(requestedRole)
+        ? await this.ensureEvzoneOrganization(tx)
+        : await tx.organization.create({
+            data: {
+              name:
+                orgType === 'COMPANY'
+                  ? createUserDto.companyName || `${createUserDto.name}'s Corp`
+                  : createUserDto.companyName || createUserDto.name,
+              type: orgType,
+            },
+          });
 
       // 2. Create User linked to Org
       const user = await tx.user.create({
@@ -150,11 +270,12 @@ export class AuthService {
           email: createUserDto.email,
           name: createUserDto.name,
           phone: createUserDto.phone,
-          role: (createUserDto.role as any) || 'SITE_OWNER',
+          role: requestedRole,
           status: 'Pending', // User starts as Pending (email not verified)
           passwordHash: hashedPassword,
           country: createUserDto.country,
-          region: createUserDto.region,
+          region: geography.region,
+          zoneId: geography.zoneId,
           subscribedPackage: createUserDto.subscribedPackage || 'Free',
           ownerCapability: createUserDto.ownerCapability as any,
           organizationId: organization.id,
@@ -168,9 +289,9 @@ export class AuthService {
           companyName: createUserDto.companyName,
           taxId: createUserDto.taxId,
           country: createUserDto.country || 'Unknown',
-          region: createUserDto.region || 'Unknown',
+          region: geography.region,
           accountType: orgType,
-          role: createUserDto.role || 'SITE_OWNER',
+          role: requestedRole,
           subscribedPackage: createUserDto.subscribedPackage,
           status: 'PENDING',
         }
@@ -194,26 +315,76 @@ export class AuthService {
       user: {
         id: result.user.id,
         email: result.user.email,
-        organizationId: result.organization.id
+        organizationId: result.organization.id,
       }
     };
   }
 
-  async inviteUser(inviteDto: InviteUserDto) {
+  async inviteUser(inviteDto: InviteUserDto, inviterId?: string) {
+    if (!inviterId) {
+      throw new UnauthorizedException('Authenticated inviter context is required');
+    }
+
+    const inviter = await this.prisma.user.findUnique({
+      where: { id: inviterId },
+      select: {
+        id: true,
+        organizationId: true,
+        zoneId: true,
+        region: true,
+        country: true,
+      },
+    });
+    if (!inviter) {
+      throw new NotFoundException('Inviter not found');
+    }
+
     const exists = await this.prisma.user.findUnique({ where: { email: inviteDto.email } });
     if (exists) throw new BadRequestException('User already exists');
+
+    const inviteRole = inviteDto.role as unknown as UserRole;
+    const organizationId = this.isEvzoneRole(inviteRole)
+      ? (await this.ensureEvzoneOrganization()).id
+      : inviter.organizationId;
+
+    if (!organizationId) {
+      this.incrementConsistencyCounter(
+        'inviteValidationFailures',
+        `inviter ${inviter.id} has no organization for role ${inviteRole}`,
+        'invite',
+      );
+      throw new BadRequestException(
+        'Inviter is missing organization assignment; cannot invite non-EVZONE users',
+      );
+    }
+
+    const geography = await this.resolveGeography({
+      zoneId: inviteDto.zoneId || inviter.zoneId,
+      region: inviteDto.region || inviter.region,
+      country: inviter.country,
+    }, 'invite');
 
     const passwordHash = inviteDto.password
       ? await bcrypt.hash(inviteDto.password, 10)
       : undefined;
 
     const user = await this.prisma.user.create({
+      select: {
+        ...this.userSafeSelect,
+        organization: {
+          select: this.organizationSafeSelect,
+        },
+      },
       data: {
         email: inviteDto.email,
         name: inviteDto.email.split('@')[0],
-        role: inviteDto.role as unknown as UserRole,
+        role: inviteRole,
         status: inviteDto.password ? 'Active' : 'Invited',
         passwordHash,
+        country: inviter.country,
+        region: geography.region,
+        zoneId: geography.zoneId,
+        organizationId,
         ownerCapability: inviteDto.ownerCapability as unknown as StationOwnerCapability,
       },
     });
@@ -234,7 +405,12 @@ export class AuthService {
       };
 
       const roleName = roleLabels[inviteDto.role] || inviteDto.role;
-      await this.mailService.sendInvitationEmail(inviteDto.email, roleName, 'EV Zone', inviteDto.frontendUrl);
+      await this.mailService.sendInvitationEmail(
+        inviteDto.email,
+        roleName,
+        user.organization?.name || 'EVZONE',
+        inviteDto.frontendUrl,
+      );
     } catch (error) {
       this.logger.error('Failed to send invitation email', String(error).replace(/[\n\r]/g, ''));
     }
@@ -416,6 +592,8 @@ export class AuthService {
         role: user.role,
         name: user.name,
         status: user.status,
+        region: user.region,
+        zoneId: user.zoneId,
         ownerCapability: user.ownerCapability,
         organizationId: user.organizationId
       }
@@ -474,6 +652,8 @@ export class AuthService {
           role: user.role,
           name: user.name,
           status: user.status,
+          region: user.region,
+          zoneId: user.zoneId,
           ownerCapability: user.ownerCapability,
           organizationId: user.organizationId
         },
@@ -514,7 +694,9 @@ export class AuthService {
     }
   }
 
-  async findAllUsers(params: { search?: string; role?: string; status?: string; region?: string } = {}) {
+  async findAllUsers(
+    params: { search?: string; role?: string; status?: string; region?: string; zoneId?: string } = {},
+  ) {
     const where: any = {};
     if (params.search) {
       where.OR = [
@@ -529,19 +711,39 @@ export class AuthService {
       where.status = params.status;
     }
     if (params.region) {
-      where.region = params.region;
+      where.region = {
+        equals: this.normalizeRegionValue(params.region) || params.region,
+        mode: 'insensitive',
+      };
+    }
+    if (params.zoneId) {
+      where.zoneId = params.zoneId;
     }
 
-    return this.prisma.user.findMany({
+    const users = await this.prisma.user.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       select: {
         ...this.userSafeSelect,
+        organization: {
+          select: this.organizationSafeSelect,
+        },
         _count: {
           select: { ownedStations: true, operatedStations: true }
         }
       }
     });
+
+    const missingOrg = users.filter((user) => !user.organizationId && !this.isEvzoneRole(user.role)).length;
+    if (missingOrg > 0) {
+      this.incrementConsistencyCounter(
+        'usersMissingOrganization',
+        `${missingOrg} users without organization in current /users result`,
+        'list_users',
+      );
+    }
+
+    return users;
   }
 
   async getCrmStats() {
@@ -563,14 +765,7 @@ export class AuthService {
       select: {
         ...this.userSafeSelect,
         organization: {
-          select: {
-            id: true,
-            name: true,
-            type: true,
-            city: true,
-            address: true,
-            logoUrl: true,
-          }
+          select: this.organizationSafeSelect,
         }
       }
     });
@@ -581,7 +776,12 @@ export class AuthService {
   async getCurrentUser(id: string) {
     return this.prisma.user.findUnique({
       where: { id },
-      include: { organization: true }
+      select: {
+        ...this.userSafeSelect,
+        organization: {
+          select: this.organizationSafeSelect,
+        },
+      },
     });
   }
 

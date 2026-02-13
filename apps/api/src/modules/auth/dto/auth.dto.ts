@@ -53,6 +53,10 @@ export class CreateUserDto {
 
     @IsString()
     @IsOptional()
+    zoneId?: string;
+
+    @IsString()
+    @IsOptional()
     subscribedPackage?: string;
 
     @IsString()
@@ -107,6 +111,14 @@ export class InviteUserDto {
     @IsString()
     @IsOptional()
     frontendUrl?: string;
+
+    @IsString()
+    @IsOptional()
+    region?: string;
+
+    @IsString()
+    @IsOptional()
+    zoneId?: string;
 }
 
 export class ServiceTokenRequestDto {
