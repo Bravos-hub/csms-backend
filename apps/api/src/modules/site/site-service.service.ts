@@ -1,10 +1,17 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, SitePurpose } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { CreateSiteDto, UpdateSiteDto } from './dto/site.dto';
 import { CreateSiteDocumentDto } from './dto/document.dto';
 
-type SiteWithRelations = Prisma.SiteGetPayload<{ include: { stations: true; leaseDetails: true; documents: true } }>;
+type SiteWithRelations = Prisma.SiteGetPayload<{
+  include: {
+    stations: true;
+    leaseDetails: true;
+    documents: true;
+    owner: { select: { id: true; name: true; email: true; phone: true; region: true } };
+  };
+}>;
 
 
 @Injectable()
@@ -83,9 +90,26 @@ export class SiteService {
     return this.findSiteById(created.id);
   }
 
-  async findAllSites() {
+  private normalizePurpose(purpose?: string): SitePurpose | undefined {
+    if (!purpose) return undefined;
+    if (Object.values(SitePurpose).includes(purpose as SitePurpose)) {
+      return purpose as SitePurpose;
+    }
+    throw new BadRequestException(`Invalid site purpose: ${purpose}`);
+  }
+
+  async findAllSites(params: { purpose?: string } = {}) {
+    const purpose = this.normalizePurpose(params.purpose);
     const sites = await this.prisma.site.findMany({
-      include: { stations: true, leaseDetails: true, documents: true }
+      where: purpose ? { purpose } : undefined,
+      include: {
+        stations: true,
+        leaseDetails: true,
+        documents: true,
+        owner: {
+          select: { id: true, name: true, email: true, phone: true, region: true },
+        },
+      },
     });
     return sites.map((site: any) => this.formatSite(site));
   }
@@ -93,7 +117,14 @@ export class SiteService {
   async findSiteById(id: string) {
     const site = await this.prisma.site.findUnique({
       where: { id },
-      include: { stations: true, leaseDetails: true, documents: true }
+      include: {
+        stations: true,
+        leaseDetails: true,
+        documents: true,
+        owner: {
+          select: { id: true, name: true, email: true, phone: true, region: true },
+        },
+      },
     });
     if (!site) throw new NotFoundException('Site not found');
     return this.formatSite(site);
@@ -161,7 +192,14 @@ export class SiteService {
     const updated = await this.prisma.site.update({
       where: { id },
       data,
-      include: { stations: true, leaseDetails: true, documents: true }
+      include: {
+        stations: true,
+        leaseDetails: true,
+        documents: true,
+        owner: {
+          select: { id: true, name: true, email: true, phone: true, region: true },
+        },
+      },
     });
 
 

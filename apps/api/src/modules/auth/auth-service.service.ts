@@ -16,6 +16,23 @@ import * as bcrypt from 'bcrypt';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private readonly userSafeSelect = {
+    id: true,
+    name: true,
+    email: true,
+    phone: true,
+    role: true,
+    status: true,
+    country: true,
+    region: true,
+    postalCode: true,
+    zoneId: true,
+    subscribedPackage: true,
+    organizationId: true,
+    ownerCapability: true,
+    createdAt: true,
+    updatedAt: true,
+  } as const;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -497,7 +514,7 @@ export class AuthService {
     }
   }
 
-  async findAllUsers(params: { search?: string; role?: string } = {}) {
+  async findAllUsers(params: { search?: string; role?: string; status?: string; region?: string } = {}) {
     const where: any = {};
     if (params.search) {
       where.OR = [
@@ -508,11 +525,18 @@ export class AuthService {
     if (params.role) {
       where.role = params.role;
     }
+    if (params.status) {
+      where.status = params.status;
+    }
+    if (params.region) {
+      where.region = params.region;
+    }
 
     return this.prisma.user.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      include: {
+      select: {
+        ...this.userSafeSelect,
         _count: {
           select: { ownedStations: true, operatedStations: true }
         }
@@ -534,7 +558,22 @@ export class AuthService {
   }
 
   async findUserById(id: string) {
-    const user = await this.prisma.user.findUnique({ where: { id } });
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        ...this.userSafeSelect,
+        organization: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            city: true,
+            address: true,
+            logoUrl: true,
+          }
+        }
+      }
+    });
     if (!user) throw new NotFoundException('User not found');
     return user;
   }

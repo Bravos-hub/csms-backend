@@ -260,8 +260,13 @@ export class UsersController {
   }
 
   @Get()
-  findAll(@Query('q') search?: string, @Query('role') role?: any) {
-    return this.authService.findAllUsers({ search, role });
+  findAll(
+    @Query('q') search?: string,
+    @Query('role') role?: string,
+    @Query('status') status?: string,
+    @Query('region') region?: string,
+  ) {
+    return this.authService.findAllUsers({ search, role, status, region });
   }
 
   @Get(':id')

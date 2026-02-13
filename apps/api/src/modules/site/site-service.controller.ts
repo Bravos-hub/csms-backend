@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
-import { CreateSiteDto, UpdateSiteDto } from './dto/site.dto';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { CreateSiteDto, SitePurpose, UpdateSiteDto } from './dto/site.dto';
 import { CreateSiteDocumentDto } from './dto/document.dto';
 import { SiteService } from './site-service.service';
 
@@ -13,8 +13,8 @@ export class SiteController {
   }
 
   @Get()
-  findAll() {
-    return this.siteService.findAllSites();
+  findAll(@Query('purpose') purpose?: SitePurpose) {
+    return this.siteService.findAllSites({ purpose });
   }
 
   @Get(':id')

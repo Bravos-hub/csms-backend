@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsEnum, IsNumber, IsLatitude, IsLongitude } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsEnum, IsNumber, IsLatitude, IsLongitude, IsArray } from 'class-validator';
 
 export class CreateStationDto {
     @IsString()
@@ -136,7 +136,19 @@ export class CreateChargePointDto {
 
     @IsString()
     @IsOptional()
+    serialNumber?: string;
+
+    @IsString()
+    @IsOptional()
     firmwareVersion?: string;
+
+    @IsArray()
+    @IsOptional()
+    connectors?: Array<{
+        type?: string;
+        powerType?: 'AC' | 'DC';
+        maxPowerKw?: number;
+    }>;
 
     @IsString()
     @IsOptional()
