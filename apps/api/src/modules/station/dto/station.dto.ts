@@ -1,4 +1,18 @@
-import { IsString, IsNotEmpty, IsOptional, IsEnum, IsNumber, IsLatitude, IsLongitude, IsArray } from 'class-validator';
+import {
+    IsString,
+    IsNotEmpty,
+    IsOptional,
+    IsEnum,
+    IsNumber,
+    IsLatitude,
+    IsLongitude,
+    IsArray,
+    IsIn,
+    IsInt,
+    Min,
+    IsIP,
+    IsBoolean,
+} from 'class-validator';
 
 export class CreateStationDto {
     @IsString()
@@ -161,6 +175,25 @@ export class CreateChargePointDto {
     @IsEnum(['1.6', '2.0.1', '2.1'])
     @IsOptional()
     ocppVersion?: '1.6' | '2.0.1' | '2.1';
+
+    @IsIn(['basic', 'mtls_bootstrap'])
+    @IsOptional()
+    authProfile?: 'basic' | 'mtls_bootstrap';
+
+    @IsInt()
+    @Min(1)
+    @IsOptional()
+    bootstrapTtlMinutes?: number;
+
+    @IsArray()
+    @IsIP(undefined, { each: true })
+    @IsOptional()
+    allowedIps?: string[];
+
+    @IsArray()
+    @IsString({ each: true })
+    @IsOptional()
+    allowedCidrs?: string[];
 }
 
 export class UpdateChargePointDto {
@@ -179,4 +212,42 @@ export class UpdateChargePointDto {
     @IsNumber()
     @IsOptional()
     power?: number;
+}
+
+export class BindChargePointCertificateDto {
+    @IsString()
+    @IsNotEmpty()
+    fingerprint: string;
+
+    @IsString()
+    @IsOptional()
+    subject?: string;
+
+    @IsString()
+    @IsOptional()
+    validFrom?: string;
+
+    @IsString()
+    @IsOptional()
+    validTo?: string;
+}
+
+export class UpdateChargePointBootstrapDto {
+    @IsBoolean()
+    enabled: boolean;
+
+    @IsInt()
+    @Min(1)
+    @IsOptional()
+    ttlMinutes?: number;
+
+    @IsArray()
+    @IsIP(undefined, { each: true })
+    @IsOptional()
+    allowedIps?: string[];
+
+    @IsArray()
+    @IsString({ each: true })
+    @IsOptional()
+    allowedCidrs?: string[];
 }

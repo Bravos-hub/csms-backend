@@ -1,7 +1,14 @@
 import { Controller, Get, Post, Body, Patch, Param, Delete, Put, Query } from '@nestjs/common';
 import { EventPattern, Payload } from '@nestjs/microservices';
 import { StationService } from './station-service.service';
-import { CreateStationDto, UpdateStationDto, CreateChargePointDto, UpdateChargePointDto } from './dto/station.dto';
+import {
+  CreateStationDto,
+  UpdateStationDto,
+  CreateChargePointDto,
+  UpdateChargePointDto,
+  BindChargePointCertificateDto,
+  UpdateChargePointBootstrapDto
+} from './dto/station.dto';
 
 @Controller('stations')
 export class StationController {
@@ -153,5 +160,20 @@ export class ChargePointController {
   @Post(':id/reboot')
   reboot(@Param('id') id: string) {
     return this.stationService.rebootChargePoint(id);
+  }
+
+  @Get(':id/security')
+  getSecurity(@Param('id') id: string) {
+    return this.stationService.getChargePointSecurity(id);
+  }
+
+  @Post(':id/security/certificate-bind')
+  bindCertificate(@Param('id') id: string, @Body() dto: BindChargePointCertificateDto) {
+    return this.stationService.bindChargePointCertificate(id, dto);
+  }
+
+  @Patch(':id/security/bootstrap')
+  updateBootstrap(@Param('id') id: string, @Body() dto: UpdateChargePointBootstrapDto) {
+    return this.stationService.updateChargePointBootstrap(id, dto);
   }
 }

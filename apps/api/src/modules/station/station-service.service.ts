@@ -1,7 +1,15 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
+import { isIP } from 'net';
 import { PrismaService } from '../../prisma.service';
-import { CreateStationDto, UpdateStationDto, CreateChargePointDto, UpdateChargePointDto } from './dto/station.dto';
+import {
+  CreateStationDto,
+  UpdateStationDto,
+  CreateChargePointDto,
+  UpdateChargePointDto,
+  BindChargePointCertificateDto,
+  UpdateChargePointBootstrapDto
+} from './dto/station.dto';
 import { ChargerProvisioningService } from './provisioning/charger-provisioning.service';
 
 type StationBounds = {
@@ -14,11 +22,18 @@ type StationBounds = {
 @Injectable()
 export class StationService {
   private readonly logger = new Logger(StationService.name);
+  private readonly enableNoAuthBootstrap: boolean;
+  private readonly bootstrapDefaultMinutes: number;
+  private readonly bootstrapMaxMinutes: number;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly provisioningService: ChargerProvisioningService,
-  ) { }
+  ) {
+    this.enableNoAuthBootstrap = process.env.OCPP_ENABLE_NOAUTH_BOOTSTRAP === 'true';
+    this.bootstrapDefaultMinutes = this.readIntEnv('OCPP_NOAUTH_BOOTSTRAP_DEFAULT_MINUTES', 30);
+    this.bootstrapMaxMinutes = this.readIntEnv('OCPP_NOAUTH_BOOTSTRAP_MAX_MINUTES', 120);
+  }
 
   async handleOcppMessage(message: any) {
     const { chargePointId, action, payload } = message;
@@ -243,6 +258,23 @@ export class StationService {
   }
 
   async createChargePoint(createDto: CreateChargePointDto) {
+    const authProfile = createDto.authProfile || 'basic';
+    const allowedIps = this.normalizeList(createDto.allowedIps);
+    const allowedCidrs = this.normalizeList(createDto.allowedCidrs);
+    const bootstrapTtlMinutes = this.resolveBootstrapTtl(createDto.bootstrapTtlMinutes);
+
+    if (authProfile === 'mtls_bootstrap') {
+      if (!this.enableNoAuthBootstrap) {
+        throw new BadRequestException('No-password bootstrap is currently disabled');
+      }
+      if (allowedIps.length === 0 && allowedCidrs.length === 0) {
+        throw new BadRequestException(
+          'allowedIps or allowedCidrs is required when authProfile is mtls_bootstrap'
+        );
+      }
+      allowedCidrs.forEach((cidr) => this.assertValidCidr(cidr));
+    }
+
     const ocppVersion = this.normalizeOcppVersion(createDto.ocppVersion);
     const oneTimePassword = randomBytes(18).toString('base64url');
     const secretSalt = randomBytes(16).toString('hex');
@@ -258,13 +290,24 @@ export class StationService {
         firmwareVersion: createDto.firmwareVersion,
         clientSecretHash: secretHash,
         clientSecretSalt: secretSalt,
+        allowedInsecure: authProfile === 'mtls_bootstrap',
         type: createDto.type || 'CCS2',
         power: createDto.power || 50.0
       },
       include: { station: { include: { site: true } } }
     });
 
-    await this.provisioningService.provision(cp, cp.station, ocppVersion);
+    await this.provisioningService.provision(cp, cp.station, ocppVersion, {
+      authProfile,
+      bootstrapTtlMinutes,
+      allowedIps,
+      allowedCidrs,
+    });
+    const bootstrapExpiresAt =
+      authProfile === 'mtls_bootstrap'
+        ? new Date(Date.now() + bootstrapTtlMinutes * 60_000).toISOString()
+        : undefined;
+
     return {
       ...cp,
       ocppCredentials: {
@@ -272,8 +315,91 @@ export class StationService {
         password: oneTimePassword,
         wsUrl: `wss://ocpp.evzonecharging.com/ocpp/${ocppVersion}/${cp.ocppId}`,
         subprotocol: this.subprotocolForVersion(ocppVersion),
+        authProfile: authProfile === 'mtls_bootstrap' ? 'mtls_bootstrap' : 'basic',
+        bootstrapExpiresAt,
+        requiresClientCertificate: authProfile === 'mtls_bootstrap',
+        mtlsInstructions:
+          authProfile === 'mtls_bootstrap'
+            ? 'Use the URL and subprotocol now. Connection is temporary, IP-restricted, and no-password. Complete mTLS certificate binding before bootstrap expires.'
+            : undefined,
       },
     };
+  }
+
+  async getChargePointSecurity(id: string) {
+    const cp = await this.prisma.chargePoint.findUnique({ where: { id } });
+    if (!cp) throw new NotFoundException('Charge Point not found');
+    const security = await this.provisioningService.getSecurityState(cp.ocppId);
+    return {
+      chargePointId: cp.id,
+      ocppId: cp.ocppId,
+      ...security,
+    };
+  }
+
+  async bindChargePointCertificate(id: string, dto: BindChargePointCertificateDto) {
+    const cp = await this.prisma.chargePoint.findUnique({ where: { id } });
+    if (!cp) throw new NotFoundException('Charge Point not found');
+
+    const normalizedFingerprint = this.normalizeFingerprint(dto.fingerprint);
+    this.assertValidFingerprint(normalizedFingerprint);
+    this.assertOptionalIsoDate(dto.validFrom, 'validFrom');
+    this.assertOptionalIsoDate(dto.validTo, 'validTo');
+
+    try {
+      await this.provisioningService.bindCertificate(cp.ocppId, {
+        fingerprint: normalizedFingerprint,
+        subject: dto.subject,
+        validFrom: dto.validFrom,
+        validTo: dto.validTo,
+      });
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+    await this.prisma.chargePoint.update({
+      where: { id: cp.id },
+      data: { allowedInsecure: false }
+    });
+
+    return {
+      status: 'ok',
+      chargePointId: cp.id,
+      ocppId: cp.ocppId,
+      fingerprint: normalizedFingerprint,
+      authProfile: 'mtls',
+      requiresClientCertificate: true,
+    };
+  }
+
+  async updateChargePointBootstrap(id: string, dto: UpdateChargePointBootstrapDto) {
+    const cp = await this.prisma.chargePoint.findUnique({ where: { id } });
+    if (!cp) throw new NotFoundException('Charge Point not found');
+    if (dto.enabled && !this.enableNoAuthBootstrap) {
+      throw new BadRequestException('No-password bootstrap is currently disabled');
+    }
+
+    const allowedIps = dto.allowedIps !== undefined ? this.normalizeList(dto.allowedIps) : undefined;
+    const allowedCidrs = dto.allowedCidrs !== undefined ? this.normalizeList(dto.allowedCidrs) : undefined;
+    allowedCidrs?.forEach((cidr) => this.assertValidCidr(cidr));
+    const ttlMinutes = dto.ttlMinutes !== undefined ? this.resolveBootstrapTtl(dto.ttlMinutes) : undefined;
+
+    try {
+      await this.provisioningService.updateBootstrap(cp.ocppId, {
+        enabled: dto.enabled,
+        ttlMinutes,
+        allowedIps,
+        allowedCidrs,
+      });
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+
+    await this.prisma.chargePoint.update({
+      where: { id: cp.id },
+      data: { allowedInsecure: dto.enabled }
+    });
+
+    return this.getChargePointSecurity(cp.id);
   }
 
   async updateChargePoint(id: string, updateDto: UpdateChargePointDto) {
@@ -360,5 +486,56 @@ export class StationService {
     if (version === '2.0.1') return 'ocpp2.0.1';
     if (version === '2.1') return 'ocpp2.1';
     return 'ocpp1.6';
+  }
+
+  private resolveBootstrapTtl(input?: number): number {
+    const fallback = input ?? this.bootstrapDefaultMinutes;
+    const bounded = Math.max(1, Math.floor(fallback));
+    return Math.min(bounded, Math.max(1, this.bootstrapMaxMinutes));
+  }
+
+  private normalizeList(values?: string[]): string[] {
+    if (!values || values.length === 0) return [];
+    return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+  }
+
+  private normalizeFingerprint(value: string): string {
+    return value.replace(/:/g, '').trim().toUpperCase();
+  }
+
+  private assertValidFingerprint(value: string): void {
+    if (!/^[A-F0-9]{64}$/.test(value)) {
+      throw new BadRequestException('fingerprint must be a SHA-256 hex value');
+    }
+  }
+
+  private assertOptionalIsoDate(value: string | undefined, field: string): void {
+    if (!value) return;
+    if (Number.isNaN(Date.parse(value))) {
+      throw new BadRequestException(`${field} must be a valid ISO datetime`);
+    }
+  }
+
+  private assertValidCidr(value: string): void {
+    const [ipRaw, prefixRaw] = value.split('/');
+    if (!ipRaw || prefixRaw === undefined) {
+      throw new BadRequestException(`Invalid CIDR entry: ${value}`);
+    }
+    const version = isIP(ipRaw.trim());
+    if (!version) {
+      throw new BadRequestException(`Invalid CIDR IP: ${value}`);
+    }
+    const prefix = Number(prefixRaw);
+    const maxPrefix = version === 4 ? 32 : 128;
+    if (!Number.isInteger(prefix) || prefix < 0 || prefix > maxPrefix) {
+      throw new BadRequestException(`Invalid CIDR prefix: ${value}`);
+    }
+  }
+
+  private readIntEnv(key: string, fallback: number): number {
+    const raw = process.env[key];
+    if (!raw) return fallback;
+    const parsed = parseInt(raw, 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
   }
 }
