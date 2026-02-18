@@ -40,6 +40,7 @@ export class AuthService {
     email: true,
     phone: true,
     role: true,
+    providerId: true,
     status: true,
     country: true,
     region: true,
@@ -402,6 +403,8 @@ export class AuthService {
         'ATTENDANT': 'Attendant',
         'CASHIER': 'Cashier',
         'STATION_OWNER': 'Station Owner',
+        'SWAP_PROVIDER_ADMIN': 'Swap Provider Admin',
+        'SWAP_PROVIDER_OPERATOR': 'Swap Provider Operator',
       };
 
       const roleName = roleLabels[inviteDto.role] || inviteDto.role;
@@ -590,6 +593,7 @@ export class AuthService {
         email: user.email,
         phone: user.phone,
         role: user.role,
+        providerId: user.providerId,
         name: user.name,
         status: user.status,
         region: user.region,
@@ -650,6 +654,7 @@ export class AuthService {
           email: user.email,
           phone: user.phone,
           role: user.role,
+          providerId: user.providerId,
           name: user.name,
           status: user.status,
           region: user.region,
@@ -695,7 +700,15 @@ export class AuthService {
   }
 
   async findAllUsers(
-    params: { search?: string; role?: string; status?: string; region?: string; zoneId?: string } = {},
+    params: {
+      search?: string
+      role?: string
+      status?: string
+      region?: string
+      zoneId?: string
+      orgId?: string
+      organizationId?: string
+    } = {},
   ) {
     const where: any = {};
     if (params.search) {
@@ -718,6 +731,9 @@ export class AuthService {
     }
     if (params.zoneId) {
       where.zoneId = params.zoneId;
+    }
+    if (params.orgId || params.organizationId) {
+      where.organizationId = params.orgId || params.organizationId;
     }
 
     const users = await this.prisma.user.findMany({

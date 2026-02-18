@@ -255,8 +255,9 @@ export class UsersController {
   }
 
   @Get('me')
+  @UseGuards(JwtAuthGuard)
   getMe(@Req() req: any) {
-    const userId = req.headers['x-user-id'] || 'mock-id';
+    const userId = req.user?.sub || req.headers['x-user-id'] || 'mock-id';
     return this.authService.getCurrentUser(userId);
   }
 
@@ -267,8 +268,10 @@ export class UsersController {
     @Query('status') status?: string,
     @Query('region') region?: string,
     @Query('zoneId') zoneId?: string,
+    @Query('orgId') orgId?: string,
+    @Query('organizationId') organizationId?: string,
   ) {
-    return this.authService.findAllUsers({ search, role, status, region, zoneId });
+    return this.authService.findAllUsers({ search, role, status, region, zoneId, orgId, organizationId });
   }
 
   @Get(':id')

@@ -643,6 +643,512 @@ async function main() {
 
     console.log('Subscription plans seeded');
 
+    // 7. Seed provider ecosystem (marketplace + governance)
+    console.log('Seeding provider ecosystem...');
+
+    const ownerOrgA = await prisma.organization.upsert({
+        where: { id: 'org-owner-a' },
+        update: { name: 'Green Route Owners Ltd' },
+        create: {
+            id: 'org-owner-a',
+            name: 'Green Route Owners Ltd',
+            type: 'COMPANY',
+            city: 'Kampala',
+        },
+    });
+
+    const ownerOrgB = await prisma.organization.upsert({
+        where: { id: 'org-owner-b' },
+        update: { name: 'Metro Fleet Energy Ltd' },
+        create: {
+            id: 'org-owner-b',
+            name: 'Metro Fleet Energy Ltd',
+            type: 'COMPANY',
+            city: 'Nairobi',
+        },
+    });
+
+    const providerOrg1 = await prisma.organization.upsert({
+        where: { id: 'org-provider-1' },
+        update: { name: 'VoltSwap Networks' },
+        create: {
+            id: 'org-provider-1',
+            name: 'VoltSwap Networks',
+            type: 'COMPANY',
+            city: 'Kampala',
+        },
+    });
+
+    const providerOrg2 = await prisma.organization.upsert({
+        where: { id: 'org-provider-2' },
+        update: { name: 'BatteryLoop Africa' },
+        create: {
+            id: 'org-provider-2',
+            name: 'BatteryLoop Africa',
+            type: 'COMPANY',
+            city: 'Nairobi',
+        },
+    });
+
+    const providerOrg3 = await prisma.organization.upsert({
+        where: { id: 'org-provider-3' },
+        update: { name: 'SwapLink Transit' },
+        create: {
+            id: 'org-provider-3',
+            name: 'SwapLink Transit',
+            type: 'COMPANY',
+            city: 'Berlin',
+        },
+    });
+
+    const ownerPassword = await bcrypt.hash('Password123.', 10);
+    await prisma.user.upsert({
+        where: { email: 'owner-a@evzone.app' },
+        update: {
+            role: 'STATION_OWNER',
+            status: 'Active',
+            ownerCapability: 'SWAP',
+            organizationId: ownerOrgA.id,
+            region: 'UGANDA',
+            emailVerifiedAt: new Date(),
+        },
+        create: {
+            name: 'Owner A',
+            email: 'owner-a@evzone.app',
+            role: 'STATION_OWNER',
+            status: 'Active',
+            ownerCapability: 'SWAP',
+            organizationId: ownerOrgA.id,
+            region: 'UGANDA',
+            passwordHash: ownerPassword,
+            emailVerifiedAt: new Date(),
+        },
+    });
+
+    await prisma.user.upsert({
+        where: { email: 'owner-b@evzone.app' },
+        update: {
+            role: 'STATION_OWNER',
+            status: 'Active',
+            ownerCapability: 'BOTH',
+            organizationId: ownerOrgB.id,
+            region: 'KENYA',
+            emailVerifiedAt: new Date(),
+        },
+        create: {
+            name: 'Owner B',
+            email: 'owner-b@evzone.app',
+            role: 'STATION_OWNER',
+            status: 'Active',
+            ownerCapability: 'BOTH',
+            organizationId: ownerOrgB.id,
+            region: 'KENYA',
+            passwordHash: ownerPassword,
+            emailVerifiedAt: new Date(),
+        },
+    });
+
+    const provider1 = await prisma.swapProvider.upsert({
+        where: { id: 'provider-approved-1' },
+        update: {
+            name: 'VoltSwap Networks',
+            region: 'UGANDA',
+            standard: 'Gogoro G2',
+            batteriesSupported: ['GOGORO_G2', 'GOGORO_G2_PLUS'],
+            status: 'APPROVED',
+            stationCount: 18,
+            organizationId: providerOrg1.id,
+            contactEmail: 'ops@voltswap.example',
+            contactPhone: '+256700000001',
+            website: 'https://voltswap.example',
+        },
+        create: {
+            id: 'provider-approved-1',
+            name: 'VoltSwap Networks',
+            legalName: 'VoltSwap Networks Ltd',
+            registrationNumber: 'REG-VSN-1001',
+            taxId: 'TIN-VSN-7788',
+            contactEmail: 'ops@voltswap.example',
+            contactPhone: '+256700000001',
+            region: 'UGANDA',
+            regions: ['UGANDA', 'KENYA'],
+            countries: ['UG', 'KE'],
+            organizationId: providerOrg1.id,
+            standard: 'Gogoro G2',
+            batteriesSupported: ['GOGORO_G2', 'GOGORO_G2_PLUS'],
+            supportedStationTypes: ['SWAP'],
+            protocolCapabilities: ['OCPI', 'BATCH_SETTLEMENT'],
+            feeModel: 'PER_SWAP',
+            settlementTerms: 'T+7',
+            stationCount: 18,
+            website: 'https://voltswap.example',
+            status: 'APPROVED',
+            approvedAt: new Date(),
+            requiredDocuments: [
+                'INCORPORATION',
+                'TAX_COMPLIANCE',
+                'INSURANCE',
+                'TECHNICAL_CONFORMANCE',
+            ],
+            partnerSince: new Date('2025-11-10T00:00:00.000Z'),
+        },
+    });
+
+    const provider2 = await prisma.swapProvider.upsert({
+        where: { id: 'provider-approved-2' },
+        update: {
+            name: 'BatteryLoop Africa',
+            region: 'KENYA',
+            standard: 'Universal',
+            batteriesSupported: ['UNIVERSAL_2W', 'UNIVERSAL_3W'],
+            status: 'APPROVED',
+            stationCount: 24,
+            organizationId: providerOrg2.id,
+            contactEmail: 'operations@batteryloop.example',
+            contactPhone: '+254700000002',
+            website: 'https://batteryloop.example',
+        },
+        create: {
+            id: 'provider-approved-2',
+            name: 'BatteryLoop Africa',
+            legalName: 'BatteryLoop Africa Ltd',
+            registrationNumber: 'REG-BLA-2002',
+            taxId: 'TIN-BLA-8899',
+            contactEmail: 'operations@batteryloop.example',
+            contactPhone: '+254700000002',
+            region: 'KENYA',
+            regions: ['KENYA', 'UGANDA', 'TANZANIA'],
+            countries: ['KE', 'UG', 'TZ'],
+            organizationId: providerOrg2.id,
+            standard: 'Universal',
+            batteriesSupported: ['UNIVERSAL_2W', 'UNIVERSAL_3W'],
+            supportedStationTypes: ['SWAP', 'BOTH'],
+            protocolCapabilities: ['OCPI', 'REALTIME_STATUS'],
+            feeModel: 'REVENUE_SHARE',
+            settlementTerms: 'T+14',
+            stationCount: 24,
+            website: 'https://batteryloop.example',
+            status: 'APPROVED',
+            approvedAt: new Date(),
+            requiredDocuments: [
+                'INCORPORATION',
+                'TAX_COMPLIANCE',
+                'INSURANCE',
+                'BATTERY_SAFETY_CERTIFICATION',
+            ],
+            partnerSince: new Date('2025-10-02T00:00:00.000Z'),
+        },
+    });
+
+    const provider3 = await prisma.swapProvider.upsert({
+        where: { id: 'provider-pending-1' },
+        update: {
+            name: 'SwapLink Transit',
+            region: 'GERMANY',
+            standard: 'NIO BaaS',
+            batteriesSupported: ['NIO_BAAS'],
+            status: 'PENDING_REVIEW',
+            stationCount: 5,
+            organizationId: providerOrg3.id,
+            contactEmail: 'hello@swaplink.example',
+            contactPhone: '+49300000003',
+            website: 'https://swaplink.example',
+        },
+        create: {
+            id: 'provider-pending-1',
+            name: 'SwapLink Transit',
+            legalName: 'SwapLink Transit GmbH',
+            registrationNumber: 'REG-SLT-3003',
+            taxId: 'TIN-SLT-9911',
+            contactEmail: 'hello@swaplink.example',
+            contactPhone: '+49300000003',
+            region: 'GERMANY',
+            regions: ['GERMANY'],
+            countries: ['DE'],
+            organizationId: providerOrg3.id,
+            standard: 'NIO BaaS',
+            batteriesSupported: ['NIO_BAAS'],
+            supportedStationTypes: ['SWAP'],
+            protocolCapabilities: ['OCPI'],
+            feeModel: 'PER_SWAP',
+            settlementTerms: 'T+30',
+            stationCount: 5,
+            website: 'https://swaplink.example',
+            status: 'PENDING_REVIEW',
+            requiredDocuments: ['INCORPORATION', 'TAX_COMPLIANCE', 'INSURANCE'],
+            partnerSince: new Date('2026-01-01T00:00:00.000Z'),
+        },
+    });
+
+    await prisma.user.upsert({
+        where: { email: 'provider-admin-1@evzone.app' },
+        update: {
+            role: 'SWAP_PROVIDER_ADMIN',
+            status: 'Active',
+            organizationId: providerOrg1.id,
+            providerId: provider1.id,
+            region: 'UGANDA',
+            emailVerifiedAt: new Date(),
+        },
+        create: {
+            name: 'Provider Admin 1',
+            email: 'provider-admin-1@evzone.app',
+            role: 'SWAP_PROVIDER_ADMIN',
+            status: 'Active',
+            organizationId: providerOrg1.id,
+            providerId: provider1.id,
+            region: 'UGANDA',
+            passwordHash: ownerPassword,
+            emailVerifiedAt: new Date(),
+        },
+    });
+
+    await prisma.user.upsert({
+        where: { email: 'provider-operator-1@evzone.app' },
+        update: {
+            role: 'SWAP_PROVIDER_OPERATOR',
+            status: 'Active',
+            organizationId: providerOrg2.id,
+            providerId: provider2.id,
+            region: 'KENYA',
+            emailVerifiedAt: new Date(),
+        },
+        create: {
+            name: 'Provider Operator 1',
+            email: 'provider-operator-1@evzone.app',
+            role: 'SWAP_PROVIDER_OPERATOR',
+            status: 'Active',
+            organizationId: providerOrg2.id,
+            providerId: provider2.id,
+            region: 'KENYA',
+            passwordHash: ownerPassword,
+            emailVerifiedAt: new Date(),
+        },
+    });
+
+    await prisma.providerRelationship.upsert({
+        where: { id: 'relationship-requested-1' },
+        update: {
+            providerId: provider2.id,
+            ownerOrgId: ownerOrgA.id,
+            status: 'REQUESTED',
+            requestedBy: mockUserId,
+            notes: 'Initial request from Owner A',
+        },
+        create: {
+            id: 'relationship-requested-1',
+            providerId: provider2.id,
+            ownerOrgId: ownerOrgA.id,
+            status: 'REQUESTED',
+            requestedBy: mockUserId,
+            notes: 'Initial request from Owner A',
+        },
+    });
+
+    const relationshipDocsPending = await prisma.providerRelationship.upsert({
+        where: { id: 'relationship-docs-pending-1' },
+        update: {
+            providerId: provider1.id,
+            ownerOrgId: ownerOrgA.id,
+            status: 'DOCS_PENDING',
+            requestedBy: mockUserId,
+            providerRespondedAt: new Date('2026-01-15T00:00:00.000Z'),
+            notes: 'Awaiting compliance documents',
+        },
+        create: {
+            id: 'relationship-docs-pending-1',
+            providerId: provider1.id,
+            ownerOrgId: ownerOrgA.id,
+            status: 'DOCS_PENDING',
+            requestedBy: mockUserId,
+            providerRespondedAt: new Date('2026-01-15T00:00:00.000Z'),
+            notes: 'Awaiting compliance documents',
+        },
+    });
+
+    const relationshipActive = await prisma.providerRelationship.upsert({
+        where: { id: 'relationship-active-1' },
+        update: {
+            providerId: provider2.id,
+            ownerOrgId: ownerOrgB.id,
+            status: 'ACTIVE',
+            requestedBy: mockUserId,
+            providerRespondedAt: new Date('2025-12-01T00:00:00.000Z'),
+            adminApprovedAt: new Date('2025-12-12T00:00:00.000Z'),
+            notes: 'Active partnership',
+        },
+        create: {
+            id: 'relationship-active-1',
+            providerId: provider2.id,
+            ownerOrgId: ownerOrgB.id,
+            status: 'ACTIVE',
+            requestedBy: mockUserId,
+            providerRespondedAt: new Date('2025-12-01T00:00:00.000Z'),
+            adminApprovedAt: new Date('2025-12-12T00:00:00.000Z'),
+            notes: 'Active partnership',
+        },
+    });
+
+    await prisma.providerRelationship.upsert({
+        where: { id: 'relationship-terminated-1' },
+        update: {
+            providerId: provider1.id,
+            ownerOrgId: ownerOrgB.id,
+            status: 'TERMINATED',
+            requestedBy: mockUserId,
+            providerRespondedAt: new Date('2025-11-05T00:00:00.000Z'),
+            notes: 'Terminated after pilot',
+        },
+        create: {
+            id: 'relationship-terminated-1',
+            providerId: provider1.id,
+            ownerOrgId: ownerOrgB.id,
+            status: 'TERMINATED',
+            requestedBy: mockUserId,
+            providerRespondedAt: new Date('2025-11-05T00:00:00.000Z'),
+            notes: 'Terminated after pilot',
+        },
+    });
+
+    await prisma.providerDocument.upsert({
+        where: { id: 'provider-doc-1' },
+        update: {
+            providerId: provider1.id,
+            relationshipId: relationshipDocsPending.id,
+            ownerOrgId: ownerOrgA.id,
+            type: 'TECHNICAL_CONFORMANCE',
+            name: 'Technical Conformance Pack',
+            fileUrl: 'https://example.com/provider-docs/technical-conformance-pack.pdf',
+            status: 'PENDING',
+            uploadedBy: mockUserId,
+        },
+        create: {
+            id: 'provider-doc-1',
+            providerId: provider1.id,
+            relationshipId: relationshipDocsPending.id,
+            ownerOrgId: ownerOrgA.id,
+            type: 'TECHNICAL_CONFORMANCE',
+            name: 'Technical Conformance Pack',
+            fileUrl: 'https://example.com/provider-docs/technical-conformance-pack.pdf',
+            status: 'PENDING',
+            uploadedBy: mockUserId,
+        },
+    });
+
+    await prisma.providerDocument.upsert({
+        where: { id: 'provider-doc-2' },
+        update: {
+            providerId: provider2.id,
+            relationshipId: relationshipActive.id,
+            ownerOrgId: ownerOrgB.id,
+            type: 'INSURANCE',
+            name: 'Insurance Certificate 2026',
+            fileUrl: 'https://example.com/provider-docs/insurance-certificate-2026.pdf',
+            status: 'APPROVED',
+            uploadedBy: mockUserId,
+        },
+        create: {
+            id: 'provider-doc-2',
+            providerId: provider2.id,
+            relationshipId: relationshipActive.id,
+            ownerOrgId: ownerOrgB.id,
+            type: 'INSURANCE',
+            name: 'Insurance Certificate 2026',
+            fileUrl: 'https://example.com/provider-docs/insurance-certificate-2026.pdf',
+            status: 'APPROVED',
+            uploadedBy: mockUserId,
+        },
+    });
+
+    await prisma.providerSettlementEntry.upsert({
+        where: { id: 'provider-settlement-1' },
+        update: {
+            relationshipId: relationshipActive.id,
+            providerId: provider2.id,
+            ownerOrgId: ownerOrgB.id,
+            amount: 1200,
+            providerFee: 120,
+            platformFee: 80,
+            adjustment: 0,
+            net: 1000,
+            currency: 'USD',
+            status: 'PAID',
+        },
+        create: {
+            id: 'provider-settlement-1',
+            relationshipId: relationshipActive.id,
+            providerId: provider2.id,
+            ownerOrgId: ownerOrgB.id,
+            amount: 1200,
+            providerFee: 120,
+            platformFee: 80,
+            adjustment: 0,
+            net: 1000,
+            currency: 'USD',
+            status: 'PAID',
+        },
+    });
+
+    await prisma.providerSettlementEntry.upsert({
+        where: { id: 'provider-settlement-2' },
+        update: {
+            relationshipId: relationshipActive.id,
+            providerId: provider2.id,
+            ownerOrgId: ownerOrgB.id,
+            amount: 780,
+            providerFee: 78,
+            platformFee: 52,
+            adjustment: -10,
+            net: 640,
+            currency: 'USD',
+            status: 'PENDING',
+        },
+        create: {
+            id: 'provider-settlement-2',
+            relationshipId: relationshipActive.id,
+            providerId: provider2.id,
+            ownerOrgId: ownerOrgB.id,
+            amount: 780,
+            providerFee: 78,
+            platformFee: 52,
+            adjustment: -10,
+            net: 640,
+            currency: 'USD',
+            status: 'PENDING',
+        },
+    });
+
+    await prisma.providerSettlementEntry.upsert({
+        where: { id: 'provider-settlement-3' },
+        update: {
+            relationshipId: relationshipActive.id,
+            providerId: provider2.id,
+            ownerOrgId: ownerOrgB.id,
+            amount: 450,
+            providerFee: 45,
+            platformFee: 30,
+            adjustment: 15,
+            net: 390,
+            currency: 'USD',
+            status: 'DISPUTED',
+        },
+        create: {
+            id: 'provider-settlement-3',
+            relationshipId: relationshipActive.id,
+            providerId: provider2.id,
+            ownerOrgId: ownerOrgB.id,
+            amount: 450,
+            providerFee: 45,
+            platformFee: 30,
+            adjustment: 15,
+            net: 390,
+            currency: 'USD',
+            status: 'DISPUTED',
+        },
+    });
+
+    console.log('Provider ecosystem seeded');
+
     console.log('Seeding complete!');
 
 }

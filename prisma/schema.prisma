@@ -12,6 +12,8 @@ enum UserRole {
   SUPER_ADMIN
   EVZONE_ADMIN
   EVZONE_OPERATOR
+  SWAP_PROVIDER_ADMIN
+  SWAP_PROVIDER_OPERATOR
   SITE_OWNER
   STATION_OWNER
   OWNER
@@ -36,6 +38,48 @@ enum StationOwnerCapability {
   BOTH
 }
 
+enum SwapProviderStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum ProviderRelationshipStatus {
+  REQUESTED
+  PROVIDER_ACCEPTED
+  DOCS_PENDING
+  ADMIN_APPROVED
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+}
+
+enum ProviderDocumentType {
+  INCORPORATION
+  TAX_COMPLIANCE
+  INSURANCE
+  BATTERY_SAFETY_CERTIFICATION
+  RECYCLING_COMPLIANCE
+  TECHNICAL_CONFORMANCE
+  COMMERCIAL_AGREEMENT
+  SOP_ACKNOWLEDGEMENT
+  SITE_COMPATIBILITY_DECLARATION
+}
+
+enum ProviderDocumentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ProviderSettlementStatus {
+  PENDING
+  PAID
+  DISPUTED
+}
+
 model User {
   id              String  @id @default(uuid())
   name            String
@@ -53,12 +97,14 @@ model User {
   zoneId            String?
   subscribedPackage String? // Free, Starter, Growth, Pro, Enterprise
   organizationId    String?
+  providerId        String?
 
   // Relations
   zone                 GeographicZone?     @relation(fields: [zoneId], references: [id])
 
   // Relations
   organization         Organization?       @relation(fields: [organizationId], references: [id])
+  provider             SwapProvider?       @relation(fields: [providerId], references: [id])
   applications         TenantApplication[] @relation("Applications")
   reviewedApplications TenantApplication[] @relation("ReviewedApplications")
 
@@ -98,6 +144,7 @@ model User {
   reviewedUserApplications  UserApplication[]   @relation("ReviewedBy")
 
   @@map("users")
+  @@index([providerId])
 }
 
 model Organization {
@@ -119,11 +166,127 @@ model Organization {
   
   users       User[]
   sites       Site[]
+  swapProviders SwapProvider[] @relation("ProviderOrganization")
+  ownerProviderRelationships ProviderRelationship[] @relation("OwnerOrganization")
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@map("organizations")
+}
+
+model SwapProvider {
+  id                    String               @id @default(uuid())
+  name                  String
+  logoUrl               String?
+  legalName             String?
+  registrationNumber    String?
+  taxId                 String?
+  contactEmail          String?
+  contactPhone          String?
+  region                String
+  regions               String[]             @default([])
+  countries             String[]             @default([])
+  organizationId        String?
+  standard              String               @default("Universal")
+  batteriesSupported    String[]             @default([])
+  supportedStationTypes String[]             @default([])
+  protocolCapabilities  String[]             @default([])
+  feeModel              String?
+  settlementTerms       String?
+  stationCount          Int                  @default(0)
+  website               String?
+  status                SwapProviderStatus   @default(DRAFT)
+  statusReason          String?
+  approvedAt            DateTime?
+  suspendedAt           DateTime?
+  requiredDocuments     ProviderDocumentType[] @default([])
+  partnerSince          DateTime             @default(now())
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  organization    Organization?             @relation("ProviderOrganization", fields: [organizationId], references: [id])
+  users           User[]
+  relationships   ProviderRelationship[]
+  documents       ProviderDocument[]
+  settlementEntries ProviderSettlementEntry[]
+
+  @@map("swap_providers")
+  @@index([status])
+  @@index([region])
+  @@index([organizationId])
+}
+
+model ProviderRelationship {
+  id                 String                     @id @default(uuid())
+  providerId         String
+  ownerOrgId         String
+  status             ProviderRelationshipStatus @default(REQUESTED)
+  requestedBy        String?
+  providerRespondedAt DateTime?
+  adminApprovedAt    DateTime?
+  notes              String?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  provider    SwapProvider                  @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  ownerOrg    Organization                  @relation("OwnerOrganization", fields: [ownerOrgId], references: [id], onDelete: Restrict)
+  documents   ProviderDocument[]
+  settlementEntries ProviderSettlementEntry[]
+
+  @@map("provider_relationships")
+  @@index([providerId])
+  @@index([ownerOrgId])
+  @@index([status])
+}
+
+model ProviderDocument {
+  id             String               @id @default(uuid())
+  providerId     String?
+  relationshipId String?
+  ownerOrgId     String?
+  type           ProviderDocumentType
+  name           String
+  fileUrl        String
+  uploadedAt     DateTime             @default(now())
+  uploadedBy     String?
+  status         ProviderDocumentStatus @default(PENDING)
+  rejectionReason String?
+
+  provider     SwapProvider?         @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  relationship ProviderRelationship? @relation(fields: [relationshipId], references: [id], onDelete: SetNull)
+
+  @@map("provider_documents")
+  @@index([providerId])
+  @@index([relationshipId])
+  @@index([status])
+}
+
+model ProviderSettlementEntry {
+  id             String                  @id @default(uuid())
+  relationshipId String?
+  providerId     String
+  ownerOrgId     String?
+  stationId      String?
+  sessionId      String?
+  amount         Float
+  providerFee    Float
+  platformFee    Float
+  adjustment     Float                   @default(0)
+  net            Float
+  currency       String                  @default("USD")
+  status         ProviderSettlementStatus @default(PENDING)
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  provider     SwapProvider          @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  relationship ProviderRelationship? @relation(fields: [relationshipId], references: [id], onDelete: SetNull)
+
+  @@map("provider_settlement_entries")
+  @@index([providerId])
+  @@index([ownerOrgId])
+  @@index([createdAt])
+  @@index([status])
 }
 
 model UserApplication {
