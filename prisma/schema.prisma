@@ -201,6 +201,8 @@ model SwapProvider {
   approvedAt            DateTime?
   suspendedAt           DateTime?
   requiredDocuments     ProviderDocumentType[] @default([])
+  complianceMarkets     String[]             @default([])
+  complianceProfile     Json?
   partnerSince          DateTime             @default(now())
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
@@ -226,6 +228,8 @@ model ProviderRelationship {
   providerRespondedAt DateTime?
   adminApprovedAt    DateTime?
   notes              String?
+  complianceMarkets  String[]                   @default([])
+  complianceProfile  Json?
   createdAt          DateTime                   @default(now())
   updatedAt          DateTime                   @updatedAt
 
@@ -246,11 +250,25 @@ model ProviderDocument {
   relationshipId String?
   ownerOrgId     String?
   type           ProviderDocumentType
+  requirementCode String?
+  category       String?
   name           String
   fileUrl        String
+  cloudinaryPublicId String?
+  issuer         String?
+  documentNumber String?
+  issueDate      DateTime?
+  expiryDate     DateTime?
+  coveredModels  String[]             @default([])
+  coveredSites   String[]             @default([])
+  version        String?
+  metadata       Json?
   uploadedAt     DateTime             @default(now())
   uploadedBy     String?
   status         ProviderDocumentStatus @default(PENDING)
+  reviewedBy     String?
+  reviewedAt     DateTime?
+  reviewNotes    String?
   rejectionReason String?
 
   provider     SwapProvider?         @relation(fields: [providerId], references: [id], onDelete: SetNull)
@@ -259,7 +277,20 @@ model ProviderDocument {
   @@map("provider_documents")
   @@index([providerId])
   @@index([relationshipId])
+  @@index([requirementCode])
+  @@index([expiryDate])
   @@index([status])
+}
+
+model CompliancePolicy {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  data      Json
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("compliance_policies")
 }
 
 model ProviderSettlementEntry {

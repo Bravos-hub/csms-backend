@@ -5,8 +5,10 @@ import {
   IsDateString,
   IsEmail,
   IsEnum,
+  IsIn,
   IsInt,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUrl,
@@ -26,6 +28,13 @@ const toInt = ({ value }: { value: unknown }) => {
   if (value == null || value === '') return undefined
   const parsed = Number(value)
   return Number.isNaN(parsed) ? value : parsed
+}
+
+const toStringArray = ({ value }: { value: unknown }) => {
+  if (value == null || value === '') return undefined
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean)
+  if (typeof value === 'string') return value.split(',').map((item) => item.trim()).filter(Boolean)
+  return undefined
 }
 
 export class ProviderListQueryDto {
@@ -149,6 +158,16 @@ export class CreateProviderDto {
   requiredDocuments?: ProviderDocumentType[]
 
   @IsOptional()
+  @Transform(toStringArray)
+  @IsArray()
+  @IsString({ each: true })
+  complianceMarkets?: string[]
+
+  @IsOptional()
+  @IsObject()
+  complianceProfile?: Record<string, unknown>
+
+  @IsOptional()
   @IsDateString()
   partnerSince?: string
 }
@@ -240,6 +259,16 @@ export class UpdateProviderDto {
   @IsArray()
   @IsEnum(ProviderDocumentType, { each: true })
   requiredDocuments?: ProviderDocumentType[]
+
+  @IsOptional()
+  @Transform(toStringArray)
+  @IsArray()
+  @IsString({ each: true })
+  complianceMarkets?: string[]
+
+  @IsOptional()
+  @IsObject()
+  complianceProfile?: Record<string, unknown>
 }
 
 export class ProviderRejectBodyDto {
@@ -288,10 +317,20 @@ export class CreateProviderRelationshipDto {
   @IsOptional()
   @IsString()
   notes?: string
+
+  @IsOptional()
+  @Transform(toStringArray)
+  @IsArray()
+  @IsString({ each: true })
+  complianceMarkets?: string[]
+
+  @IsOptional()
+  @IsObject()
+  complianceProfile?: Record<string, unknown>
 }
 
 export class RespondProviderRelationshipDto {
-  @IsEnum(['ACCEPT', 'REJECT'])
+  @IsIn(['ACCEPT', 'REJECT'])
   action: 'ACCEPT' | 'REJECT'
 
   @IsOptional()
@@ -343,6 +382,181 @@ export class CreateProviderDocumentDto {
 
   @IsUrl({ require_tld: false }, { message: 'fileUrl must be a valid URL' })
   fileUrl: string
+
+  @IsOptional()
+  @IsString()
+  requirementCode?: string
+
+  @IsOptional()
+  @IsString()
+  category?: string
+
+  @IsOptional()
+  @IsString()
+  issuer?: string
+
+  @IsOptional()
+  @IsString()
+  documentNumber?: string
+
+  @IsOptional()
+  @IsDateString()
+  issueDate?: string
+
+  @IsOptional()
+  @IsDateString()
+  expiryDate?: string
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  coveredModels?: string[]
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  coveredSites?: string[]
+
+  @IsOptional()
+  @IsString()
+  version?: string
+
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>
+
+  /**
+   * @deprecated Use POST /provider-documents/upload for native file uploads.
+   */
+}
+
+export class ReviewProviderDocumentDto {
+  @IsEnum(ProviderDocumentStatus)
+  status: ProviderDocumentStatus
+
+  @IsOptional()
+  @IsString()
+  reviewedBy?: string
+
+  @IsOptional()
+  @IsString()
+  reviewNotes?: string
+
+  @IsOptional()
+  @IsString()
+  rejectionReason?: string
+}
+
+export class UploadProviderDocumentDto {
+  @IsOptional()
+  @IsString()
+  providerId?: string
+
+  @IsOptional()
+  @IsString()
+  relationshipId?: string
+
+  @IsEnum(ProviderDocumentType)
+  type: ProviderDocumentType
+
+  @IsString()
+  name: string
+
+  @IsOptional()
+  @IsString()
+  requirementCode?: string
+
+  @IsOptional()
+  @IsString()
+  category?: string
+
+  @IsOptional()
+  @IsString()
+  issuer?: string
+
+  @IsOptional()
+  @IsString()
+  documentNumber?: string
+
+  @IsOptional()
+  @IsDateString()
+  issueDate?: string
+
+  @IsOptional()
+  @IsDateString()
+  expiryDate?: string
+
+  @IsOptional()
+  @Transform(toStringArray)
+  @IsArray()
+  @IsString({ each: true })
+  coveredModels?: string[]
+
+  @IsOptional()
+  @Transform(toStringArray)
+  @IsArray()
+  @IsString({ each: true })
+  coveredSites?: string[]
+
+  @IsOptional()
+  @IsString()
+  version?: string
+
+  @IsOptional()
+  @IsString()
+  metadata?: string
+}
+
+export class ProviderRequirementsQueryDto {
+  @IsOptional()
+  @IsIn(['PROVIDER', 'STATION_OWNER'])
+  appliesTo?: 'PROVIDER' | 'STATION_OWNER'
+}
+
+export class UpdateComplianceProfileDto {
+  @IsOptional()
+  @Transform(toStringArray)
+  @IsArray()
+  @IsString({ each: true })
+  complianceMarkets?: string[]
+
+  @IsOptional()
+  @IsObject()
+  complianceProfile?: Record<string, unknown>
+}
+
+export class ProviderComplianceStatusesQueryDto {
+  @Transform(toStringArray)
+  @IsArray()
+  @IsString({ each: true })
+  providerIds: string[]
+}
+
+export class RelationshipComplianceStatusesQueryDto {
+  @Transform(toStringArray)
+  @IsArray()
+  @IsString({ each: true })
+  relationshipIds: string[]
+}
+
+export class UpdateCompliancePolicyDto {
+  @IsOptional()
+  @IsString()
+  effectiveDateMode?: 'WARN_BEFORE_ENFORCE' | 'ENFORCE_NOW'
+
+  @IsOptional()
+  @IsBoolean()
+  roadmapAllowedBeforeEffective?: boolean
+
+  @IsOptional()
+  @Transform(toStringArray)
+  @IsArray()
+  @IsString({ each: true })
+  markets?: string[]
+
+  @IsOptional()
+  @IsObject()
+  hk?: Record<string, unknown>
 }
 
 export class ProviderSettlementSummaryQueryDto {
@@ -412,4 +626,3 @@ export class CreateProviderSettlementEntryDto {
   @IsEnum(ProviderSettlementStatus)
   status?: ProviderSettlementStatus
 }
-

@@ -17,14 +17,17 @@ import {
   CreateProviderDto,
   CreateProviderSettlementEntryDto,
   ProviderListQueryDto,
+  ProviderComplianceStatusesQueryDto,
   ProviderNotesBodyDto,
   ProviderRejectBodyDto,
   ProviderSettlementSummaryQueryDto,
   ProviderSuspendBodyDto,
+  UpdateComplianceProfileDto,
   UpdateProviderDto,
 } from './dto/providers.dto'
 import { ProvidersService } from './providers.service'
 import { ProviderSettlementsService } from './provider-settlements.service'
+import { ProviderComplianceService } from './provider-compliance.service'
 
 @Controller('providers')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -41,6 +44,7 @@ export class ProvidersController {
   constructor(
     private readonly providersService: ProvidersService,
     private readonly providerSettlementsService: ProviderSettlementsService,
+    private readonly providerComplianceService: ProviderComplianceService,
   ) {}
 
   @Get('eligible')
@@ -63,9 +67,19 @@ export class ProvidersController {
     return this.providersService.listProviders(query, req.user?.sub)
   }
 
+  @Get('compliance-statuses')
+  getComplianceStatuses(@Query() query: ProviderComplianceStatusesQueryDto, @Req() req: any) {
+    return this.providerComplianceService.getProviderComplianceStatuses(query.providerIds, req.user?.sub)
+  }
+
   @Get(':id')
   getById(@Param('id') id: string, @Req() req: any) {
     return this.providersService.getProviderById(id, req.user?.sub)
+  }
+
+  @Get(':id/compliance-status')
+  getComplianceStatus(@Param('id') id: string, @Req() req: any) {
+    return this.providerComplianceService.getProviderComplianceStatus(id, req.user?.sub)
   }
 
   @Post()
@@ -76,6 +90,11 @@ export class ProvidersController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() body: UpdateProviderDto, @Req() req: any) {
     return this.providersService.updateProvider(id, body, req.user?.sub)
+  }
+
+  @Patch(':id/compliance-profile')
+  updateComplianceProfile(@Param('id') id: string, @Body() body: UpdateComplianceProfileDto, @Req() req: any) {
+    return this.providersService.updateComplianceProfile(id, body, req.user?.sub)
   }
 
   @Post(':id/submit')

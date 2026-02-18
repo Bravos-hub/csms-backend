@@ -1017,8 +1017,13 @@ async function main() {
             relationshipId: relationshipDocsPending.id,
             ownerOrgId: ownerOrgA.id,
             type: 'TECHNICAL_CONFORMANCE',
+            requirementCode: 'PRV_INTERFACE_CONTROL_DOC',
+            category: 'INTEROPERABILITY',
             name: 'Technical Conformance Pack',
             fileUrl: 'https://example.com/provider-docs/technical-conformance-pack.pdf',
+            issueDate: new Date('2026-01-10T00:00:00.000Z'),
+            expiryDate: new Date('2027-01-10T00:00:00.000Z'),
+            metadata: { source: 'seed' },
             status: 'PENDING',
             uploadedBy: mockUserId,
         },
@@ -1028,8 +1033,13 @@ async function main() {
             relationshipId: relationshipDocsPending.id,
             ownerOrgId: ownerOrgA.id,
             type: 'TECHNICAL_CONFORMANCE',
+            requirementCode: 'PRV_INTERFACE_CONTROL_DOC',
+            category: 'INTEROPERABILITY',
             name: 'Technical Conformance Pack',
             fileUrl: 'https://example.com/provider-docs/technical-conformance-pack.pdf',
+            issueDate: new Date('2026-01-10T00:00:00.000Z'),
+            expiryDate: new Date('2027-01-10T00:00:00.000Z'),
+            metadata: { source: 'seed' },
             status: 'PENDING',
             uploadedBy: mockUserId,
         },
@@ -1042,8 +1052,16 @@ async function main() {
             relationshipId: relationshipActive.id,
             ownerOrgId: ownerOrgB.id,
             type: 'INSURANCE',
+            requirementCode: 'PRV_GENERAL_LIABILITY_INSURANCE',
+            category: 'INSURANCE',
             name: 'Insurance Certificate 2026',
             fileUrl: 'https://example.com/provider-docs/insurance-certificate-2026.pdf',
+            issueDate: new Date('2026-01-01T00:00:00.000Z'),
+            expiryDate: new Date('2026-12-31T00:00:00.000Z'),
+            reviewedBy: superAdmin.id,
+            reviewedAt: new Date('2026-01-03T00:00:00.000Z'),
+            reviewNotes: 'Verified by platform ops',
+            metadata: { source: 'seed' },
             status: 'APPROVED',
             uploadedBy: mockUserId,
         },
@@ -1053,8 +1071,16 @@ async function main() {
             relationshipId: relationshipActive.id,
             ownerOrgId: ownerOrgB.id,
             type: 'INSURANCE',
+            requirementCode: 'PRV_GENERAL_LIABILITY_INSURANCE',
+            category: 'INSURANCE',
             name: 'Insurance Certificate 2026',
             fileUrl: 'https://example.com/provider-docs/insurance-certificate-2026.pdf',
+            issueDate: new Date('2026-01-01T00:00:00.000Z'),
+            expiryDate: new Date('2026-12-31T00:00:00.000Z'),
+            reviewedBy: superAdmin.id,
+            reviewedAt: new Date('2026-01-03T00:00:00.000Z'),
+            reviewNotes: 'Verified by platform ops',
+            metadata: { source: 'seed' },
             status: 'APPROVED',
             uploadedBy: mockUserId,
         },
@@ -1148,6 +1174,40 @@ async function main() {
     });
 
     console.log('Provider ecosystem seeded');
+
+    await prisma.compliancePolicy.upsert({
+        where: { code: 'PROVIDER_COMPLIANCE_V2' },
+        update: {
+            data: {
+                effectiveDateMode: 'WARN_BEFORE_ENFORCE',
+                roadmapAllowedBeforeEffective: true,
+                markets: ['CN', 'HK', 'FI'],
+                hk: {
+                    dg: {
+                        requireConfig: true,
+                        thresholdKwh: null,
+                    },
+                },
+            },
+            updatedBy: superAdmin.id,
+        },
+        create: {
+            code: 'PROVIDER_COMPLIANCE_V2',
+            data: {
+                effectiveDateMode: 'WARN_BEFORE_ENFORCE',
+                roadmapAllowedBeforeEffective: true,
+                markets: ['CN', 'HK', 'FI'],
+                hk: {
+                    dg: {
+                        requireConfig: true,
+                        thresholdKwh: null,
+                    },
+                },
+            },
+            updatedBy: superAdmin.id,
+        },
+    });
+    console.log('Compliance policy seeded');
 
     console.log('Seeding complete!');
 

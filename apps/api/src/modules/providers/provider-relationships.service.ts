@@ -15,8 +15,10 @@ import {
   RespondProviderRelationshipDto,
   SuspendProviderRelationshipDto,
   TerminateProviderRelationshipDto,
+  UpdateComplianceProfileDto,
 } from './dto/providers.dto'
 import { ProvidersService } from './providers.service'
+import { ProviderComplianceService } from './provider-compliance.service'
 
 type RelationshipWithRelations = Prisma.ProviderRelationshipGetPayload<{
   include: {
@@ -31,6 +33,7 @@ export class ProviderRelationshipsService {
     private readonly prisma: PrismaService,
     private readonly authz: ProviderAuthzService,
     private readonly providersService: ProvidersService,
+    private readonly providerComplianceService: ProviderComplianceService,
   ) {}
 
   private mapRelationship(relationship: RelationshipWithRelations | Prisma.ProviderRelationshipGetPayload<Record<string, never>>) {
@@ -49,6 +52,8 @@ export class ProviderRelationshipsService {
       providerRespondedAt: relationship.providerRespondedAt?.toISOString(),
       adminApprovedAt: relationship.adminApprovedAt?.toISOString(),
       notes: relationship.notes || undefined,
+      complianceMarkets: relationship.complianceMarkets,
+      complianceProfile: relationship.complianceProfile || undefined,
     }
   }
 
@@ -127,6 +132,8 @@ export class ProviderRelationshipsService {
         status: ProviderRelationshipStatus.REQUESTED,
         notes: data.notes,
         requestedBy: actor.id,
+        complianceMarkets: data.complianceMarkets ?? [],
+        complianceProfile: data.complianceProfile as Prisma.InputJsonValue | undefined,
       },
       include: {
         provider: { select: { id: true, name: true } },
@@ -174,6 +181,33 @@ export class ProviderRelationshipsService {
     return this.mapRelationship(updated)
   }
 
+  async updateComplianceProfile(id: string, body: UpdateComplianceProfileDto, actorId?: string) {
+    const actor = await this.authz.getActor(actorId)
+    const relationship = await this.prisma.providerRelationship.findUnique({
+      where: { id },
+      include: {
+        provider: { select: { id: true, name: true } },
+        ownerOrg: { select: { id: true, name: true } },
+      },
+    })
+    if (!relationship) throw new NotFoundException('Relationship not found')
+    this.authz.assertRelationshipScopedAccess(actor, relationship)
+
+    const updated = await this.prisma.providerRelationship.update({
+      where: { id },
+      data: {
+        complianceMarkets: body.complianceMarkets,
+        complianceProfile: body.complianceProfile as Prisma.InputJsonValue | undefined,
+      },
+      include: {
+        provider: { select: { id: true, name: true } },
+        ownerOrg: { select: { id: true, name: true } },
+      },
+    })
+
+    return this.mapRelationship(updated)
+  }
+
   async approveRelationship(id: string, body: ProviderNotesBodyDto, actorId?: string) {
     const actor = await this.authz.getActor(actorId)
     this.authz.requirePlatformOps(actor)
@@ -191,6 +225,17 @@ export class ProviderRelationshipsService {
       relationship.status !== ProviderRelationshipStatus.ADMIN_APPROVED
     ) {
       throw new UnprocessableEntityException('Only DOCS_PENDING or ADMIN_APPROVED relationships can be approved')
+    }
+
+    const [providerCompliance, relationshipCompliance] = await Promise.all([
+      this.providerComplianceService.getProviderComplianceStatus(relationship.providerId, actor.id),
+      this.providerComplianceService.getRelationshipComplianceStatus(id, actor.id),
+    ])
+    const blockers = [...providerCompliance.blockerReasonCodes, ...relationshipCompliance.blockerReasonCodes]
+    if (blockers.length > 0) {
+      throw new UnprocessableEntityException(
+        `Compliance blockers prevent relationship approval: ${Array.from(new Set(blockers)).join(', ')}`,
+      )
     }
 
     const updated = await this.prisma.providerRelationship.update({

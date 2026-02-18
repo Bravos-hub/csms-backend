@@ -1,17 +1,20 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
 import { UserRole } from '@prisma/client'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { RolesGuard } from '../auth/roles.guard'
 import { Roles } from '../auth/roles.decorator'
 import {
   CreateProviderRelationshipDto,
+  RelationshipComplianceStatusesQueryDto,
   ProviderNotesBodyDto,
   ProviderRelationshipsQueryDto,
   RespondProviderRelationshipDto,
   SuspendProviderRelationshipDto,
   TerminateProviderRelationshipDto,
+  UpdateComplianceProfileDto,
 } from './dto/providers.dto'
 import { ProviderRelationshipsService } from './provider-relationships.service'
+import { ProviderComplianceService } from './provider-compliance.service'
 
 @Controller('provider-relationships')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -25,7 +28,10 @@ import { ProviderRelationshipsService } from './provider-relationships.service'
   UserRole.SWAP_PROVIDER_OPERATOR,
 )
 export class ProviderRelationshipsController {
-  constructor(private readonly providerRelationshipsService: ProviderRelationshipsService) {}
+  constructor(
+    private readonly providerRelationshipsService: ProviderRelationshipsService,
+    private readonly providerComplianceService: ProviderComplianceService,
+  ) {}
 
   @Get()
   getAll(@Query() query: ProviderRelationshipsQueryDto, @Req() req: any) {
@@ -35,6 +41,21 @@ export class ProviderRelationshipsController {
   @Post()
   create(@Body() body: CreateProviderRelationshipDto, @Req() req: any) {
     return this.providerRelationshipsService.requestRelationship(body, req.user?.sub)
+  }
+
+  @Patch(':id/compliance-profile')
+  updateComplianceProfile(@Param('id') id: string, @Body() body: UpdateComplianceProfileDto, @Req() req: any) {
+    return this.providerRelationshipsService.updateComplianceProfile(id, body, req.user?.sub)
+  }
+
+  @Get('compliance-statuses')
+  getComplianceStatuses(@Query() query: RelationshipComplianceStatusesQueryDto, @Req() req: any) {
+    return this.providerComplianceService.getRelationshipComplianceStatuses(query.relationshipIds, req.user?.sub)
+  }
+
+  @Get(':id/compliance-status')
+  getComplianceStatus(@Param('id') id: string, @Req() req: any) {
+    return this.providerComplianceService.getRelationshipComplianceStatus(id, req.user?.sub)
   }
 
   @Post(':id/respond')

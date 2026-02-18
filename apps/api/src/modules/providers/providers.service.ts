@@ -19,8 +19,10 @@ import {
   ProviderNotesBodyDto,
   ProviderRejectBodyDto,
   ProviderSuspendBodyDto,
+  UpdateComplianceProfileDto,
   UpdateProviderDto,
 } from './dto/providers.dto'
+import { ProviderComplianceService } from './provider-compliance.service'
 
 type ProviderWithRelations = Prisma.SwapProviderGetPayload<{
   include: {
@@ -33,6 +35,7 @@ export class ProvidersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authz: ProviderAuthzService,
+    private readonly providerComplianceService: ProviderComplianceService,
   ) {}
 
   private mapProvider(provider: ProviderWithRelations | Prisma.SwapProviderGetPayload<Record<string, never>>) {
@@ -177,6 +180,8 @@ export class ProvidersService {
         stationCount: data.stationCount ?? 0,
         website: data.website,
         requiredDocuments: data.requiredDocuments ?? [],
+        complianceMarkets: data.complianceMarkets ?? [],
+        complianceProfile: data.complianceProfile as Prisma.InputJsonValue | undefined,
         partnerSince: data.partnerSince ? new Date(data.partnerSince) : new Date(),
         status: SwapProviderStatus.DRAFT,
       },
@@ -244,6 +249,8 @@ export class ProvidersService {
         stationCount: data.stationCount,
         website: data.website,
         requiredDocuments: data.requiredDocuments,
+        complianceMarkets: data.complianceMarkets,
+        complianceProfile: data.complianceProfile as Prisma.InputJsonValue | undefined,
       },
       include: {
         organization: { select: { id: true, name: true } },
@@ -277,6 +284,33 @@ export class ProvidersService {
     return this.mapProvider(updated)
   }
 
+  async updateComplianceProfile(id: string, data: UpdateComplianceProfileDto, actorId?: string) {
+    const actor = await this.authz.getActor(actorId)
+    if (this.authz.isProviderRole(actor.role)) {
+      this.authz.assertProviderScope(actor, id)
+    } else if (!this.authz.isPlatformOps(actor.role)) {
+      throw new ForbiddenException('Only platform ops or provider roles can update provider compliance profile')
+    }
+
+    const provider = await this.prisma.swapProvider.findUnique({
+      where: { id },
+      select: { id: true },
+    })
+    if (!provider) throw new NotFoundException('Provider not found')
+
+    const updated = await this.prisma.swapProvider.update({
+      where: { id },
+      data: {
+        complianceMarkets: data.complianceMarkets,
+        complianceProfile: data.complianceProfile as Prisma.InputJsonValue | undefined,
+      },
+      include: {
+        organization: { select: { id: true, name: true } },
+      },
+    })
+    return this.mapProvider(updated)
+  }
+
   async approveProvider(id: string, body: ProviderNotesBodyDto, actorId?: string) {
     const actor = await this.authz.getActor(actorId)
     this.authz.requirePlatformOps(actor)
@@ -285,6 +319,13 @@ export class ProvidersService {
     if (!provider) throw new NotFoundException('Provider not found')
     if (provider.status !== SwapProviderStatus.PENDING_REVIEW) {
       throw new UnprocessableEntityException('Only PENDING_REVIEW providers can be approved')
+    }
+
+    const compliance = await this.providerComplianceService.getProviderComplianceStatus(id, actor.id)
+    if (compliance.blockerReasonCodes.length > 0) {
+      throw new UnprocessableEntityException(
+        `Provider compliance blockers prevent approval: ${compliance.blockerReasonCodes.join(', ')}`,
+      )
     }
 
     const updated = await this.prisma.swapProvider.update({
