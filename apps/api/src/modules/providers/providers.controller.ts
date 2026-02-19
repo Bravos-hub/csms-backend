@@ -29,6 +29,8 @@ import { ProvidersService } from './providers.service'
 import { ProviderSettlementsService } from './provider-settlements.service'
 import { ProviderComplianceService } from './provider-compliance.service'
 
+const MARKETPLACE_READER_ROLES: UserRole[] = Object.values(UserRole)
+
 @Controller('providers')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(
@@ -70,6 +72,18 @@ export class ProvidersController {
   @Get('compliance-statuses')
   getComplianceStatuses(@Query() query: ProviderComplianceStatusesQueryDto, @Req() req: any) {
     return this.providerComplianceService.getProviderComplianceStatuses(query.providerIds, req.user?.sub)
+  }
+
+  @Get('marketplace')
+  @Roles(...MARKETPLACE_READER_ROLES)
+  getMarketplaceProviders(@Query() query: ProviderListQueryDto, @Req() req: any) {
+    return this.providersService.listProviders(query, req.user?.sub)
+  }
+
+  @Get('marketplace/:id')
+  @Roles(...MARKETPLACE_READER_ROLES)
+  getMarketplaceProviderById(@Param('id') id: string, @Req() req: any) {
+    return this.providersService.getProviderById(id, req.user?.sub)
   }
 
   @Get(':id')

@@ -80,6 +80,20 @@ enum ProviderSettlementStatus {
   DISPUTED
 }
 
+enum MarketplaceContactEntityKind {
+  SITE
+  OPERATOR
+  TECHNICIAN
+  PROVIDER
+}
+
+enum MarketplaceContactEventType {
+  EMAIL
+  CALL
+  APPLY_SITE
+  REQUEST_PARTNERSHIP
+}
+
 model User {
   id              String  @id @default(uuid())
   name            String
@@ -318,6 +332,23 @@ model ProviderSettlementEntry {
   @@index([ownerOrgId])
   @@index([createdAt])
   @@index([status])
+}
+
+model MarketplaceContactEvent {
+  id           String                       @id @default(uuid())
+  actorId      String
+  entityKind   MarketplaceContactEntityKind
+  entityId     String
+  eventType    MarketplaceContactEventType
+  entityName   String?
+  entityCity   String?
+  entityRegion String?
+  metadata     Json?
+  createdAt    DateTime                     @default(now())
+
+  @@map("marketplace_contact_events")
+  @@index([actorId, createdAt])
+  @@index([actorId, entityKind, entityId, createdAt])
 }
 
 model UserApplication {

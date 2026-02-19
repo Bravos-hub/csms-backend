@@ -42,6 +42,7 @@ import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 import { TechniciansModule } from './technicians/technicians.module';
 import { OcpiModule } from './modules/ocpi/ocpi.module';
 import { GeographyModule } from './modules/geography/geography.module';
+import { MarketplaceContactsModule } from './modules/marketplace/marketplace-contacts.module';
 
 @Module({
   imports: [
@@ -86,6 +87,7 @@ import { GeographyModule } from './modules/geography/geography.module';
     TechniciansModule,
     OcpiModule,
     GeographyModule,
+    MarketplaceContactsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
