@@ -1,5 +1,7 @@
 export const KAFKA_TOPICS = {
     commandRequests: 'ocpp.commands',
     commandResponses: 'ocpp.responses',
-    events: 'ocpp.events'
+    legacyStationEvents: 'ocpp.events',
+    stationEvents: 'ocpp.station.events',
+    sessionEvents: 'ocpp.session.events',
 } as const;

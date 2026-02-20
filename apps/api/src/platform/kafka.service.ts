@@ -2,18 +2,34 @@ import 'dotenv/config';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Kafka, Producer, SASLOptions } from 'kafkajs';
+import * as fs from 'fs';
 
 @Injectable()
 export class KafkaService implements OnModuleInit, OnModuleDestroy {
     private readonly kafka: Kafka;
     private producer: Producer;
     private readonly logger = new Logger(KafkaService.name);
+    private connected = false;
 
     constructor(private readonly config: ConfigService) {
         const brokers = this.config.get<string>('KAFKA_BROKERS', 'localhost:9092').split(',');
         const clientId = 'evzone-backend';
 
-        const ssl = this.config.get<string>('KAFKA_SSL') === 'true' ? { rejectUnauthorized: false } : false;
+        const sslEnabled = this.config.get<string>('KAFKA_SSL') === 'true';
+        const rejectUnauthorized = (this.config.get<string>('KAFKA_SSL_REJECT_UNAUTHORIZED', 'true') === 'true');
+        if (sslEnabled && !rejectUnauthorized) {
+            throw new Error('KAFKA_SSL_REJECT_UNAUTHORIZED=false is not allowed');
+        }
+        const caPath = this.config.get<string>('KAFKA_SSL_CA_PATH');
+        if (caPath && !fs.existsSync(caPath)) {
+            throw new Error(`KAFKA_SSL_CA_PATH not found: ${caPath}`);
+        }
+        const ssl = sslEnabled
+            ? {
+                rejectUnauthorized: true,
+                ca: caPath ? [fs.readFileSync(caPath)] : undefined,
+            }
+            : false;
         let sasl: SASLOptions | undefined;
 
         const saslMechanism = this.config.get<string>('KAFKA_SASL_MECHANISM');
@@ -56,8 +72,10 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     async onModuleInit() {
         try {
             await this.producer.connect();
+            this.connected = true;
             this.logger.log('Kafka producer connected');
         } catch (error) {
+            this.connected = false;
             this.logger.error('Failed to connect Kafka producer', error);
             throw error;
         }
@@ -66,9 +84,33 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     async onModuleDestroy() {
         try {
             await this.producer.disconnect();
+            this.connected = false;
             this.logger.log('Kafka producer disconnected');
         } catch (error) {
             this.logger.error('Failed to disconnect Kafka producer', error);
+        }
+    }
+
+    isConnected(): boolean {
+        return this.connected;
+    }
+
+    async checkConnection(): Promise<{ status: 'up' | 'down'; error?: string }> {
+        const admin = this.kafka.admin();
+        try {
+            await admin.connect();
+            await admin.disconnect();
+            return { status: 'up' };
+        } catch (error) {
+            try {
+                await admin.disconnect();
+            } catch {
+                // no-op
+            }
+            return {
+                status: 'down',
+                error: error instanceof Error ? error.message : String(error),
+            };
         }
     }
 

@@ -19,12 +19,18 @@ type StationBounds = {
   west: number;
 };
 
+type ChargePointListFilter = {
+  stationId?: string;
+  status?: string;
+};
+
 @Injectable()
 export class StationService {
   private readonly logger = new Logger(StationService.name);
   private readonly enableNoAuthBootstrap: boolean;
   private readonly bootstrapDefaultMinutes: number;
   private readonly bootstrapMaxMinutes: number;
+  private readonly publicWsBaseUrl: string;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -33,6 +39,9 @@ export class StationService {
     this.enableNoAuthBootstrap = process.env.OCPP_ENABLE_NOAUTH_BOOTSTRAP === 'true';
     this.bootstrapDefaultMinutes = this.readIntEnv('OCPP_NOAUTH_BOOTSTRAP_DEFAULT_MINUTES', 30);
     this.bootstrapMaxMinutes = this.readIntEnv('OCPP_NOAUTH_BOOTSTRAP_MAX_MINUTES', 120);
+    this.publicWsBaseUrl = this.resolvePublicWsBaseUrl(
+      process.env.OCPP_PUBLIC_WS_BASE_URL || 'wss://ocpp.evzonecharging.com'
+    );
   }
 
   async handleOcppMessage(message: any) {
@@ -189,11 +198,11 @@ export class StationService {
 
   // --- Helper ---
   private mapToFrontendStation(s: any) {
-    // Calculate availability
-    const total = s.chargePoints ? s.chargePoints.length : 0;
-    const available = s.chargePoints ? s.chargePoints.filter((cp: any) => cp.status === 'AVAILABLE').length : 0;
-    const busy = s.chargePoints ? s.chargePoints.filter((cp: any) => cp.status === 'CHARGING' || cp.status === 'OCCUPIED').length : 0;
-    const offline = s.chargePoints ? s.chargePoints.filter((cp: any) => cp.status === 'OFFLINE' || cp.status === 'FAULTED').length : 0;
+    const chargePoints = Array.isArray(s.chargePoints) ? s.chargePoints : [];
+    const total = chargePoints.length;
+    const available = chargePoints.filter((cp: any) => this.statusBucket(cp.status) === 'available').length;
+    const busy = chargePoints.filter((cp: any) => this.statusBucket(cp.status) === 'busy').length;
+    const offline = chargePoints.filter((cp: any) => this.statusBucket(cp.status) === 'offline').length;
 
     let amenities: string[] = [];
     let images: string[] = [];
@@ -216,13 +225,13 @@ export class StationService {
         busy,
         offline
       },
-      connectors: s.chargePoints ? s.chargePoints.map((cp: any) => ({
+      connectors: chargePoints.map((cp: any) => ({
         id: cp.id,
         type: cp.type || 'CCS2',
         power: cp.power || 50,
-        status: cp.status.toLowerCase(),
+        status: this.normalizeChargePointStatus(cp.status),
         price: s.price || 0
-      })) : [],
+      })),
       rating: s.rating || 0,
       price: s.price || 0,
       amenities,
@@ -245,8 +254,18 @@ export class StationService {
   }
 
   // --- ChargePoint CRUD ---
-  async findAllChargePoints() {
-    return this.prisma.chargePoint.findMany();
+  async findAllChargePoints(filter?: ChargePointListFilter) {
+    const where: any = {};
+    if (filter?.stationId) {
+      where.stationId = filter.stationId;
+    }
+    if (filter?.status) {
+      where.status = { in: this.statusFilterValues(filter.status) };
+    }
+
+    return this.prisma.chargePoint.findMany({
+      where: Object.keys(where).length > 0 ? where : undefined,
+    });
   }
 
   async findChargePointById(id: string) {
@@ -313,7 +332,7 @@ export class StationService {
       ocppCredentials: {
         username: cp.ocppId,
         password: oneTimePassword,
-        wsUrl: `wss://ocpp.evzonecharging.com/ocpp/${ocppVersion}/${cp.ocppId}`,
+        wsUrl: `${this.publicWsBaseUrl}/ocpp/${ocppVersion}/${cp.ocppId}`,
         subprotocol: this.subprotocolForVersion(ocppVersion),
         authProfile: authProfile === 'mtls_bootstrap' ? 'mtls_bootstrap' : 'basic',
         bootstrapExpiresAt,
@@ -537,5 +556,68 @@ export class StationService {
     if (!raw) return fallback;
     const parsed = parseInt(raw, 10);
     return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  private normalizeChargePointStatus(value: string | undefined): string {
+    return (value || 'Unknown').trim().toLowerCase();
+  }
+
+  private statusBucket(status: string | undefined): 'available' | 'busy' | 'offline' | 'other' {
+    const normalized = this.normalizeChargePointStatus(status);
+    if (normalized === 'available' || normalized === 'online') return 'available';
+    if (normalized === 'charging' || normalized === 'occupied') return 'busy';
+    if (normalized === 'offline' || normalized === 'faulted' || normalized === 'unavailable') {
+      return 'offline';
+    }
+    return 'other';
+  }
+
+  private statusFilterValues(status: string): string[] {
+    const normalized = this.normalizeChargePointStatus(status);
+    const values = new Set<string>([status.trim()]);
+    const add = (...entries: string[]) => entries.forEach((entry) => values.add(entry));
+
+    switch (normalized) {
+      case 'online':
+      case 'available':
+        add('online', 'Online', 'ONLINE', 'available', 'Available', 'AVAILABLE');
+        break;
+      case 'charging':
+      case 'occupied':
+      case 'busy':
+        add('charging', 'Charging', 'CHARGING', 'occupied', 'Occupied', 'OCCUPIED');
+        break;
+      case 'offline':
+      case 'faulted':
+      case 'unavailable':
+        add(
+          'offline',
+          'Offline',
+          'OFFLINE',
+          'faulted',
+          'Faulted',
+          'FAULTED',
+          'unavailable',
+          'Unavailable',
+          'UNAVAILABLE'
+        );
+        break;
+      default:
+        add(normalized, normalized.toUpperCase());
+        break;
+    }
+
+    return Array.from(values).filter(Boolean);
+  }
+
+  private resolvePublicWsBaseUrl(raw: string): string {
+    const trimmed = raw.trim().replace(/\/+$/, '');
+    if (!/^wss?:\/\//i.test(trimmed)) {
+      this.logger.warn(
+        `Invalid OCPP_PUBLIC_WS_BASE_URL "${raw}", falling back to wss://ocpp.evzonecharging.com`
+      );
+      return 'wss://ocpp.evzonecharging.com';
+    }
+    return trimmed;
   }
 }

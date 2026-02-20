@@ -3,11 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 import { URL } from 'url';
-
-// GLOBAL SSL BYPASS FOR DEVELOPMENT
-if (process.env.NODE_ENV !== 'production') {
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-}
+import * as fs from 'fs';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -26,13 +22,28 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         // Standardize URL for Pool (remove legacy params that might confuse some drivers)
         const urlObj = new URL(validatedUrl);
         urlObj.searchParams.delete('sslmode');
+        const tlsEnabled =
+            (process.env.DATABASE_TLS ?? 'false') === 'true'
+            || ['require', 'verify-ca', 'verify-full'].includes(
+                (new URL(validatedUrl).searchParams.get('sslmode') || '').toLowerCase()
+            );
+        const rejectUnauthorized = (process.env.DATABASE_TLS_REJECT_UNAUTHORIZED ?? 'true') === 'true';
+        if (tlsEnabled && !rejectUnauthorized) {
+            throw new Error('DATABASE_TLS_REJECT_UNAUTHORIZED=false is not allowed');
+        }
+        const caPath = process.env.DATABASE_TLS_CA_PATH;
+        if (caPath && !fs.existsSync(caPath)) {
+            throw new Error(`DATABASE_TLS_CA_PATH not found: ${caPath}`);
+        }
 
         const pool = new Pool({
             connectionString: urlObj.toString(),
-            ssl: {
-                rejectUnauthorized: false,
-                // Add explicit TLS version if possible to reduce handshake issues
-            }
+            ssl: tlsEnabled
+                ? {
+                    rejectUnauthorized: true,
+                    ca: caPath ? fs.readFileSync(caPath, 'utf8') : undefined,
+                }
+                : undefined
         });
         const adapter = new PrismaPg(pool);
         super({ adapter });

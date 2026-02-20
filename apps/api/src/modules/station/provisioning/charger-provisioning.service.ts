@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { ChargePoint, Station } from '@prisma/client';
+import * as fs from 'fs';
 
 type ChargePointAuthProfile = 'basic' | 'mtls_bootstrap';
 
@@ -72,16 +73,21 @@ export class ChargerProvisioningService implements OnModuleInit, OnModuleDestroy
     onModuleInit() {
         const redisUrl = this.config.get<string>('REDIS_URL', 'redis://localhost:6379');
 
-        // DigitalOcean Managed Redis requires TLS. 
-        // If the URL starts with rediss://, ioredis handles it.
-        // However, we might need rejectUnauthorized: false if using self-signed certs (common in some managed envs, though DO usually has valid certs).
-        // For safety, we allow passing explicit TLS options or rely on URL.
         const tlsEnabled = this.config.get<string>('REDIS_TLS') === 'true';
         const redisOptions: any = {};
 
         if (tlsEnabled || redisUrl.startsWith('rediss://')) {
+            const rejectUnauthorized = this.config.get<string>('REDIS_TLS_REJECT_UNAUTHORIZED', 'true') === 'true';
+            if (!rejectUnauthorized) {
+                throw new Error('REDIS_TLS_REJECT_UNAUTHORIZED=false is not allowed');
+            }
+            const caPath = this.config.get<string>('REDIS_TLS_CA_PATH');
+            if (caPath && !fs.existsSync(caPath)) {
+                throw new Error(`REDIS_TLS_CA_PATH not found: ${caPath}`);
+            }
             redisOptions.tls = {
-                rejectUnauthorized: false // Often needed for managed services depending on CA setup
+                rejectUnauthorized: true,
+                ca: caPath ? fs.readFileSync(caPath) : undefined,
             };
         }
 

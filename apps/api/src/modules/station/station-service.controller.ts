@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Put, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Put, Query, Logger } from '@nestjs/common';
 import { EventPattern, Payload } from '@nestjs/microservices';
 import { StationService } from './station-service.service';
+import { KAFKA_TOPICS } from '../../contracts/kafka-topics';
 import {
   CreateStationDto,
   UpdateStationDto,
@@ -12,6 +13,9 @@ import {
 
 @Controller('stations')
 export class StationController {
+  private readonly logger = new Logger(StationController.name);
+  private readonly topicCounters = new Map<string, number>();
+
   constructor(private readonly stationService: StationService) { }
 
   @Post()
@@ -76,13 +80,14 @@ export class StationController {
   }
 
   // Microservice EventHandler
-  @EventPattern('ocpp.events')
-  async handleOcppMessage(@Payload() message: any) {
-    try {
-      await this.stationService.handleOcppMessage(message);
-    } catch (error) {
-      throw error;
-    }
+  @EventPattern(KAFKA_TOPICS.legacyStationEvents)
+  async handleLegacyOcppMessage(@Payload() message: any) {
+    await this.consumeOcppMessage(KAFKA_TOPICS.legacyStationEvents, message);
+  }
+
+  @EventPattern(KAFKA_TOPICS.stationEvents)
+  async handleStationEventMessage(@Payload() message: any) {
+    await this.consumeOcppMessage(KAFKA_TOPICS.stationEvents, message);
   }
 
   private parseBounds(north?: string, south?: string, east?: string, west?: string) {
@@ -121,6 +126,15 @@ export class StationController {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : undefined;
   }
+
+  private async consumeOcppMessage(topic: string, message: any): Promise<void> {
+    const count = (this.topicCounters.get(topic) || 0) + 1;
+    this.topicCounters.set(topic, count);
+    if (count === 1 || count % 100 === 0) {
+      this.logger.log(`Received ${count} station event(s) from topic ${topic}`);
+    }
+    await this.stationService.handleOcppMessage(message);
+  }
 }
 
 @Controller('charge-points')
@@ -128,8 +142,11 @@ export class ChargePointController {
   constructor(private readonly stationService: StationService) { }
 
   @Get()
-  findAll() {
-    return this.stationService.findAllChargePoints();
+  findAll(
+    @Query('stationId') stationId?: string,
+    @Query('status') status?: string
+  ) {
+    return this.stationService.findAllChargePoints({ stationId, status });
   }
 
   @Get('by-ocpp/:ocppId')

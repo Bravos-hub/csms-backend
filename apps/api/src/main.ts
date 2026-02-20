@@ -1,18 +1,36 @@
 import 'dotenv/config';
 import { setDefaultResultOrder } from 'node:dns';
 setDefaultResultOrder('ipv4first');
-
-// GLOBAL FIX: Allow self-signed certificates for DigitalOcean DB connections in development
-if (process.env.NODE_ENV !== 'production') {
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-}
+import * as fs from 'fs';
 import { NestFactory } from '@nestjs/core';
+import { MicroserviceOptions, Transport } from '@nestjs/microservices';
+import type { SASLOptions } from 'kafkajs';
 import { AppModule } from './app.module';
 import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   try {
     const app = await NestFactory.create(AppModule);
+    const kafkaEventsEnabled = (process.env.KAFKA_EVENTS_ENABLED ?? 'true') === 'true';
+    if (kafkaEventsEnabled) {
+      app.connectMicroservice<MicroserviceOptions>({
+        transport: Transport.KAFKA,
+        options: {
+          client: {
+            clientId: process.env.KAFKA_EVENT_CLIENT_ID || 'evzone-backend-api',
+            brokers: parseList(process.env.KAFKA_BROKERS ?? 'localhost:9092'),
+            ssl: buildKafkaSslOptions(),
+            sasl: buildKafkaSasl(),
+          },
+          consumer: {
+            groupId: process.env.KAFKA_EVENT_GROUP_ID || 'evzone-backend-api-events',
+          },
+        },
+      });
+      await app.startAllMicroservices();
+      console.log('Kafka event microservice listener started');
+    }
+
     app.setGlobalPrefix('api/v1');
 
     // Enable cookie parser middleware
@@ -71,6 +89,47 @@ async function bootstrap() {
     process.exit(1);
   }
 }
+
+function parseList(value?: string): string[] {
+  if (!value) return [];
+  return value.split(',').map((entry) => entry.trim()).filter(Boolean);
+}
+
+function buildKafkaSslOptions(): false | { rejectUnauthorized: true; ca?: Buffer[] } {
+  if (process.env.KAFKA_SSL !== 'true') {
+    return false;
+  }
+  const rejectUnauthorized = (process.env.KAFKA_SSL_REJECT_UNAUTHORIZED ?? 'true') === 'true';
+  if (!rejectUnauthorized) {
+    throw new Error('KAFKA_SSL_REJECT_UNAUTHORIZED=false is not allowed');
+  }
+  const caPath = process.env.KAFKA_SSL_CA_PATH;
+  if (!caPath) {
+    return { rejectUnauthorized: true };
+  }
+  if (!fs.existsSync(caPath)) {
+    throw new Error(`KAFKA_SSL_CA_PATH not found: ${caPath}`);
+  }
+  return {
+    rejectUnauthorized: true,
+    ca: [fs.readFileSync(caPath)],
+  };
+}
+
+function buildKafkaSasl(): SASLOptions | undefined {
+  const mechanism = process.env.KAFKA_SASL_MECHANISM;
+  const username = process.env.KAFKA_SASL_USERNAME;
+  const password = process.env.KAFKA_SASL_PASSWORD;
+  if (!mechanism || !username || !password) {
+    return undefined;
+  }
+  return {
+    mechanism: mechanism as any,
+    username,
+    password,
+  } as SASLOptions;
+}
+
 bootstrap().catch((error) => {
   console.error('Bootstrap failed:', error instanceof Error ? error.message : error);
   if (error instanceof Error && error.stack) {

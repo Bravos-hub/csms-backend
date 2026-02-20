@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
 import { EventPattern, Payload } from '@nestjs/microservices';
 import { SessionService } from './session-service.service';
 import { StopSessionDto, SessionFilterDto } from './dto/session.dto';
+import { KAFKA_TOPICS } from '../../contracts/kafka-topics';
 
 @Controller('sessions')
 export class SessionController {
@@ -33,7 +34,7 @@ export class SessionController {
   }
 
   // Event handler (can be in controller or pure service call from gateway)
-  @EventPattern('ocpp.session.events')
+  @EventPattern(KAFKA_TOPICS.sessionEvents)
   async handleOcppMessage(@Payload() message: any) {
     await this.sessionService.handleOcppMessage(message);
   }

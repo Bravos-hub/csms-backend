@@ -87,9 +87,18 @@ CORS_ORIGINS=http://localhost:5173,https://portal.evzonecharging.com
 
 # Database & Infrastructure
 DATABASE_URL="postgresql://user:pass@localhost:5432/evzone"
+DATABASE_TLS=true
+# DATABASE_TLS_CA_PATH=/app/certs/db-ca.pem
 KAFKA_BROKERS=localhost:9092
+KAFKA_EVENTS_ENABLED=true
+KAFKA_EVENT_GROUP_ID=evzone-backend-api-events
+KAFKA_SSL=false
+# KAFKA_SSL_CA_PATH=/app/certs/kafka-ca.pem
 REDIS_HOST=localhost
 REDIS_PORT=6379
+REDIS_TLS=false
+# REDIS_TLS_CA_PATH=/app/certs/redis-ca.pem
+OCPP_PUBLIC_WS_BASE_URL=wss://ocpp.evzonecharging.com
 ```
 
 ### Prisma Client Drift Recovery
