@@ -9,7 +9,10 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma.service';
 import { KafkaService } from '../../platform/kafka.service';
 import { KAFKA_TOPICS } from '../../contracts/kafka-topics';
-import { CommandRequest } from '../../contracts/commands';
+import {
+  COMMAND_CONTRACT_SCHEMA_VERSION,
+  CommandRequest,
+} from '../../contracts/commands';
 import { WorkerMetricsService } from '../observability/worker-metrics.service';
 
 @Injectable()
@@ -170,6 +173,7 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
     }
 
     const request: CommandRequest = {
+      schemaVersion: COMMAND_CONTRACT_SCHEMA_VERSION,
       commandId: command.id,
       commandType: command.commandType,
       stationId: command.stationId || undefined,

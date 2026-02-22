@@ -3,7 +3,10 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma.service';
 import { KafkaService } from '../../platform/kafka.service';
-import { DomainEvent } from '../../contracts/commands';
+import {
+  DomainEvent,
+  validateDomainEventContract,
+} from '../../contracts/commands';
 import { KAFKA_TOPICS } from '../../contracts/kafka-topics';
 import { WorkerMetricsService } from '../observability/worker-metrics.service';
 import {
@@ -125,42 +128,11 @@ export class CommandEventsConsumer implements OnModuleInit {
       return { ok: false, reason: 'Invalid JSON' };
     }
 
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return { ok: false, reason: 'Event payload must be an object' };
+    const validation = validateDomainEventContract(parsed);
+    if (!validation.ok) {
+      return { ok: false, reason: validation.reason };
     }
-
-    const candidate = parsed as Record<string, unknown>;
-    const eventId = candidate.eventId;
-    const eventType = candidate.eventType;
-    const source = candidate.source;
-    const occurredAt = candidate.occurredAt;
-    const payload = candidate.payload;
-
-    if (typeof eventId !== 'string' || eventId.trim().length === 0) {
-      return { ok: false, reason: 'eventId is required' };
-    }
-    if (typeof eventType !== 'string' || eventType.trim().length === 0) {
-      return { ok: false, reason: 'eventType is required' };
-    }
-    if (typeof source !== 'string' || source.trim().length === 0) {
-      return { ok: false, reason: 'source is required' };
-    }
-    if (
-      typeof occurredAt !== 'string' ||
-      Number.isNaN(Date.parse(occurredAt))
-    ) {
-      return { ok: false, reason: 'occurredAt must be an ISO date string' };
-    }
-    if (
-      payload !== undefined &&
-      (payload === null ||
-        typeof payload !== 'object' ||
-        Array.isArray(payload))
-    ) {
-      return { ok: false, reason: 'payload must be an object when provided' };
-    }
-
-    return { ok: true, event: candidate as DomainEvent };
+    return { ok: true, event: validation.value };
   }
 
   private getBoolean(key: string, fallback: boolean): boolean {
