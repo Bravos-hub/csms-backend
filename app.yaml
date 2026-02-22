@@ -108,6 +108,15 @@ services:
       - key: WORKER_READY_MAX_CONSUMER_LAG
         scope: RUN_TIME
         value: '1000'
+      - key: OUTBOX_CIRCUIT_BREAKER_ENABLED
+        scope: RUN_TIME
+        value: 'true'
+      - key: OUTBOX_CIRCUIT_OPEN_MS
+        scope: RUN_TIME
+        value: '15000'
+      - key: OUTBOX_CIRCUIT_FAILURE_THRESHOLD
+        scope: RUN_TIME
+        value: '5'
       - key: COMMAND_HISTORY_CLEANUP_ENABLED
         scope: RUN_TIME
         value: 'true'

@@ -18,6 +18,8 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
   private readonly auditActor = 'worker:command-outbox';
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  private circuitOpenUntilMs = 0;
+  private consecutivePublishFailures = 0;
 
   constructor(
     private readonly config: ConfigService,
@@ -65,6 +67,10 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
     this.running = true;
     const startedAt = Date.now();
     try {
+      if (await this.shouldSkipTickForCircuit()) {
+        return;
+      }
+
       const batch = await this.claimBatch();
       this.metrics.increment('outbox_claimed_total', batch.length);
       this.metrics.setGauge('outbox_claimed_last_batch', batch.length);
@@ -185,6 +191,7 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
         JSON.stringify(request),
         targetOcppId,
       );
+      this.recordPublishSuccess();
       this.metrics.increment('outbox_publish_success_total');
       this.metrics.observeLatency(
         'outbox_enqueue_to_dispatch_ms',
@@ -221,6 +228,7 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Publish failed';
+      this.recordPublishFailure(message);
       this.metrics.increment('outbox_publish_fail_total');
       await this.handlePublishFailure(outbox, message);
     }
@@ -398,6 +406,51 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
 
     this.metrics.setGauge('outbox_backlog_depth', queuedCount);
     this.metrics.setGauge('outbox_oldest_queued_age_seconds', oldestAgeSeconds);
+  }
+
+  private async shouldSkipTickForCircuit(): Promise<boolean> {
+    if (!this.getBoolean('OUTBOX_CIRCUIT_BREAKER_ENABLED', true)) {
+      return false;
+    }
+
+    if (this.circuitOpenUntilMs > Date.now()) {
+      this.metrics.setGauge('outbox_circuit_open', 1);
+      this.metrics.increment('outbox_circuit_skip_total');
+      return true;
+    }
+
+    this.metrics.setGauge('outbox_circuit_open', 0);
+
+    const health = await this.kafka.checkConnection();
+    if (health.status === 'down') {
+      this.openCircuit('Kafka health check failed');
+      return true;
+    }
+
+    return false;
+  }
+
+  private recordPublishSuccess(): void {
+    this.consecutivePublishFailures = 0;
+  }
+
+  private recordPublishFailure(reason: string): void {
+    this.consecutivePublishFailures += 1;
+    const threshold = this.getInt('OUTBOX_CIRCUIT_FAILURE_THRESHOLD', 5);
+    if (this.consecutivePublishFailures >= threshold) {
+      this.openCircuit(
+        `Consecutive publish failures threshold reached (${threshold}): ${reason}`,
+      );
+    }
+  }
+
+  private openCircuit(reason: string): void {
+    const openMs = this.getInt('OUTBOX_CIRCUIT_OPEN_MS', 15000);
+    this.circuitOpenUntilMs = Date.now() + openMs;
+    this.consecutivePublishFailures = 0;
+    this.metrics.increment('outbox_circuit_open_total');
+    this.metrics.setGauge('outbox_circuit_open', 1);
+    this.logger.warn(`Outbox circuit opened for ${openMs}ms: ${reason}`);
   }
 
   private async writeAuditLog(
