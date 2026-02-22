@@ -45,7 +45,6 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
-          fingerprint: ${{ secrets.DROPLET_HOST_FINGERPRINT }}
           port: ${{ secrets.DROPLET_SSH_PORT || '22' }}
           script_stop: true
           command_timeout: 45m
