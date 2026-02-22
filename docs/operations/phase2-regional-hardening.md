@@ -44,6 +44,16 @@ Rollback:
 2. Confirm API and worker readiness in restored primary.
 3. Reconcile command events/outbox backlog and lag.
 
+Gate script:
+
+```powershell
+npm run ops:failover:gates -- `
+  -PrimaryApiBaseUrl https://primary-api.example.com `
+  -PrimaryWorkerBaseUrl https://primary-worker.example.com `
+  -FailoverApiBaseUrl https://failover-api.example.com `
+  -FailoverWorkerBaseUrl https://failover-worker.example.com
+```
+
 ## 3) Validation Matrix
 
 - Routing:
