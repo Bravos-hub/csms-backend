@@ -29,6 +29,7 @@
     "loadtest:stress": "k6 run ops/loadtest/k6-stress.js",
     "loadtest:spike": "k6 run ops/loadtest/k6-spike.js",
     "loadtest:soak": "k6 run ops/loadtest/k6-soak.js",
+    "ops:check-command-pipeline-migration": "tsx ./scripts/ops/check-command-pipeline-migration.ts",
     "prisma:refresh": "node scripts/prisma-refresh.js",
     "prisma:check": "node scripts/prisma-check.js",
     "backfill:user-org-region": "tsx ./prisma/backfill-user-org-region.ts",
