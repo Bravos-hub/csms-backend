@@ -12,6 +12,13 @@ Validate launch-day readiness for API + worker under load, dependency turbulence
 4. Regional failover simulation with primary region traffic drain.
 5. Kafka brownout simulation with worker autoscale response.
 
+Reference scripts:
+
+- `npm run loadtest:baseline`
+- `npm run loadtest:stress`
+- `npm run loadtest:spike`
+- `npm run loadtest:soak`
+
 ## Entry Criteria
 
 - Latest production candidate deployed to staging.
