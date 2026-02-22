@@ -1,6 +1,8 @@
 import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
+import * as fs from 'fs';
+import Redis, { RedisOptions } from 'ioredis';
 import { HttpMetricsService } from '../../common/observability/http-metrics.service';
 import { PrismaService } from '../../prisma.service';
 import { KafkaService } from '../../platform/kafka.service';
@@ -24,6 +26,7 @@ export class HealthController {
       service: this.config.get<string>('service.name', 'evzone-backend-api'),
       time: new Date().toISOString(),
       db: report.db,
+      redis: report.redis,
       kafka: report.kafka,
     };
   }
@@ -50,6 +53,7 @@ export class HealthController {
       service: this.config.get<string>('service.name', 'evzone-backend-api'),
       time: new Date().toISOString(),
       db: report.db,
+      redis: report.redis,
       kafka: report.kafka,
     };
   }
@@ -67,6 +71,11 @@ export class HealthController {
   private async buildDependencyReport(): Promise<{
     ready: boolean;
     db: { status: 'up' | 'down'; error?: string };
+    redis: {
+      status: 'up' | 'down';
+      required: boolean;
+      error?: string;
+    };
     kafka: {
       status: 'up' | 'down';
       required: boolean;
@@ -76,15 +85,18 @@ export class HealthController {
       error?: string;
     };
   }> {
-    const [db, kafka] = await Promise.all([
+    const [db, redis, kafka] = await Promise.all([
       this.checkDatabase(),
+      this.checkRedis(),
       this.checkKafka(),
     ]);
 
     const ready =
-      db.status === 'up' && (kafka.required ? kafka.status === 'up' : true);
+      db.status === 'up' &&
+      (redis.required ? redis.status === 'up' : true) &&
+      (kafka.required ? kafka.status === 'up' : true);
 
-    return { ready, db, kafka };
+    return { ready, db, redis, kafka };
   }
 
   private async checkDatabase(): Promise<{
@@ -125,6 +137,75 @@ export class HealthController {
       eventConsumerGroup:
         process.env.KAFKA_EVENT_GROUP_ID || 'evzone-backend-api-events',
       error: status.error,
+    };
+  }
+
+  private async checkRedis(): Promise<{
+    status: 'up' | 'down';
+    required: boolean;
+    error?: string;
+  }> {
+    const redisUrl = this.config.get<string>('REDIS_URL');
+    const required =
+      (process.env.API_READINESS_REQUIRE_REDIS ?? 'false') === 'true';
+
+    if (!redisUrl) {
+      return {
+        status: 'down',
+        required,
+        error: 'REDIS_URL is not set',
+      };
+    }
+
+    const options = this.buildRedisTlsOptions();
+    const client = new Redis(redisUrl, {
+      lazyConnect: true,
+      maxRetriesPerRequest: 1,
+      enableReadyCheck: true,
+      ...options,
+    });
+
+    try {
+      await client.connect();
+      await client.ping();
+      return { status: 'up', required };
+    } catch (error) {
+      return {
+        status: 'down',
+        required,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      client.disconnect();
+    }
+  }
+
+  private buildRedisTlsOptions(): Pick<RedisOptions, 'tls'> {
+    const redisUrl = this.config.get<string>('REDIS_URL', '');
+    const tlsEnabled =
+      this.config.get<string>('REDIS_TLS') === 'true' ||
+      redisUrl.startsWith('rediss://');
+    if (!tlsEnabled) {
+      return {};
+    }
+
+    const rejectUnauthorized =
+      this.config.get<string>('REDIS_TLS_REJECT_UNAUTHORIZED', 'true') ===
+      'true';
+    if (!rejectUnauthorized) {
+      throw new Error('REDIS_TLS_REJECT_UNAUTHORIZED=false is not allowed');
+    }
+
+    const caPath = this.config.get<string>('REDIS_TLS_CA_PATH');
+    if (caPath && !fs.existsSync(caPath)) {
+      throw new Error(`REDIS_TLS_CA_PATH not found: ${caPath}`);
+    }
+
+    return {
+      tls: {
+        rejectUnauthorized: true,
+        ca: caPath ? fs.readFileSync(caPath, 'utf8') : undefined,
+      },
     };
   }
 }

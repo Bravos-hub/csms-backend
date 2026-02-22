@@ -55,6 +55,9 @@ services:
       - key: API_READINESS_REQUIRE_KAFKA
         scope: RUN_TIME
         value: 'false'
+      - key: API_READINESS_REQUIRE_REDIS
+        scope: RUN_TIME
+        value: 'false'
 
   - name: worker
     dockerfile_path: Dockerfile
