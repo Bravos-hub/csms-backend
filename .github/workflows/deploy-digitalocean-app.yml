@@ -1,0 +1,54 @@
+name: Deploy EVZone Backend To DigitalOcean
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-evzone-backend-main
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy App Platform Spec
+    runs-on: ubuntu-latest
+    env:
+      APP_SPEC_PATH: app.yaml
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      DIGITALOCEAN_APP_ID: ${{ secrets.DIGITALOCEAN_APP_ID }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          if [ -z "$DIGITALOCEAN_ACCESS_TOKEN" ]; then
+            echo "Missing required secret: DIGITALOCEAN_ACCESS_TOKEN"
+            exit 1
+          fi
+          if [ -z "$DIGITALOCEAN_APP_ID" ]; then
+            echo "Missing required secret: DIGITALOCEAN_APP_ID"
+            exit 1
+          fi
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Deploy app spec
+        shell: bash
+        run: |
+          doctl apps update "$DIGITALOCEAN_APP_ID" --spec "$APP_SPEC_PATH" --wait
+
+      - name: Print deployed app details
+        shell: bash
+        run: |
+          doctl apps get "$DIGITALOCEAN_APP_ID"
