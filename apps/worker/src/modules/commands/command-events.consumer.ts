@@ -54,7 +54,15 @@ export class CommandEventsConsumer implements OnModuleInit {
           try {
             const value = message.value?.toString();
             if (!value) return;
-            const event = JSON.parse(value) as DomainEvent;
+            const parsed = this.parseDomainEvent(value);
+            if (!parsed.ok) {
+              this.logger.warn(
+                `Rejected invalid command event payload: ${parsed.reason}`,
+              );
+              this.metrics.increment('command_events_invalid_total');
+              return;
+            }
+            const event = parsed.event;
             const result = await this.reconcileEvent(event);
             if (result.applied) {
               this.metrics.increment('command_events_applied_total');
@@ -105,6 +113,54 @@ export class CommandEventsConsumer implements OnModuleInit {
   isRunning(): boolean {
     if (!this.enabled) return true;
     return this.running || this.subscribed;
+  }
+
+  private parseDomainEvent(
+    raw: string,
+  ): { ok: true; event: DomainEvent } | { ok: false; reason: string } {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { ok: false, reason: 'Invalid JSON' };
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { ok: false, reason: 'Event payload must be an object' };
+    }
+
+    const candidate = parsed as Record<string, unknown>;
+    const eventId = candidate.eventId;
+    const eventType = candidate.eventType;
+    const source = candidate.source;
+    const occurredAt = candidate.occurredAt;
+    const payload = candidate.payload;
+
+    if (typeof eventId !== 'string' || eventId.trim().length === 0) {
+      return { ok: false, reason: 'eventId is required' };
+    }
+    if (typeof eventType !== 'string' || eventType.trim().length === 0) {
+      return { ok: false, reason: 'eventType is required' };
+    }
+    if (typeof source !== 'string' || source.trim().length === 0) {
+      return { ok: false, reason: 'source is required' };
+    }
+    if (
+      typeof occurredAt !== 'string' ||
+      Number.isNaN(Date.parse(occurredAt))
+    ) {
+      return { ok: false, reason: 'occurredAt must be an ISO date string' };
+    }
+    if (
+      payload !== undefined &&
+      (payload === null ||
+        typeof payload !== 'object' ||
+        Array.isArray(payload))
+    ) {
+      return { ok: false, reason: 'payload must be an object when provided' };
+    }
+
+    return { ok: true, event: candidate as DomainEvent };
   }
 
   private getBoolean(key: string, fallback: boolean): boolean {
