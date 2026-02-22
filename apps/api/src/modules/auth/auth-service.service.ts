@@ -24,6 +24,10 @@ import * as jwt from 'jsonwebtoken';
 import { SignOptions } from 'jsonwebtoken';
 import * as bcrypt from 'bcrypt';
 import { parsePaginationOptions } from '../../common/utils/pagination';
+import {
+  AuthAnomalyMonitorService,
+  AuthMonitoringContext,
+} from './auth-anomaly-monitor.service';
 
 @Injectable()
 export class AuthService {
@@ -71,6 +75,7 @@ export class AuthService {
     private readonly mailService: MailService,
     private readonly config: ConfigService,
     private readonly metrics: MetricsService,
+    private readonly anomalyMonitor: AuthAnomalyMonitorService,
     private readonly ocpiTokenSync: OcpiTokenSyncService,
     private readonly approvalService: AdminApprovalService,
   ) {}
@@ -191,8 +196,13 @@ export class AuthService {
     );
   }
 
-  async login(loginDto: LoginDto) {
+  async login(loginDto: LoginDto, context?: AuthMonitoringContext) {
     const startTime = Date.now();
+    const monitoringContext = this.createMonitoringContext(
+      context,
+      'login',
+      loginDto.email,
+    );
     try {
       this.logger.log(`Login attempt for ${loginDto.email}`);
       const user = await this.prisma.user.findUnique({
@@ -232,11 +242,17 @@ export class AuthService {
         user.status = 'Active';
       }
 
-      return this.generateAuthResponse(user);
+      const response = await this.generateAuthResponse(user);
+      this.anomalyMonitor.recordSuccess(monitoringContext);
+      return response;
     } catch (error) {
       this.logger.error(
         `Login error for ${loginDto.email}: ${error.message}`,
         error.stack,
+      );
+      this.anomalyMonitor.recordFailure(
+        monitoringContext,
+        error instanceof Error ? error.message : String(error),
       );
       throw error;
     }
@@ -505,152 +521,219 @@ export class AuthService {
     clientId: string,
     clientSecret: string,
     scope?: string,
+    context?: AuthMonitoringContext,
   ) {
-    const serviceAccount = await this.prisma.serviceAccount.findUnique({
-      where: { clientId },
-    });
-
-    if (!serviceAccount || serviceAccount.status !== 'ACTIVE') {
-      throw new UnauthorizedException('Invalid or inactive service account');
-    }
-
-    const isValid = this.verifyServiceSecret(
-      clientSecret,
-      serviceAccount.secretSalt,
-      serviceAccount.secretHash,
+    const monitoringContext = this.createMonitoringContext(
+      context,
+      'service_token',
+      clientId,
     );
-
-    if (!isValid) {
-      throw new UnauthorizedException('Invalid service credentials');
-    }
-
-    const requestedScopes = this.normalizeScopes(scope);
-    const allowedScopes = this.normalizeScopes(serviceAccount.scopes);
-
-    const payload = {
-      sub: serviceAccount.id,
-      clientId: serviceAccount.clientId,
-      scopes: requestedScopes.length > 0 ? requestedScopes : allowedScopes,
-      type: 'SERVICE',
-    };
-
-    const token = jwt.sign(
-      payload,
-      this.config.get<string>('JWT_SERVICE_SECRET') || 'dev_secret',
-      {
-        expiresIn:
-          (this.config.get('JWT_SERVICE_EXPIRY') as SignOptions['expiresIn']) ||
-          '1y',
-        issuer: this.config.get('JWT_SERVICE_ISSUER'),
-        audience: this.config.get('JWT_SERVICE_AUDIENCE'),
-      },
-    );
-
-    return {
-      accessToken: token,
-      expiresIn: this.config.get('JWT_SERVICE_EXPIRY') || '1y',
-    };
-  }
-
-  async requestOtp(identifier: string) {
-    const isEmail = identifier.includes('@');
-    if (!identifier) throw new BadRequestException('Identifier required');
-
-    let user = await this.prisma.user.findFirst({
-      where: isEmail ? { email: identifier } : { phone: identifier },
-    });
-
-    if (!user) {
-      if (isEmail) {
-        throw new NotFoundException('User not found');
-      }
-
-      user = await this.prisma.user.create({
-        data: { phone: identifier, name: 'Mobile User', status: 'Pending' },
+    try {
+      const serviceAccount = await this.prisma.serviceAccount.findUnique({
+        where: { clientId },
       });
 
-      await this.syncOcpiTokenSafe(user);
-    }
+      if (!serviceAccount || serviceAccount.status !== 'ACTIVE') {
+        throw new UnauthorizedException('Invalid or inactive service account');
+      }
 
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expires = new Date(Date.now() + 5 * 60 * 1000);
-
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { otpCode: code, otpExpiresAt: expires },
-    });
-
-    if (isEmail) {
-      await this.mailService.sendMail(
-        user.email!,
-        'Verification OTP',
-        `<p>Your OTP is <b>${code}</b></p>`,
+      const isValid = this.verifyServiceSecret(
+        clientSecret,
+        serviceAccount.secretSalt,
+        serviceAccount.secretHash,
       );
-    } else {
-      await this.notificationService.sendSms(
-        identifier,
-        `EvZone: Your verification code is ${code}`,
-      );
-    }
 
-    return { status: 'OTP Sent', identifier };
+      if (!isValid) {
+        throw new UnauthorizedException('Invalid service credentials');
+      }
+
+      const requestedScopes = this.normalizeScopes(scope);
+      const allowedScopes = this.normalizeScopes(serviceAccount.scopes);
+
+      const payload = {
+        sub: serviceAccount.id,
+        clientId: serviceAccount.clientId,
+        scopes: requestedScopes.length > 0 ? requestedScopes : allowedScopes,
+        type: 'SERVICE',
+      };
+
+      const token = jwt.sign(
+        payload,
+        this.config.get<string>('JWT_SERVICE_SECRET') || 'dev_secret',
+        {
+          expiresIn:
+            (this.config.get(
+              'JWT_SERVICE_EXPIRY',
+            ) as SignOptions['expiresIn']) || '1y',
+          issuer: this.config.get('JWT_SERVICE_ISSUER'),
+          audience: this.config.get('JWT_SERVICE_AUDIENCE'),
+        },
+      );
+
+      this.anomalyMonitor.recordSuccess(monitoringContext);
+      return {
+        accessToken: token,
+        expiresIn: this.config.get('JWT_SERVICE_EXPIRY') || '1y',
+      };
+    } catch (error) {
+      this.anomalyMonitor.recordFailure(
+        monitoringContext,
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
+    }
   }
 
-  async verifyOtp(identifier: string, code: string) {
+  async requestOtp(identifier: string, context?: AuthMonitoringContext) {
     const isEmail = identifier.includes('@');
-    const user = await this.prisma.user.findFirst({
-      where: isEmail ? { email: identifier } : { phone: identifier },
-    });
-    if (!user) throw new UnauthorizedException('User not found');
+    const monitoringContext = this.createMonitoringContext(
+      context,
+      'otp_send',
+      identifier,
+    );
+    try {
+      if (!identifier) throw new BadRequestException('Identifier required');
 
-    if (!user.otpCode || user.otpCode !== code) {
-      throw new UnauthorizedException('Invalid OTP');
+      let user = await this.prisma.user.findFirst({
+        where: isEmail ? { email: identifier } : { phone: identifier },
+      });
+
+      if (!user) {
+        if (isEmail) {
+          throw new NotFoundException('User not found');
+        }
+
+        user = await this.prisma.user.create({
+          data: { phone: identifier, name: 'Mobile User', status: 'Pending' },
+        });
+
+        await this.syncOcpiTokenSafe(user);
+      }
+
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const expires = new Date(Date.now() + 5 * 60 * 1000);
+
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { otpCode: code, otpExpiresAt: expires },
+      });
+
+      if (isEmail) {
+        await this.mailService.sendMail(
+          user.email!,
+          'Verification OTP',
+          `<p>Your OTP is <b>${code}</b></p>`,
+        );
+      } else {
+        await this.notificationService.sendSms(
+          identifier,
+          `EvZone: Your verification code is ${code}`,
+        );
+      }
+
+      this.anomalyMonitor.recordSuccess(monitoringContext);
+      return { status: 'OTP Sent', identifier };
+    } catch (error) {
+      this.anomalyMonitor.recordFailure(
+        monitoringContext,
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
     }
-
-    if (!user.otpExpiresAt || new Date() > user.otpExpiresAt) {
-      throw new UnauthorizedException('OTP Expired');
-    }
-
-    const updatedUser = await this.prisma.user.update({
-      where: { id: user.id },
-      data: { status: 'Active', otpCode: null, otpExpiresAt: null },
-    });
-
-    await this.syncOcpiTokenSafe(updatedUser);
-
-    return this.issueTokens(updatedUser as any);
   }
 
-  async resetPassword(identifier: string, code: string, newPassword: string) {
+  async verifyOtp(
+    identifier: string,
+    code: string,
+    context?: AuthMonitoringContext,
+  ) {
     const isEmail = identifier.includes('@');
-    const user = await this.prisma.user.findFirst({
-      where: isEmail ? { email: identifier } : { phone: identifier },
-    });
-    if (!user) throw new UnauthorizedException('User not found');
+    const monitoringContext = this.createMonitoringContext(
+      context,
+      'otp_verify',
+      identifier,
+    );
+    try {
+      const user = await this.prisma.user.findFirst({
+        where: isEmail ? { email: identifier } : { phone: identifier },
+      });
+      if (!user) throw new UnauthorizedException('User not found');
 
-    if (!user.otpCode || !this.constantTimeCompare(user.otpCode, code)) {
-      throw new UnauthorizedException('Invalid OTP');
+      if (!user.otpCode || user.otpCode !== code) {
+        throw new UnauthorizedException('Invalid OTP');
+      }
+
+      if (!user.otpExpiresAt || new Date() > user.otpExpiresAt) {
+        throw new UnauthorizedException('OTP Expired');
+      }
+
+      const updatedUser = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { status: 'Active', otpCode: null, otpExpiresAt: null },
+      });
+
+      await this.syncOcpiTokenSafe(updatedUser);
+      this.anomalyMonitor.recordSuccess(monitoringContext);
+
+      return this.issueTokens(updatedUser as any);
+    } catch (error) {
+      this.anomalyMonitor.recordFailure(
+        monitoringContext,
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
     }
+  }
 
-    if (!user.otpExpiresAt || new Date() > user.otpExpiresAt) {
-      throw new UnauthorizedException('OTP Expired');
+  async resetPassword(
+    identifier: string,
+    code: string,
+    newPassword: string,
+    context?: AuthMonitoringContext,
+  ) {
+    const isEmail = identifier.includes('@');
+    const monitoringContext = this.createMonitoringContext(
+      context,
+      'password_reset',
+      identifier,
+    );
+    try {
+      const user = await this.prisma.user.findFirst({
+        where: isEmail ? { email: identifier } : { phone: identifier },
+      });
+      if (!user) throw new UnauthorizedException('User not found');
+
+      if (!user.otpCode || !this.constantTimeCompare(user.otpCode, code)) {
+        throw new UnauthorizedException('Invalid OTP');
+      }
+
+      if (!user.otpExpiresAt || new Date() > user.otpExpiresAt) {
+        throw new UnauthorizedException('OTP Expired');
+      }
+
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+      const updatedUser = await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          passwordHash: hashedPassword,
+          otpCode: null,
+          otpExpiresAt: null,
+          status: 'Active',
+        },
+      });
+
+      await this.syncOcpiTokenSafe(updatedUser);
+      this.anomalyMonitor.recordSuccess(monitoringContext);
+
+      return { success: true, message: 'Password reset successful' };
+    } catch (error) {
+      this.anomalyMonitor.recordFailure(
+        monitoringContext,
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
     }
-
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-    const updatedUser = await this.prisma.user.update({
-      where: { id: user.id },
-      data: {
-        passwordHash: hashedPassword,
-        otpCode: null,
-        otpExpiresAt: null,
-        status: 'Active',
-      },
-    });
-
-    await this.syncOcpiTokenSafe(updatedUser);
-
-    return { success: true, message: 'Password reset successful' };
   }
 
   private async issueTokens(user: any) {
@@ -706,9 +789,10 @@ export class AuthService {
     };
   }
 
-  async refresh(refreshToken: string) {
+  async refresh(refreshToken: string, context?: AuthMonitoringContext) {
     const startTime = Date.now();
     const secret = this.config.get<string>('JWT_SECRET');
+    const monitoringContext = this.createMonitoringContext(context, 'refresh');
 
     try {
       if (!secret) throw new Error('JWT_SECRET not configured');
@@ -752,6 +836,7 @@ export class AuthService {
         userId: user.id,
         timestamp: new Date(),
       });
+      this.anomalyMonitor.recordSuccess(monitoringContext);
 
       return {
         accessToken,
@@ -778,8 +863,16 @@ export class AuthService {
         error: error instanceof Error ? error.message : String(error),
         timestamp: new Date(),
       });
+      this.anomalyMonitor.recordFailure(
+        monitoringContext,
+        error instanceof Error ? error.message : String(error),
+      );
       throw error;
     }
+  }
+
+  getAuthAnomalySummary() {
+    return this.anomalyMonitor.getSummary();
   }
 
   async revokeRefreshToken(token: string): Promise<void> {
@@ -981,6 +1074,20 @@ export class AuthService {
     const actual = Buffer.from(hash, 'hex');
     if (expected.length !== actual.length) return false;
     return crypto.timingSafeEqual(expected, actual);
+  }
+
+  private createMonitoringContext(
+    context: AuthMonitoringContext | undefined,
+    route: string,
+    identifier?: string,
+  ): AuthMonitoringContext {
+    return {
+      route,
+      ip: context?.ip,
+      userAgent: context?.userAgent,
+      deviceId: context?.deviceId,
+      identifier: identifier || context?.identifier,
+    };
   }
 
   /**

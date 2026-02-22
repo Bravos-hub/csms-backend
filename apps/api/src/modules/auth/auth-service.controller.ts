@@ -70,9 +70,16 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   async login(
     @Body() loginDto: LoginDto,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.authService.login(loginDto);
+    const result = await this.authService.login(
+      loginDto,
+      this.buildMonitoringContext(req, {
+        route: 'login',
+        identifier: loginDto.email,
+      }),
+    );
 
     // Set httpOnly cookies
     res.cookie(
@@ -122,7 +129,10 @@ export class AuthController {
       );
     }
 
-    const result = await this.authService.refresh(refreshToken);
+    const result = await this.authService.refresh(
+      refreshToken,
+      this.buildMonitoringContext(req, { route: 'refresh' }),
+    );
 
     // Set new httpOnly cookies
     res.cookie(
@@ -211,6 +221,10 @@ export class AuthController {
       clientId,
       clientSecret,
       body.scope,
+      this.buildMonitoringContext(req, {
+        route: 'service_token',
+        identifier: clientId,
+      }),
     );
   }
 
@@ -218,28 +232,40 @@ export class AuthController {
   @Post('otp/send')
   @Throttle({ default: { limit: 3, ttl: 60_000 } })
   @ApiOperation({ summary: 'Request OTP' })
-  requestOtp(@Body() body: { phone?: string; email?: string }) {
+  requestOtp(
+    @Body() body: { phone?: string; email?: string },
+    @Req() req: Request,
+  ) {
     if (!body.phone && !body.email)
       throw new BadRequestException('Phone or Email is required');
-    return this.authService.requestOtp(body.phone || body.email || '');
+    const identifier = body.phone || body.email || '';
+    return this.authService.requestOtp(
+      identifier,
+      this.buildMonitoringContext(req, { route: 'otp_send', identifier }),
+    );
   }
 
   @Post('otp/verify')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: 'Verify OTP' })
-  verifyOtp(@Body() body: { phone?: string; email?: string; code: string }) {
+  verifyOtp(
+    @Body() body: { phone?: string; email?: string; code: string },
+    @Req() req: Request,
+  ) {
     if ((!body.phone && !body.email) || !body.code)
       throw new BadRequestException('Phone/Email and code are required');
+    const identifier = body.phone || body.email || '';
     return this.authService.verifyOtp(
-      body.phone || body.email || '',
+      identifier,
       body.code,
+      this.buildMonitoringContext(req, { route: 'otp_verify', identifier }),
     );
   }
 
   @Post('password/reset')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Reset password' })
-  resetPassword(@Body() body: any) {
+  resetPassword(@Body() body: any, @Req() req: Request) {
     this.logger.log('Password reset request received');
 
     const identifier = body.email || body.phone || body.identifier;
@@ -252,7 +278,15 @@ export class AuthController {
         'Email/Phone, OTP code, and new password are required',
       );
     }
-    return this.authService.resetPassword(identifier, otp, pass);
+    return this.authService.resetPassword(
+      identifier,
+      otp,
+      pass,
+      this.buildMonitoringContext(req, {
+        route: 'password_reset',
+        identifier,
+      }),
+    );
   }
 
   @Post('verify-email')
@@ -285,6 +319,45 @@ export class AuthController {
     }
     await this.authService.resendVerificationEmail(body.email);
     return { success: true, message: 'Verification email sent' };
+  }
+
+  @Get('anomaly/summary')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get auth anomaly monitoring summary' })
+  getAnomalySummary() {
+    return this.authService.getAuthAnomalySummary();
+  }
+
+  private buildMonitoringContext(
+    req: Request,
+    input: { route: string; identifier?: string },
+  ) {
+    const forwarded = req.headers['x-forwarded-for'];
+    const ipFromHeader = Array.isArray(forwarded)
+      ? forwarded[0]
+      : typeof forwarded === 'string'
+        ? forwarded.split(',')[0]
+        : undefined;
+    const ip = (
+      ipFromHeader ||
+      req.ip ||
+      req.socket?.remoteAddress ||
+      ''
+    ).trim();
+    const userAgent = (req.headers['user-agent'] || '').toString();
+    const deviceIdRaw =
+      req.headers['x-device-id'] || req.headers['x-client-device-id'];
+    const deviceId = Array.isArray(deviceIdRaw)
+      ? deviceIdRaw[0]
+      : (deviceIdRaw || '').toString();
+
+    return {
+      route: input.route,
+      identifier: input.identifier,
+      ip,
+      userAgent,
+      deviceId: deviceId || undefined,
+    };
   }
 }
 

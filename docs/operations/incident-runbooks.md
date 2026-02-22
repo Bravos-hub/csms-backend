@@ -68,3 +68,18 @@ Actions:
 2. If DB down, trigger DB incident process.
 3. If Kafka optional and only degraded by Kafka, keep API serving and monitor.
 4. If user-facing impact exceeds SLO window, initiate rollback or traffic shed.
+
+## Auth Abuse/Anomaly Spike
+
+Trigger:
+
+- repeated `auth_anomaly_detected` warnings in API logs
+- elevated failures on login/OTP/password reset routes
+
+Actions:
+
+1. Inspect `GET /api/v1/auth/anomaly/summary`.
+2. Identify dominant dimension (`ip`, `device`, or `identifier`).
+3. Tighten temporary throttling limits for affected routes.
+4. If concentrated abuse is confirmed, apply IP/device blocking at edge/WAF.
+5. Validate recovery in auth failure rates and anomaly counters.
