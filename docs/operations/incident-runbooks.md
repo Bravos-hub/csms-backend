@@ -39,7 +39,8 @@ Actions:
 1. Sample dead-letter payloads and group by error category.
 2. Validate topic contracts and payload schema.
 3. Patch malformed producer paths.
-4. Reprocess only remediated dead-letter records.
+4. Reprocess only remediated dead-letter records using:
+   `npm run replay:dead-letters -- --dry-run false --limit 100`
 
 ## Worker Startup Failures
 

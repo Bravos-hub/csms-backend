@@ -24,6 +24,7 @@
     "start:api": "nest start api",
     "start:ocpp": "nest start ocpp-gateway",
     "start:worker": "nest start worker",
+    "replay:dead-letters": "tsx ./scripts/replay-dead-letters.ts",
     "prisma:refresh": "node scripts/prisma-refresh.js",
     "prisma:check": "node scripts/prisma-check.js",
     "backfill:user-org-region": "tsx ./prisma/backfill-user-org-region.ts",
