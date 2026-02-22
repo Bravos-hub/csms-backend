@@ -20,7 +20,7 @@ jobs:
     env:
       DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
       DROPLET_USER: ${{ secrets.DROPLET_USER }}
-      DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
+      DROPLET_PASSWORD: ${{ secrets.DROPLET_PASSWORD }}
 
     steps:
       - name: Validate required secrets
@@ -34,8 +34,8 @@ jobs:
             echo "Missing required secret: DROPLET_USER"
             exit 1
           fi
-          if [ -z "$DROPLET_SSH_KEY" ]; then
-            echo "Missing required secret: DROPLET_SSH_KEY"
+          if [ -z "$DROPLET_PASSWORD" ]; then
+            echo "Missing required secret: DROPLET_PASSWORD"
             exit 1
           fi
 
@@ -44,7 +44,7 @@ jobs:
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
+          password: ${{ secrets.DROPLET_PASSWORD }}
           port: ${{ secrets.DROPLET_SSH_PORT || '22' }}
           script_stop: true
           command_timeout: 45m
