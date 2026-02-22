@@ -1002,8 +1002,12 @@ model Command {
   completedAt   DateTime? @map("completed_at")
   correlationId String?   @map("correlation_id")
   error         String?
+  outboxEntries CommandOutbox[]
+  events        CommandEvent[]
 
   @@map("commands")
+  @@index([correlationId])
+  @@index([status, requestedAt])
 }
 
 model CommandOutbox {
@@ -1016,8 +1020,12 @@ model CommandOutbox {
   lastError   String?   @map("last_error")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
+  command     Command   @relation(fields: [commandId], references: [id], onDelete: Cascade)
 
   @@map("command_outbox")
+  @@index([status, lockedAt, createdAt])
+  @@index([status, updatedAt])
+  @@index([commandId])
 }
 
 model CommandEvent {
@@ -1026,8 +1034,11 @@ model CommandEvent {
   status     String
   payload    Json?
   occurredAt DateTime @map("occurred_at")
+  command    Command  @relation(fields: [commandId], references: [id], onDelete: Cascade)
 
   @@map("command_events")
+  @@index([commandId, occurredAt])
+  @@index([status, occurredAt])
 }
 
 model OcpiPartner {
