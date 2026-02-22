@@ -65,12 +65,22 @@ export class HealthController {
       service: this.config.get<string>('service.name', 'evzone-backend-api'),
       time: new Date().toISOString(),
       http: this.httpMetrics.snapshot(),
+      dbPool: this.prisma.getPoolMetrics(),
     };
   }
 
   private async buildDependencyReport(): Promise<{
     ready: boolean;
-    db: { status: 'up' | 'down'; error?: string };
+    db: {
+      status: 'up' | 'down';
+      pool: {
+        totalCount: number;
+        idleCount: number;
+        waitingCount: number;
+        max: number | null;
+      };
+      error?: string;
+    };
     redis: {
       status: 'up' | 'down';
       required: boolean;
@@ -101,14 +111,22 @@ export class HealthController {
 
   private async checkDatabase(): Promise<{
     status: 'up' | 'down';
+    pool: {
+      totalCount: number;
+      idleCount: number;
+      waitingCount: number;
+      max: number | null;
+    };
     error?: string;
   }> {
+    const pool = this.prisma.getPoolMetrics();
     try {
       await this.prisma.$queryRawUnsafe('SELECT 1');
-      return { status: 'up' };
+      return { status: 'up', pool };
     } catch (error) {
       return {
         status: 'down',
+        pool,
         error: error instanceof Error ? error.message : String(error),
       };
     }

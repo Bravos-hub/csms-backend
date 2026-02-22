@@ -68,24 +68,38 @@ export class WorkerHealthController {
 
   @Get('metrics')
   getMetrics() {
-    return this.metrics.snapshot();
+    return {
+      ...this.metrics.snapshot(),
+      dbPool: this.prisma.getPoolMetrics(),
+    };
   }
 
   @Get('health/metrics')
   getHealthMetrics() {
-    return this.metrics.snapshot();
+    return {
+      ...this.metrics.snapshot(),
+      dbPool: this.prisma.getPoolMetrics(),
+    };
   }
 
   private async checkDatabase(): Promise<{
     status: 'up' | 'down';
+    pool: {
+      totalCount: number;
+      idleCount: number;
+      waitingCount: number;
+      max: number | null;
+    };
     error?: string;
   }> {
+    const pool = this.prisma.getPoolMetrics();
     try {
       await this.prisma.$queryRawUnsafe('SELECT 1');
-      return { status: 'up' };
+      return { status: 'up', pool };
     } catch (error) {
       return {
         status: 'down',
+        pool,
         error: error instanceof Error ? error.message : String(error),
       };
     }
