@@ -27,6 +27,18 @@ BASE_URL=https://staging-api.evzonecharging.com BASELINE_VUS=80 SPIKE_VUS=400 np
 BASE_URL=https://staging-api.evzonecharging.com VUS=100 DURATION=12h npm run loadtest:soak
 ```
 
+Windows/PowerShell gate runner (sequential baseline/stress/spike/soak):
+
+```powershell
+npm run ops:loadtest:gates -- -BaseUrl https://staging-api.evzonecharging.com
+```
+
+Skip soak for faster rehearsal:
+
+```powershell
+npm run ops:loadtest:gates -- -BaseUrl https://staging-api.evzonecharging.com -SkipSoak
+```
+
 ## Gate Policy
 
 Fail release if any scenario breaches configured thresholds for:

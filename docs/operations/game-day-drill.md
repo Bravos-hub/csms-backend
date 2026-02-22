@@ -18,6 +18,7 @@ Reference scripts:
 - `npm run loadtest:stress`
 - `npm run loadtest:spike`
 - `npm run loadtest:soak`
+- `npm run ops:loadtest:gates -- -BaseUrl <target-url>`
 
 ## Entry Criteria
 

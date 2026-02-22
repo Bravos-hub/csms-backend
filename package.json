@@ -29,6 +29,7 @@
     "loadtest:stress": "k6 run ops/loadtest/k6-stress.js",
     "loadtest:spike": "k6 run ops/loadtest/k6-spike.js",
     "loadtest:soak": "k6 run ops/loadtest/k6-soak.js",
+    "ops:loadtest:gates": "powershell -ExecutionPolicy Bypass -File ./scripts/ops/run-launch-load-gates.ps1",
     "ops:check-cross-repo-contracts": "tsx ./scripts/ops/check-cross-repo-contracts.ts",
     "ops:check-command-pipeline-migration": "tsx ./scripts/ops/check-command-pipeline-migration.ts",
     "prisma:refresh": "node scripts/prisma-refresh.js",
