@@ -69,6 +69,35 @@ export class HealthController {
     };
   }
 
+  @Get('metrics/prometheus')
+  async getPrometheusMetrics(@Res() response: Response) {
+    const report = await this.buildDependencyReport();
+    const dbPool = this.prisma.getPoolMetrics();
+    const lines = [
+      '# TYPE api_health_ready_status gauge',
+      `api_health_ready_status ${report.ready ? 1 : 0}`,
+      '# TYPE api_dependency_status gauge',
+      `api_dependency_status{name="db",required="true"} ${report.db.status === 'up' ? 1 : 0}`,
+      `api_dependency_status{name="redis",required="${report.redis.required ? 'true' : 'false'}"} ${report.redis.status === 'up' ? 1 : 0}`,
+      `api_dependency_status{name="kafka",required="${report.kafka.required ? 'true' : 'false'}"} ${report.kafka.status === 'up' ? 1 : 0}`,
+      '# TYPE api_db_pool_total_count gauge',
+      `api_db_pool_total_count ${dbPool.totalCount}`,
+      '# TYPE api_db_pool_idle_count gauge',
+      `api_db_pool_idle_count ${dbPool.idleCount}`,
+      '# TYPE api_db_pool_waiting_count gauge',
+      `api_db_pool_waiting_count ${dbPool.waitingCount}`,
+      '# TYPE api_db_pool_max_count gauge',
+      `api_db_pool_max_count ${dbPool.max ?? 0}`,
+      ...this.httpMetrics.toPrometheusLines(),
+    ];
+
+    response.setHeader(
+      'Content-Type',
+      'text/plain; version=0.0.4; charset=utf-8',
+    );
+    response.send(`${lines.join('\n')}\n`);
+  }
+
   private async buildDependencyReport(): Promise<{
     ready: boolean;
     db: {

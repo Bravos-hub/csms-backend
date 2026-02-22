@@ -18,7 +18,9 @@ The dashboard template is aligned to launch SLO monitoring for:
 1. Open Grafana and import:
    `ops/dashboards/launch-command-center.grafana.json`
 2. Bind `DS_PROMETHEUS` to your Prometheus datasource.
-3. Select the `env` variable (`prod`, `staging`, etc.).
+3. Ensure Prometheus is scraping:
+   - API: `/health/metrics/prometheus`
+   - Worker: `/metrics/prometheus`
 
 ## Required Metrics
 
@@ -26,7 +28,7 @@ The template expects these series (or equivalent recording rules):
 
 - `api_health_ready_status`
 - `worker_health_ready_status`
-- `kafka_consumer_lag_seconds_p95`
+- `command_events_consumer_lag_total`
 - `outbox_backlog_depth`
 - `outbox_oldest_queued_age_seconds`
 - `outbox_publish_success_total`
@@ -35,7 +37,9 @@ The template expects these series (or equivalent recording rules):
 - `outbox_dead_letter_total`
 - `command_events_failed_total`
 - `api_http_requests_total`
-- `api_http_request_duration_seconds_bucket`
+- `api_http_requests_status_class_total`
+- `api_http_route_latency_ms_p95`
+- `api_http_route_latency_ms_p99`
 
 If your metric names differ, update panel queries after import.
 

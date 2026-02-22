@@ -26,21 +26,8 @@ export class WorkerHealthController {
 
   @Get('health/ready')
   async ready(@Res({ passthrough: true }) response: Response) {
-    const [db, kafka, outbox, consumerLag] = await Promise.all([
-      this.checkDatabase(),
-      this.kafka.checkConnection(),
-      this.checkOutboxReadiness(),
-      this.checkConsumerLagReadiness(),
-    ]);
-    const consumerReady = this.commandEvents.isReady();
-    const status =
-      db.status === 'up' &&
-      kafka.status === 'up' &&
-      consumerReady &&
-      outbox.status === 'ok' &&
-      consumerLag.status === 'ok'
-        ? 'ok'
-        : 'degraded';
+    const report = await this.buildReadinessReport();
+    const status = report.status;
     response.status(
       status === 'ok' ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE,
     );
@@ -49,14 +36,14 @@ export class WorkerHealthController {
       status,
       service: 'worker',
       time: new Date().toISOString(),
-      db,
-      outbox,
+      db: report.db,
+      outbox: report.outbox,
       kafka: {
-        ...kafka,
-        producerConnected: this.kafka.isConnected(),
-        commandEventsConsumerReady: consumerReady,
+        ...report.kafka,
+        producerConnected: report.producerConnected,
+        commandEventsConsumerReady: report.consumerReady,
         commandEventsConsumerRunning: this.commandEvents.isRunning(),
-        commandEventsConsumerLag: consumerLag,
+        commandEventsConsumerLag: report.consumerLag,
       },
     };
   }
@@ -80,6 +67,34 @@ export class WorkerHealthController {
       ...this.metrics.snapshot(),
       dbPool: this.prisma.getPoolMetrics(),
     };
+  }
+
+  @Get('metrics/prometheus')
+  async prometheus(@Res() response: Response) {
+    const report = await this.buildReadinessReport();
+    const dbPool = this.prisma.getPoolMetrics();
+    const lines = [
+      '# TYPE worker_health_ready_status gauge',
+      `worker_health_ready_status ${report.status === 'ok' ? 1 : 0}`,
+      '# TYPE worker_dependency_status gauge',
+      `worker_dependency_status{name="db"} ${report.db.status === 'up' ? 1 : 0}`,
+      `worker_dependency_status{name="kafka"} ${report.kafka.status === 'up' ? 1 : 0}`,
+      '# TYPE worker_db_pool_total_count gauge',
+      `worker_db_pool_total_count ${dbPool.totalCount}`,
+      '# TYPE worker_db_pool_idle_count gauge',
+      `worker_db_pool_idle_count ${dbPool.idleCount}`,
+      '# TYPE worker_db_pool_waiting_count gauge',
+      `worker_db_pool_waiting_count ${dbPool.waitingCount}`,
+      '# TYPE worker_db_pool_max_count gauge',
+      `worker_db_pool_max_count ${dbPool.max ?? 0}`,
+      ...this.metrics.toPrometheusLines(),
+    ];
+
+    response.setHeader(
+      'Content-Type',
+      'text/plain; version=0.0.4; charset=utf-8',
+    );
+    response.send(`${lines.join('\n')}\n`);
   }
 
   private async checkDatabase(): Promise<{
@@ -227,6 +242,35 @@ export class WorkerHealthController {
       threshold,
       totalLag: lag.totalLag,
       partitions: lag.partitions,
+    };
+  }
+
+  private async buildReadinessReport() {
+    const [db, kafka, outbox, consumerLag] = await Promise.all([
+      this.checkDatabase(),
+      this.kafka.checkConnection(),
+      this.checkOutboxReadiness(),
+      this.checkConsumerLagReadiness(),
+    ]);
+    const consumerReady = this.commandEvents.isReady();
+    const producerConnected = this.kafka.isConnected();
+    const status =
+      db.status === 'up' &&
+      kafka.status === 'up' &&
+      consumerReady &&
+      outbox.status === 'ok' &&
+      consumerLag.status === 'ok'
+        ? 'ok'
+        : 'degraded';
+
+    return {
+      status,
+      db,
+      kafka,
+      outbox,
+      consumerLag,
+      consumerReady,
+      producerConnected,
     };
   }
 }

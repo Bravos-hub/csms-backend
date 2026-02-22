@@ -72,7 +72,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "api_health_ready_status{env=\"$env\"}",
+          "expr": "api_health_ready_status",
           "refId": "A"
         }
       ],
@@ -129,7 +129,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "worker_health_ready_status{env=\"$env\"}",
+          "expr": "worker_health_ready_status",
           "refId": "A"
         }
       ],
@@ -144,7 +144,7 @@
       "fieldConfig": {
         "defaults": {
           "mappings": [],
-          "unit": "s"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -172,11 +172,11 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "kafka_consumer_lag_seconds_p95{env=\"$env\"}",
+          "expr": "command_events_consumer_lag_total",
           "refId": "A"
         }
       ],
-      "title": "Kafka Consumer Lag p95 (s)",
+      "title": "Command Events Consumer Lag",
       "type": "stat"
     },
     {
@@ -215,7 +215,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "outbox_backlog_depth{env=\"$env\"}",
+          "expr": "outbox_backlog_depth",
           "refId": "A"
         }
       ],
@@ -256,13 +256,13 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum(rate(api_http_request_duration_seconds_bucket{env=\"$env\"}[5m])) by (le))",
+          "expr": "max(api_http_route_latency_ms_p95)",
           "legendFormat": "api p95",
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum(rate(api_http_request_duration_seconds_bucket{env=\"$env\"}[5m])) by (le))",
+          "expr": "max(api_http_route_latency_ms_p99)",
           "legendFormat": "api p99",
           "refId": "B"
         }
@@ -304,7 +304,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum(rate(api_http_requests_total{env=\"$env\",status_class=\"5xx\"}[5m])) / clamp_min(sum(rate(api_http_requests_total{env=\"$env\"}[5m])), 1)",
+          "expr": "sum(rate(api_http_requests_status_class_total{status_class=\"5xx\"}[5m])) / clamp_min(sum(rate(api_http_requests_total[5m])), 1)",
           "legendFormat": "5xx rate",
           "refId": "A"
         }
@@ -346,7 +346,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "outbox_oldest_queued_age_seconds{env=\"$env\"}",
+          "expr": "outbox_oldest_queued_age_seconds",
           "legendFormat": "oldest queued age",
           "refId": "A"
         }
@@ -388,19 +388,19 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(outbox_publish_success_total{env=\"$env\"}[5m])",
+          "expr": "rate(outbox_publish_success_total[5m])",
           "legendFormat": "publish success/s",
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "rate(outbox_publish_fail_total{env=\"$env\"}[5m])",
+          "expr": "rate(outbox_publish_fail_total[5m])",
           "legendFormat": "publish fail/s",
           "refId": "B"
         },
         {
           "editorMode": "code",
-          "expr": "rate(outbox_retry_scheduled_total{env=\"$env\"}[5m])",
+          "expr": "rate(outbox_retry_scheduled_total[5m])",
           "legendFormat": "retry scheduled/s",
           "refId": "C"
         }
@@ -442,13 +442,13 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(outbox_dead_letter_total{env=\"$env\"}[5m])",
+          "expr": "rate(outbox_dead_letter_total[5m])",
           "legendFormat": "dead-letter/s",
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "rate(command_events_failed_total{env=\"$env\"}[5m])",
+          "expr": "rate(command_events_failed_total[5m])",
           "legendFormat": "event apply fail/s",
           "refId": "B"
         }
@@ -466,22 +466,7 @@
     "evzone"
   ],
   "templating": {
-    "list": [
-      {
-        "current": {
-          "selected": false,
-          "text": "prod",
-          "value": "prod"
-        },
-        "includeAll": false,
-        "label": "Environment",
-        "name": "env",
-        "options": [],
-        "query": "label_values(api_health_ready_status, env)",
-        "refresh": 2,
-        "type": "query"
-      }
-    ]
+    "list": []
   },
   "time": {
     "from": "now-6h",
@@ -494,3 +479,4 @@
   "version": 1,
   "weekStart": ""
 }
+

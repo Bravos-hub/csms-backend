@@ -46,6 +46,8 @@ async function bootstrap() {
         { path: 'health', method: RequestMethod.GET },
         { path: 'health/live', method: RequestMethod.GET },
         { path: 'health/ready', method: RequestMethod.GET },
+        { path: 'health/metrics', method: RequestMethod.GET },
+        { path: 'health/metrics/prometheus', method: RequestMethod.GET },
       ],
     });
 

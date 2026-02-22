@@ -92,4 +92,46 @@ export class WorkerMetricsService {
       generatedAt: new Date().toISOString(),
     };
   }
+
+  toPrometheusLines(): string[] {
+    const snapshot = this.snapshot();
+    const lines: string[] = [];
+
+    for (const [name, value] of Object.entries(snapshot.counters)) {
+      const metricName = this.toMetricName(name);
+      lines.push(`# TYPE ${metricName} counter`);
+      lines.push(`${metricName} ${value}`);
+    }
+
+    for (const [name, value] of Object.entries(snapshot.gauges)) {
+      const metricName = this.toMetricName(name);
+      lines.push(`# TYPE ${metricName} gauge`);
+      lines.push(`${metricName} ${value}`);
+    }
+
+    for (const [name, value] of Object.entries(snapshot.latencies)) {
+      const prefix = this.toMetricName(name);
+      lines.push(`# TYPE ${prefix}_count counter`);
+      lines.push(`${prefix}_count ${value.count}`);
+      lines.push(`# TYPE ${prefix}_avg_ms gauge`);
+      lines.push(`${prefix}_avg_ms ${value.avgMs}`);
+      lines.push(`# TYPE ${prefix}_min_ms gauge`);
+      lines.push(`${prefix}_min_ms ${value.minMs}`);
+      lines.push(`# TYPE ${prefix}_max_ms gauge`);
+      lines.push(`${prefix}_max_ms ${value.maxMs}`);
+      lines.push(`# TYPE ${prefix}_p95_ms gauge`);
+      lines.push(`${prefix}_p95_ms ${value.p95Ms}`);
+    }
+
+    return lines;
+  }
+
+  private toMetricName(name: string): string {
+    const normalized = name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '_')
+      .replace(/^_+/, '');
+    return normalized.length > 0 ? normalized : 'worker_metric';
+  }
 }

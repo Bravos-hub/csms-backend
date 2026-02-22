@@ -22,14 +22,14 @@ groups:
           description: Worker /health/ready is not returning healthy.
 
       - alert: ConsumerLagHigh
-        expr: kafka_consumer_lag_seconds_p95 > 10
+        expr: command_events_consumer_lag_total > 1000
         for: 10m
         labels:
           severity: high
           service: worker
         annotations:
-          summary: Consumer lag is above SLO
-          description: Consumer lag p95 is > 10s for 10m.
+          summary: Consumer lag is above threshold
+          description: Command event consumer lag exceeded 1000 messages for 10m.
 
       - alert: OutboxBacklogGrowing
         expr: outbox_backlog_depth > 10000
