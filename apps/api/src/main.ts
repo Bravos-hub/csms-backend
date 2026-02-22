@@ -70,9 +70,7 @@ async function bootstrap() {
       }),
     );
 
-    const corsOrigins = process.env.CORS_ORIGINS
-      ? process.env.CORS_ORIGINS.split(',')
-      : ['http://localhost:5173', 'https://portal.evzonecharging.com'];
+    const corsOrigins = buildCorsOrigins();
 
     app.enableCors({
       origin: corsOrigins,
@@ -148,6 +146,55 @@ function parseList(value?: string): string[] {
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function buildCorsOrigins(): string[] {
+  const defaults = [
+    'http://localhost:5173',
+    'https://portal.evzonecharging.com',
+  ];
+  const configured = parseList(process.env.CORS_ORIGINS);
+  const origins = configured.length > 0 ? configured : defaults;
+  validateCorsOriginsOrThrow(origins);
+  return origins;
+}
+
+function validateCorsOriginsOrThrow(origins: string[]): void {
+  if (origins.length === 0) {
+    throw new Error(
+      'CORS_ORIGINS must contain at least one origin when credentials are enabled',
+    );
+  }
+
+  if (origins.includes('*')) {
+    throw new Error(
+      'CORS wildcard (*) is not allowed when credentials are enabled',
+    );
+  }
+
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  for (const origin of origins) {
+    let parsed: URL;
+    try {
+      parsed = new URL(origin);
+    } catch {
+      throw new Error(`Invalid CORS origin: ${origin}`);
+    }
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error(`Unsupported CORS origin protocol: ${origin}`);
+    }
+
+    const host = parsed.hostname.toLowerCase();
+    const isLocal =
+      host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+    if (isProduction && parsed.protocol !== 'https:' && !isLocal) {
+      throw new Error(
+        `In production, CORS origins must use https (except localhost): ${origin}`,
+      );
+    }
+  }
 }
 
 function buildKafkaSslOptions():

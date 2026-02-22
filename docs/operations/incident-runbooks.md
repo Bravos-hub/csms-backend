@@ -83,3 +83,18 @@ Actions:
 3. Tighten temporary throttling limits for affected routes.
 4. If concentrated abuse is confirmed, apply IP/device blocking at edge/WAF.
 5. Validate recovery in auth failure rates and anomaly counters.
+
+## Secret Rotation Failure
+
+Trigger:
+
+- dependency auth/connectivity failures immediately after secret update
+- API/worker readiness drop after rotation deployment
+
+Actions:
+
+1. Switch secret references back to previous known-good version.
+2. Redeploy worker first, then API.
+3. Confirm `/health/ready` on both services returns HTTP `200`.
+4. Verify command lag/backlog and auth success rates normalize.
+5. Follow `docs/operations/secret-rotation-runbook.md` for corrective reattempt.
