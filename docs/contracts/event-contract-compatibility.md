@@ -22,3 +22,17 @@ This policy governs command/event payload compatibility between backend worker a
 2. Deploy consumers before producers for new versions.
 3. Track invalid-version counters during rollout.
 4. Remove legacy/no-version support only after all producers are confirmed upgraded.
+
+## Cross-Repo Validation Gate
+
+Run this check from `evzone-backend` when both repositories are present in one workspace:
+
+```bash
+npm run ops:check-cross-repo-contracts -- --strict true
+```
+
+This verifies:
+
+- schema version parity
+- topic parity for command/event channels
+- command request and command event payload roundtrip validation in both repos
