@@ -54,9 +54,9 @@ jobs:
             if [ -z "$DEPLOY_DIR" ]; then
               DEPLOY_DIR="$HOME/csms-backend"
             fi
-            case "$DEPLOY_DIR" in
-              "~/"*) DEPLOY_DIR="$HOME/${DEPLOY_DIR#~/}" ;;
-            esac
+            if [ "${DEPLOY_DIR#~/}" != "$DEPLOY_DIR" ]; then
+              DEPLOY_DIR="$HOME/${DEPLOY_DIR#~/}"
+            fi
             cd "$DEPLOY_DIR"
             if [ -n "$(git status --porcelain)" ]; then
               STASH_NAME="ci-autostash-$(date -u +%Y%m%dT%H%M%SZ)"
