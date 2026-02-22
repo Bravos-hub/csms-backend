@@ -105,6 +105,18 @@ services:
       - key: WORKER_READY_MAX_CONSUMER_LAG
         scope: RUN_TIME
         value: '1000'
+      - key: COMMAND_HISTORY_CLEANUP_ENABLED
+        scope: RUN_TIME
+        value: 'true'
+      - key: COMMAND_HISTORY_CLEANUP_INTERVAL_MS
+        scope: RUN_TIME
+        value: '3600000'
+      - key: COMMAND_HISTORY_RETENTION_DAYS
+        scope: RUN_TIME
+        value: '30'
+      - key: COMMAND_HISTORY_CLEANUP_BATCH_SIZE
+        scope: RUN_TIME
+        value: '1000'
 
 jobs:
   - name: db-migrate
