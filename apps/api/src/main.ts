@@ -8,6 +8,10 @@ import type { SASLOptions } from 'kafkajs';
 import { json, urlencoded } from 'express';
 import { RequestMethod } from '@nestjs/common';
 import { AppModule } from './app.module';
+import {
+  requestContextMiddleware,
+  requestLoggingMiddleware,
+} from './common/observability/request-logging.middleware';
 import { validateKafkaTopicsOrThrow } from './contracts/kafka-topics';
 import cookieParser from 'cookie-parser';
 
@@ -46,6 +50,8 @@ async function bootstrap() {
     });
 
     const bodyLimit = process.env.API_BODY_LIMIT || '1mb';
+    app.use(requestContextMiddleware);
+    app.use(requestLoggingMiddleware);
     app.use(json({ limit: bodyLimit }));
     app.use(urlencoded({ extended: true, limit: bodyLimit }));
 

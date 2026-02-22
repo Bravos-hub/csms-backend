@@ -1,6 +1,7 @@
 import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
+import { HttpMetricsService } from '../../common/observability/http-metrics.service';
 import { PrismaService } from '../../prisma.service';
 import { KafkaService } from '../../platform/kafka.service';
 
@@ -8,6 +9,7 @@ import { KafkaService } from '../../platform/kafka.service';
 export class HealthController {
   constructor(
     private readonly config: ConfigService,
+    private readonly httpMetrics: HttpMetricsService,
     private readonly prisma: PrismaService,
     private readonly kafka: KafkaService,
   ) {}
@@ -49,6 +51,16 @@ export class HealthController {
       time: new Date().toISOString(),
       db: report.db,
       kafka: report.kafka,
+    };
+  }
+
+  @Get('metrics')
+  getHttpMetrics() {
+    return {
+      status: 'ok',
+      service: this.config.get<string>('service.name', 'evzone-backend-api'),
+      time: new Date().toISOString(),
+      http: this.httpMetrics.snapshot(),
     };
   }
 

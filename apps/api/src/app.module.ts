@@ -45,6 +45,7 @@ import { TechniciansModule } from './technicians/technicians.module';
 import { OcpiModule } from './modules/ocpi/ocpi.module';
 import { GeographyModule } from './modules/geography/geography.module';
 import { MarketplaceContactsModule } from './modules/marketplace/marketplace-contacts.module';
+import { ObservabilityModule } from './common/observability/observability.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { MarketplaceContactsModule } from './modules/marketplace/marketplace-con
         limit: parseInt(process.env.API_RATE_LIMIT_LIMIT || '120', 10),
       },
     ]),
+    ObservabilityModule,
     PrismaModule,
 
     // Existing
