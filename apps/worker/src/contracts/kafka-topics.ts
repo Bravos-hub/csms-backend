@@ -17,12 +17,6 @@ export const KAFKA_TOPICS = {
     auditEvents: topic('KAFKA_TOPIC_AUDIT_EVENTS', 'cpms.audit.events'),
 } as const;
 
-export const commandRequestsForNode = (nodeId: string) =>
-    `${KAFKA_TOPICS.commandRequestsNodePrefix}.${nodeId}`;
-
-export const sessionControlForNode = (nodeId: string) =>
-    `${KAFKA_TOPICS.sessionControlNodePrefix}.${nodeId}`;
-
 export function validateKafkaTopicsOrThrow(topics = KAFKA_TOPICS): void {
     const entries = Object.entries(topics);
     const empty = entries.filter(([, value]) => !value || value.trim().length === 0);
@@ -31,3 +25,4 @@ export function validateKafkaTopicsOrThrow(topics = KAFKA_TOPICS): void {
         throw new Error(`Kafka topic configuration contains empty values for: ${names}`);
     }
 }
+

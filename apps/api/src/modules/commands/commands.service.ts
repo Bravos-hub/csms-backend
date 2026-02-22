@@ -16,7 +16,9 @@ export class CommandsService {
         id: commandId,
         stationId: input.stationId || null,
         chargePointId: input.chargePointId || null,
-        connectorId: typeof input.connectorId === 'string' ? input.connectorId : null,
+        connectorId: input.connectorId !== undefined && input.connectorId !== null
+          ? String(input.connectorId)
+          : null,
         commandType: input.commandType,
         payload: (input.payload || {}) as any,
         status: 'Queued',
@@ -24,7 +26,7 @@ export class CommandsService {
         requestedAt: now,
         sentAt: null,
         completedAt: null,
-        correlationId: null,
+        correlationId: commandId,
         error: null,
       }
     })

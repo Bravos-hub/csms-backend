@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "prebuild": "npm run prisma:check",
-    "build": "nest build",
+    "build": "nest build api && nest build worker",
     "format": "prettier --write \"apps/**/*.ts\" \"packages/**/*.ts\"",
     "start": "nest start",
     "prestart:dev": "npm run prisma:check",

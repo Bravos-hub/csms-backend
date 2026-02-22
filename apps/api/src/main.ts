@@ -6,10 +6,12 @@ import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import type { SASLOptions } from 'kafkajs';
 import { AppModule } from './app.module';
+import { validateKafkaTopicsOrThrow } from './contracts/kafka-topics';
 import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   try {
+    validateKafkaTopicsOrThrow();
     const app = await NestFactory.create(AppModule);
     const kafkaEventsEnabled = (process.env.KAFKA_EVENTS_ENABLED ?? 'true') === 'true';
     if (kafkaEventsEnabled) {
