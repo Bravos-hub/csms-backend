@@ -1,4 +1,4 @@
-name: Deploy EVZone Backend To DigitalOcean
+name: Deploy EVZone Backend To Droplet
 
 on:
   push:
@@ -15,40 +15,48 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy App Platform Spec
+    name: Deploy On Droplet
     runs-on: ubuntu-latest
     env:
-      APP_SPEC_PATH: app.yaml
-      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-      DIGITALOCEAN_APP_ID: ${{ secrets.DIGITALOCEAN_APP_ID }}
+      DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+      DROPLET_USER: ${{ secrets.DROPLET_USER }}
+      DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
       - name: Validate required secrets
         shell: bash
         run: |
-          if [ -z "$DIGITALOCEAN_ACCESS_TOKEN" ]; then
-            echo "Missing required secret: DIGITALOCEAN_ACCESS_TOKEN"
+          if [ -z "$DROPLET_HOST" ]; then
+            echo "Missing required secret: DROPLET_HOST"
             exit 1
           fi
-          if [ -z "$DIGITALOCEAN_APP_ID" ]; then
-            echo "Missing required secret: DIGITALOCEAN_APP_ID"
+          if [ -z "$DROPLET_USER" ]; then
+            echo "Missing required secret: DROPLET_USER"
+            exit 1
+          fi
+          if [ -z "$DROPLET_SSH_KEY" ]; then
+            echo "Missing required secret: DROPLET_SSH_KEY"
             exit 1
           fi
 
-      - name: Install doctl
-        uses: digitalocean/action-doctl@v2
+      - name: Deploy backend on droplet
+        uses: appleboy/ssh-action@v1.2.0
         with:
-          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-
-      - name: Deploy app spec
-        shell: bash
-        run: |
-          doctl apps update "$DIGITALOCEAN_APP_ID" --spec "$APP_SPEC_PATH" --wait
-
-      - name: Print deployed app details
-        shell: bash
-        run: |
-          doctl apps get "$DIGITALOCEAN_APP_ID"
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          port: ${{ secrets.DROPLET_SSH_PORT || '22' }}
+          script_stop: true
+          command_timeout: 45m
+          script: |
+            set -euo pipefail
+            DEPLOY_DIR="${{ secrets.DROPLET_DEPLOY_PATH }}"
+            if [ -z "$DEPLOY_DIR" ]; then
+              DEPLOY_DIR="$HOME/csms-backend"
+            fi
+            cd "$DEPLOY_DIR"
+            git fetch origin main
+            git checkout main
+            git pull --ff-only origin main
+            chmod +x ./scripts/deploy-compose.sh
+            ./scripts/deploy-compose.sh
