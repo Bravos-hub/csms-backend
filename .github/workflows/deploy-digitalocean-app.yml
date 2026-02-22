@@ -68,10 +68,7 @@ jobs:
             chmod +x ./scripts/deploy-compose.sh
             ./scripts/deploy-compose.sh
 
-            HEALTH_URL="${{ secrets.DROPLET_HEALTHCHECK_URL }}"
-            if [ -z "$HEALTH_URL" ]; then
-              HEALTH_URL="http://127.0.0.1:3000/health"
-            fi
+            HEALTH_URL="http://127.0.0.1:3000/health"
             MAX_ATTEMPTS=24
             SLEEP_SECONDS=5
             ATTEMPT=1
@@ -98,6 +95,18 @@ jobs:
 
             if [ "$HEALTHY" -ne 1 ]; then
               echo "Post-deploy /health check failed after $MAX_ATTEMPTS attempts."
+              docker compose ps || true
+              docker compose logs --tail=200 api || true
+              docker compose logs --tail=200 worker || true
+              exit 1
+            fi
+
+            API_CID="$(docker compose ps -q api || true)"
+            WORKER_CID="$(docker compose ps -q worker || true)"
+            API_STATUS="$(docker inspect -f '{{.State.Status}}' "$API_CID" 2>/dev/null || true)"
+            WORKER_STATUS="$(docker inspect -f '{{.State.Status}}' "$WORKER_CID" 2>/dev/null || true)"
+            if [ "$API_STATUS" != "running" ] || [ "$WORKER_STATUS" != "running" ]; then
+              echo "Post-deploy container state check failed (api=$API_STATUS worker=$WORKER_STATUS)."
               docker compose ps || true
               docker compose logs --tail=200 api || true
               docker compose logs --tail=200 worker || true
