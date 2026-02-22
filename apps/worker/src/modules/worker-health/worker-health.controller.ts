@@ -1,5 +1,6 @@
 import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
 import type { Response } from 'express';
+import { KAFKA_TOPICS } from '../../contracts/kafka-topics';
 import { KafkaService } from '../../platform/kafka.service';
 import { PrismaService } from '../../prisma.service';
 import { CommandEventsConsumer } from '../commands/command-events.consumer';
@@ -25,17 +26,19 @@ export class WorkerHealthController {
 
   @Get('health/ready')
   async ready(@Res({ passthrough: true }) response: Response) {
-    const [db, kafka, outbox] = await Promise.all([
+    const [db, kafka, outbox, consumerLag] = await Promise.all([
       this.checkDatabase(),
       this.kafka.checkConnection(),
       this.checkOutboxReadiness(),
+      this.checkConsumerLagReadiness(),
     ]);
     const consumerReady = this.commandEvents.isReady();
     const status =
       db.status === 'up' &&
       kafka.status === 'up' &&
       consumerReady &&
-      outbox.status === 'ok'
+      outbox.status === 'ok' &&
+      consumerLag.status === 'ok'
         ? 'ok'
         : 'degraded';
     response.status(
@@ -53,6 +56,7 @@ export class WorkerHealthController {
         producerConnected: this.kafka.isConnected(),
         commandEventsConsumerReady: consumerReady,
         commandEventsConsumerRunning: this.commandEvents.isRunning(),
+        commandEventsConsumerLag: consumerLag,
       },
     };
   }
@@ -147,5 +151,68 @@ export class WorkerHealthController {
     if (!raw) return fallback;
     const parsed = parseInt(raw, 10);
     return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  private async checkConsumerLagReadiness(): Promise<{
+    status: 'ok' | 'degraded';
+    enabled: boolean;
+    threshold: number;
+    totalLag: number;
+    partitions: Array<{
+      partition: number;
+      committedOffset: number;
+      latestOffset: number;
+      lag: number;
+    }>;
+    error?: string;
+  }> {
+    const threshold = this.readIntEnv('WORKER_READY_MAX_CONSUMER_LAG', 1000);
+
+    if (!this.commandEvents.isEnabled()) {
+      return {
+        status: 'ok',
+        enabled: false,
+        threshold,
+        totalLag: 0,
+        partitions: [],
+      };
+    }
+
+    const groupId = this.commandEvents.getGroupId();
+    if (!groupId) {
+      return {
+        status: 'degraded',
+        enabled: true,
+        threshold,
+        totalLag: 0,
+        partitions: [],
+        error: 'Command events consumer group not initialized',
+      };
+    }
+
+    const lag = await this.kafka.getConsumerLag(
+      groupId,
+      KAFKA_TOPICS.commandEvents,
+    );
+    if (lag.status === 'down') {
+      return {
+        status: 'degraded',
+        enabled: true,
+        threshold,
+        totalLag: 0,
+        partitions: [],
+        error: lag.error,
+      };
+    }
+
+    this.metrics.setGauge('command_events_consumer_lag_total', lag.totalLag);
+    const status = lag.totalLag > threshold ? 'degraded' : 'ok';
+    return {
+      status,
+      enabled: true,
+      threshold,
+      totalLag: lag.totalLag,
+      partitions: lag.partitions,
+    };
   }
 }

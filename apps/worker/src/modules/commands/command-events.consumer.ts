@@ -19,6 +19,7 @@ export class CommandEventsConsumer implements OnModuleInit {
   private subscribed = false;
   private running = false;
   private enabled = true;
+  private groupId: string | null = null;
 
   constructor(
     private readonly config: ConfigService,
@@ -37,6 +38,7 @@ export class CommandEventsConsumer implements OnModuleInit {
     const groupId =
       this.config.get<string>('WORKER_COMMAND_EVENT_GROUP_ID') ||
       'evzone-worker-command-events';
+    this.groupId = groupId;
     const consumer = await this.kafka.getConsumer(groupId);
     await consumer.subscribe({
       topic: KAFKA_TOPICS.commandEvents,
@@ -90,6 +92,14 @@ export class CommandEventsConsumer implements OnModuleInit {
   isReady(): boolean {
     if (!this.enabled) return true;
     return this.subscribed;
+  }
+
+  isEnabled(): boolean {
+    return this.enabled;
+  }
+
+  getGroupId(): string | null {
+    return this.groupId;
   }
 
   isRunning(): boolean {

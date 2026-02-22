@@ -51,10 +51,10 @@ services:
         value: ${FRONTEND_URL}
       - key: API_KAFKA_REQUIRED_ON_STARTUP
         scope: RUN_TIME
-        value: "false"
+        value: 'false'
       - key: API_READINESS_REQUIRE_KAFKA
         scope: RUN_TIME
-        value: "false"
+        value: 'false'
 
   - name: worker
     dockerfile_path: Dockerfile
@@ -101,7 +101,10 @@ services:
         value: production
       - key: WORKER_PORT
         scope: RUN_TIME
-        value: "3010"
+        value: '3010'
+      - key: WORKER_READY_MAX_CONSUMER_LAG
+        scope: RUN_TIME
+        value: '1000'
 
 jobs:
   - name: db-migrate
