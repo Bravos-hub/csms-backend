@@ -1,11 +1,20 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { CreateSiteDto, SitePurpose, UpdateSiteDto } from './dto/site.dto';
 import { CreateSiteDocumentDto } from './dto/document.dto';
 import { SiteService } from './site-service.service';
 
 @Controller('sites')
 export class SiteController {
-  constructor(private readonly siteService: SiteService) { }
+  constructor(private readonly siteService: SiteService) {}
 
   @Post()
   create(@Body() createDto: CreateSiteDto) {
@@ -13,8 +22,12 @@ export class SiteController {
   }
 
   @Get()
-  findAll(@Query('purpose') purpose?: SitePurpose) {
-    return this.siteService.findAllSites({ purpose });
+  findAll(
+    @Query('purpose') purpose?: SitePurpose,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.siteService.findAllSites({ purpose, limit, offset });
   }
 
   @Get(':id')
@@ -52,7 +65,10 @@ export class SiteController {
   }
 
   @Post(':id/documents')
-  createDocument(@Param('id') id: string, @Body() createDto: CreateSiteDocumentDto) {
+  createDocument(
+    @Param('id') id: string,
+    @Body() createDto: CreateSiteDocumentDto,
+  ) {
     return this.siteService.createSiteDocument(id, createDto);
   }
 

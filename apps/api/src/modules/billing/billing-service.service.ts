@@ -1,12 +1,15 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
 import { TopUpDto, GenerateInvoiceDto } from './dto/billing.dto';
+import { parsePaginationOptions } from '../../common/utils/pagination';
 
 @Injectable()
 export class BillingService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   // Wallet
   async getWalletBalance(userId: string) {
@@ -17,18 +20,24 @@ export class BillingService {
         data: {
           userId,
           balance: 0,
-          currency: 'USD'
-        }
+          currency: 'USD',
+        },
       });
     }
     return wallet;
   }
 
-  async getTransactions(userId: string) {
+  async getTransactions(userId: string, limit?: string, offset?: string) {
+    const pagination = parsePaginationOptions(
+      { limit, offset },
+      { limit: 50, maxLimit: 200 },
+    );
     const wallet = await this.getWalletBalance(userId);
     return this.prisma.transaction.findMany({
       where: { walletId: wallet.id },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      take: pagination.limit,
+      skip: pagination.offset,
     });
   }
 
@@ -38,7 +47,7 @@ export class BillingService {
     try {
       const updatedWallet = await this.prisma.wallet.update({
         where: { id: wallet.id },
-        data: { balance: { increment: dto.amount } }
+        data: { balance: { increment: dto.amount } },
       });
 
       await this.prisma.transaction.create({
@@ -47,8 +56,8 @@ export class BillingService {
           amount: dto.amount,
           type: 'CREDIT',
           description: 'Wallet TopUp',
-          reference: 'PAY_' + Date.now()
-        }
+          reference: 'PAY_' + Date.now(),
+        },
       });
 
       return updatedWallet;
@@ -58,10 +67,16 @@ export class BillingService {
   }
 
   // Invoices
-  async getInvoices(userId: string) {
+  async getInvoices(userId: string, limit?: string, offset?: string) {
+    const pagination = parsePaginationOptions(
+      { limit, offset },
+      { limit: 50, maxLimit: 200 },
+    );
     return this.prisma.invoice.findMany({
       where: { userId },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      take: pagination.limit,
+      skip: pagination.offset,
     });
   }
 
@@ -71,8 +86,8 @@ export class BillingService {
         userId: dto.userId,
         totalAmount: 100, // Mock calculation
         status: 'PENDING',
-        dueDate: new Date(Date.now() + 7 * 24 * 3600 * 1000)
-      }
+        dueDate: new Date(Date.now() + 7 * 24 * 3600 * 1000),
+      },
     });
   }
 
@@ -82,20 +97,25 @@ export class BillingService {
     // User didn't ask for Tariff schema explicitly in migration list earlier, but it was in Billing module.
     // I can return mock or add to schema.
     // Schema update is painful (migration). I'll return mock for now as it's less critical.
-    return [{ id: 'mock-tariff', name: 'Standard', rate: 0.50 }];
+    return [{ id: 'mock-tariff', name: 'Standard', rate: 0.5 }];
   }
   // Admin - All Payments
   async getAllPayments(query: any) {
     const where: any = {};
+    const pagination = parsePaginationOptions(
+      { limit: query?.limit, offset: query?.offset },
+      { limit: 50, maxLimit: 200 },
+    );
     // Apply filters from query (type, status, date, site, etc.)
     // For now, return all transactions mapped
     const transactions = await this.prisma.transaction.findMany({
       orderBy: { createdAt: 'desc' },
-      take: 100,
-      include: { wallet: { include: { user: true } } }
+      take: pagination.limit,
+      skip: pagination.offset,
+      include: { wallet: { include: { user: true } } },
     });
 
-    return transactions.map(t => ({
+    return transactions.map((t) => ({
       ref: t.reference || t.id,
       type: t.type === 'CREDIT' ? 'TopUp' : 'Fee', // partial mapping
       site: 'Unknown', // No site relation on transaction yet
@@ -105,13 +125,22 @@ export class BillingService {
       net: t.amount,
       date: t.createdAt,
       status: 'Settled', // specific status field missing on Transaction
-      user: t.wallet?.user?.name
+      user: t.wallet?.user?.name,
     }));
   }
 
   // Settlements
-  async getSettlements(status?: string, region?: string) {
+  async getSettlements(
+    status?: string,
+    region?: string,
+    limit?: string,
+    offset?: string,
+  ) {
     const where: any = {};
+    const pagination = parsePaginationOptions(
+      { limit, offset },
+      { limit: 50, maxLimit: 200 },
+    );
 
     // In a real scenario, we might filtering by transaction type e.g. 'SETTLEMENT'
     // For now, we will assume DEBIT transactions to Organization wallets are settlements
@@ -123,9 +152,9 @@ export class BillingService {
         user: {
           region: {
             contains: region,
-            mode: 'insensitive'
-          }
-        }
+            mode: 'insensitive',
+          },
+        },
       };
     }
 
@@ -133,7 +162,7 @@ export class BillingService {
       where: {
         ...where,
         // We might want to filter by type if we had 'SETTLEMENT' type
-        // type: 'DEBIT' 
+        // type: 'DEBIT'
       },
       include: {
         wallet: {
@@ -143,18 +172,19 @@ export class BillingService {
                 name: true,
                 region: true,
                 organization: {
-                  select: { name: true }
-                }
-              }
-            }
-          }
-        }
+                  select: { name: true },
+                },
+              },
+            },
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
-      take: 50
+      take: pagination.limit,
+      skip: pagination.offset,
     });
 
-    return transactions.map(t => ({
+    return transactions.map((t) => ({
       id: t.id,
       region: t.wallet.user.region || 'Unknown',
       org: t.wallet.user.organization?.name || t.wallet.user.name,
@@ -164,7 +194,7 @@ export class BillingService {
       status: 'completed', // Transactions are usually instant, so completed
       startedAt: t.createdAt.toISOString(),
       finishedAt: t.createdAt.toISOString(),
-      note: t.description
+      note: t.description,
     }));
   }
 }

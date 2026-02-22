@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
 import { isIP } from 'net';
 import { PrismaService } from '../../prisma.service';
@@ -8,9 +13,10 @@ import {
   CreateChargePointDto,
   UpdateChargePointDto,
   BindChargePointCertificateDto,
-  UpdateChargePointBootstrapDto
+  UpdateChargePointBootstrapDto,
 } from './dto/station.dto';
 import { ChargerProvisioningService } from './provisioning/charger-provisioning.service';
+import { parsePaginationOptions } from '../../common/utils/pagination';
 
 type StationBounds = {
   north: number;
@@ -36,11 +42,18 @@ export class StationService {
     private readonly prisma: PrismaService,
     private readonly provisioningService: ChargerProvisioningService,
   ) {
-    this.enableNoAuthBootstrap = process.env.OCPP_ENABLE_NOAUTH_BOOTSTRAP === 'true';
-    this.bootstrapDefaultMinutes = this.readIntEnv('OCPP_NOAUTH_BOOTSTRAP_DEFAULT_MINUTES', 30);
-    this.bootstrapMaxMinutes = this.readIntEnv('OCPP_NOAUTH_BOOTSTRAP_MAX_MINUTES', 120);
+    this.enableNoAuthBootstrap =
+      process.env.OCPP_ENABLE_NOAUTH_BOOTSTRAP === 'true';
+    this.bootstrapDefaultMinutes = this.readIntEnv(
+      'OCPP_NOAUTH_BOOTSTRAP_DEFAULT_MINUTES',
+      30,
+    );
+    this.bootstrapMaxMinutes = this.readIntEnv(
+      'OCPP_NOAUTH_BOOTSTRAP_MAX_MINUTES',
+      120,
+    );
     this.publicWsBaseUrl = this.resolvePublicWsBaseUrl(
-      process.env.OCPP_PUBLIC_WS_BASE_URL || 'wss://ocpp.evzonecharging.com'
+      process.env.OCPP_PUBLIC_WS_BASE_URL || 'wss://ocpp.evzonecharging.com',
     );
   }
 
@@ -60,7 +73,9 @@ export class StationService {
     if (!createDto.siteId) {
       throw new BadRequestException('siteId is required to create a station');
     }
-    const site = await this.prisma.site.findUnique({ where: { id: createDto.siteId } });
+    const site = await this.prisma.site.findUnique({
+      where: { id: createDto.siteId },
+    });
     if (!site) {
       throw new NotFoundException('Site not found');
     }
@@ -82,9 +97,9 @@ export class StationService {
         images: createDto.images || '[]',
         open247: createDto.open247 || false,
         phone: createDto.phone,
-        bookingFee: createDto.bookingFee || 0
+        bookingFee: createDto.bookingFee || 0,
       } as any,
-      include: { chargePoints: true, site: true }
+      include: { chargePoints: true, site: true },
     });
   }
 
@@ -94,7 +109,12 @@ export class StationService {
       let current = station.zone;
       // Traverse up to 3 levels to find a Continent or root
       for (let i = 0; i < 5; i++) {
-        if (current.type === 'CONTINENT' || ['AFRICA', 'EUROPE', 'AMERICAS', 'ASIA', 'MIDDLE_EAST'].includes(current.code)) {
+        if (
+          current.type === 'CONTINENT' ||
+          ['AFRICA', 'EUROPE', 'AMERICAS', 'ASIA', 'MIDDLE_EAST'].includes(
+            current.code,
+          )
+        ) {
           return current.name; // Return "Africa", "Europe", etc.
         }
         if (!current.parent) break;
@@ -107,7 +127,19 @@ export class StationService {
     return station.owner?.region || 'Unknown';
   }
 
-  async findAllStations(bounds?: StationBounds, q?: string) {
+  async findAllStations(
+    bounds?: StationBounds,
+    q?: string,
+    paginationInput?: { limit?: string; offset?: string },
+  ) {
+    const pagination = parsePaginationOptions(
+      {
+        limit: paginationInput?.limit,
+        offset: paginationInput?.offset,
+      },
+      { limit: 50, maxLimit: 200 },
+    );
+
     const where: any = {};
 
     if (bounds) {
@@ -119,18 +151,20 @@ export class StationService {
     if (trimmedQuery) {
       where.OR = [
         { name: { contains: trimmedQuery, mode: 'insensitive' } },
-        { address: { contains: trimmedQuery, mode: 'insensitive' } }
+        { address: { contains: trimmedQuery, mode: 'insensitive' } },
       ];
     }
 
     const stations = await this.prisma.station.findMany({
       where: Object.keys(where).length > 0 ? where : undefined,
+      take: pagination.limit,
+      skip: pagination.offset,
       include: {
         chargePoints: true,
         site: true,
         zone: { include: { parent: { include: { parent: true } } } },
-        owner: { include: { zone: true } }
-      }
+        owner: { include: { zone: true } },
+      },
     });
 
     return stations.map((s: any) => this.mapToFrontendStation(s));
@@ -143,8 +177,8 @@ export class StationService {
         chargePoints: true,
         site: true,
         zone: { include: { parent: { include: { parent: true } } } },
-        owner: { include: { zone: true } }
-      }
+        owner: { include: { zone: true } },
+      },
     });
     if (!station) throw new NotFoundException('Station not found');
 
@@ -158,8 +192,8 @@ export class StationService {
         chargePoints: true,
         site: true,
         zone: { include: { parent: { include: { parent: true } } } },
-        owner: { include: { zone: true } }
-      }
+        owner: { include: { zone: true } },
+      },
     });
     if (!station) throw new NotFoundException('Station not found');
 
@@ -170,16 +204,18 @@ export class StationService {
     await this.findStationById(id); // Ensure exists
 
     if (updateDto.siteId) {
-      const site = await this.prisma.site.findUnique({ where: { id: updateDto.siteId } });
+      const site = await this.prisma.site.findUnique({
+        where: { id: updateDto.siteId },
+      });
       if (!site) throw new NotFoundException('Site not found');
     }
 
     const updated = await this.prisma.station.update({
       where: { id },
       data: updateDto,
-      include: { chargePoints: true, site: true }
+      include: { chargePoints: true, site: true },
     });
-    // For update, we might want to return the raw entity or the mapped one. 
+    // For update, we might want to return the raw entity or the mapped one.
     // Usually admin panels expect raw, but let's keep it consistent if it's used by frontend.
     // For now, let's just return the raw updated entity as it was before, unless we know it breaks something.
     return updated;
@@ -192,7 +228,10 @@ export class StationService {
   async getNearbyStations(lat: number, lng: number, radiusKm: number) {
     // Geo queries in Prisma are tricky without PostGIS raw queries
     // Returning top 10 for now
-    const stations = await this.prisma.station.findMany({ take: 10, include: { chargePoints: true, site: true } });
+    const stations = await this.prisma.station.findMany({
+      take: 10,
+      include: { chargePoints: true, site: true },
+    });
     return stations.map((s: any) => this.mapToFrontendStation(s));
   }
 
@@ -200,37 +239,47 @@ export class StationService {
   private mapToFrontendStation(s: any) {
     const chargePoints = Array.isArray(s.chargePoints) ? s.chargePoints : [];
     const total = chargePoints.length;
-    const available = chargePoints.filter((cp: any) => this.statusBucket(cp.status) === 'available').length;
-    const busy = chargePoints.filter((cp: any) => this.statusBucket(cp.status) === 'busy').length;
-    const offline = chargePoints.filter((cp: any) => this.statusBucket(cp.status) === 'offline').length;
+    const available = chargePoints.filter(
+      (cp: any) => this.statusBucket(cp.status) === 'available',
+    ).length;
+    const busy = chargePoints.filter(
+      (cp: any) => this.statusBucket(cp.status) === 'busy',
+    ).length;
+    const offline = chargePoints.filter(
+      (cp: any) => this.statusBucket(cp.status) === 'offline',
+    ).length;
 
     let amenities: string[] = [];
     let images: string[] = [];
     try {
       amenities = JSON.parse(s.amenities || '[]');
-    } catch { amenities = []; }
+    } catch {
+      amenities = [];
+    }
     try {
       images = JSON.parse(s.images || '[]');
-    } catch { images = []; }
+    } catch {
+      images = [];
+    }
 
     return {
       ...s,
       location: {
         lat: s.latitude,
-        lng: s.longitude
+        lng: s.longitude,
       },
       availability: {
         total,
         available,
         busy,
-        offline
+        offline,
       },
       connectors: chargePoints.map((cp: any) => ({
         id: cp.id,
         type: cp.type || 'CCS2',
         power: cp.power || 50,
         status: this.normalizeChargePointStatus(cp.status),
-        price: s.price || 0
+        price: s.price || 0,
       })),
       rating: s.rating || 0,
       price: s.price || 0,
@@ -241,7 +290,7 @@ export class StationService {
       bookingFee: s.bookingFee || 0,
       ownerId: s.ownerId || s.site?.ownerId,
       orgId: s.orgId || s.site?.organizationId,
-      region: this.deriveRegion(s)
+      region: this.deriveRegion(s),
     };
   }
 
@@ -254,7 +303,18 @@ export class StationService {
   }
 
   // --- ChargePoint CRUD ---
-  async findAllChargePoints(filter?: ChargePointListFilter) {
+  async findAllChargePoints(
+    filter?: ChargePointListFilter,
+    paginationInput?: { limit?: string; offset?: string },
+  ) {
+    const pagination = parsePaginationOptions(
+      {
+        limit: paginationInput?.limit,
+        offset: paginationInput?.offset,
+      },
+      { limit: 50, maxLimit: 200 },
+    );
+
     const where: any = {};
     if (filter?.stationId) {
       where.stationId = filter.stationId;
@@ -265,30 +325,42 @@ export class StationService {
 
     return this.prisma.chargePoint.findMany({
       where: Object.keys(where).length > 0 ? where : undefined,
+      take: pagination.limit,
+      skip: pagination.offset,
     });
   }
 
   async findChargePointById(id: string) {
-    return this.prisma.chargePoint.findUnique({ where: { id }, include: { station: true } });
+    return this.prisma.chargePoint.findUnique({
+      where: { id },
+      include: { station: true },
+    });
   }
 
   async findChargePointByOcppId(ocppId: string) {
-    return this.prisma.chargePoint.findUnique({ where: { ocppId }, include: { station: true } });
+    return this.prisma.chargePoint.findUnique({
+      where: { ocppId },
+      include: { station: true },
+    });
   }
 
   async createChargePoint(createDto: CreateChargePointDto) {
     const authProfile = createDto.authProfile || 'basic';
     const allowedIps = this.normalizeList(createDto.allowedIps);
     const allowedCidrs = this.normalizeList(createDto.allowedCidrs);
-    const bootstrapTtlMinutes = this.resolveBootstrapTtl(createDto.bootstrapTtlMinutes);
+    const bootstrapTtlMinutes = this.resolveBootstrapTtl(
+      createDto.bootstrapTtlMinutes,
+    );
 
     if (authProfile === 'mtls_bootstrap') {
       if (!this.enableNoAuthBootstrap) {
-        throw new BadRequestException('No-password bootstrap is currently disabled');
+        throw new BadRequestException(
+          'No-password bootstrap is currently disabled',
+        );
       }
       if (allowedIps.length === 0 && allowedCidrs.length === 0) {
         throw new BadRequestException(
-          'allowedIps or allowedCidrs is required when authProfile is mtls_bootstrap'
+          'allowedIps or allowedCidrs is required when authProfile is mtls_bootstrap',
         );
       }
       allowedCidrs.forEach((cidr) => this.assertValidCidr(cidr));
@@ -297,7 +369,10 @@ export class StationService {
     const ocppVersion = this.normalizeOcppVersion(createDto.ocppVersion);
     const oneTimePassword = randomBytes(18).toString('base64url');
     const secretSalt = randomBytes(16).toString('hex');
-    const secretHash = createHash('sha256').update(secretSalt).update(oneTimePassword).digest('hex');
+    const secretHash = createHash('sha256')
+      .update(secretSalt)
+      .update(oneTimePassword)
+      .digest('hex');
 
     const cp = await this.prisma.chargePoint.create({
       data: {
@@ -311,9 +386,9 @@ export class StationService {
         clientSecretSalt: secretSalt,
         allowedInsecure: authProfile === 'mtls_bootstrap',
         type: createDto.type || 'CCS2',
-        power: createDto.power || 50.0
+        power: createDto.power || 50.0,
       },
-      include: { station: { include: { site: true } } }
+      include: { station: { include: { site: true } } },
     });
 
     await this.provisioningService.provision(cp, cp.station, ocppVersion, {
@@ -334,7 +409,8 @@ export class StationService {
         password: oneTimePassword,
         wsUrl: `${this.publicWsBaseUrl}/ocpp/${ocppVersion}/${cp.ocppId}`,
         subprotocol: this.subprotocolForVersion(ocppVersion),
-        authProfile: authProfile === 'mtls_bootstrap' ? 'mtls_bootstrap' : 'basic',
+        authProfile:
+          authProfile === 'mtls_bootstrap' ? 'mtls_bootstrap' : 'basic',
         bootstrapExpiresAt,
         requiresClientCertificate: authProfile === 'mtls_bootstrap',
         mtlsInstructions:
@@ -356,7 +432,10 @@ export class StationService {
     };
   }
 
-  async bindChargePointCertificate(id: string, dto: BindChargePointCertificateDto) {
+  async bindChargePointCertificate(
+    id: string,
+    dto: BindChargePointCertificateDto,
+  ) {
     const cp = await this.prisma.chargePoint.findUnique({ where: { id } });
     if (!cp) throw new NotFoundException('Charge Point not found');
 
@@ -377,7 +456,7 @@ export class StationService {
     }
     await this.prisma.chargePoint.update({
       where: { id: cp.id },
-      data: { allowedInsecure: false }
+      data: { allowedInsecure: false },
     });
 
     return {
@@ -390,17 +469,31 @@ export class StationService {
     };
   }
 
-  async updateChargePointBootstrap(id: string, dto: UpdateChargePointBootstrapDto) {
+  async updateChargePointBootstrap(
+    id: string,
+    dto: UpdateChargePointBootstrapDto,
+  ) {
     const cp = await this.prisma.chargePoint.findUnique({ where: { id } });
     if (!cp) throw new NotFoundException('Charge Point not found');
     if (dto.enabled && !this.enableNoAuthBootstrap) {
-      throw new BadRequestException('No-password bootstrap is currently disabled');
+      throw new BadRequestException(
+        'No-password bootstrap is currently disabled',
+      );
     }
 
-    const allowedIps = dto.allowedIps !== undefined ? this.normalizeList(dto.allowedIps) : undefined;
-    const allowedCidrs = dto.allowedCidrs !== undefined ? this.normalizeList(dto.allowedCidrs) : undefined;
+    const allowedIps =
+      dto.allowedIps !== undefined
+        ? this.normalizeList(dto.allowedIps)
+        : undefined;
+    const allowedCidrs =
+      dto.allowedCidrs !== undefined
+        ? this.normalizeList(dto.allowedCidrs)
+        : undefined;
     allowedCidrs?.forEach((cidr) => this.assertValidCidr(cidr));
-    const ttlMinutes = dto.ttlMinutes !== undefined ? this.resolveBootstrapTtl(dto.ttlMinutes) : undefined;
+    const ttlMinutes =
+      dto.ttlMinutes !== undefined
+        ? this.resolveBootstrapTtl(dto.ttlMinutes)
+        : undefined;
 
     try {
       await this.provisioningService.updateBootstrap(cp.ocppId, {
@@ -415,7 +508,7 @@ export class StationService {
 
     await this.prisma.chargePoint.update({
       where: { id: cp.id },
-      data: { allowedInsecure: dto.enabled }
+      data: { allowedInsecure: dto.enabled },
     });
 
     return this.getChargePointSecurity(cp.id);
@@ -424,7 +517,7 @@ export class StationService {
   async updateChargePoint(id: string, updateDto: UpdateChargePointDto) {
     return this.prisma.chargePoint.update({
       where: { id },
-      data: updateDto
+      data: updateDto,
     });
   }
 
@@ -441,14 +534,16 @@ export class StationService {
 
   // --- OCPP Private Handlers ---
   private async handleBootNotification(ocppId: string, payload: any) {
-    let cp = await this.prisma.chargePoint.findUnique({ where: { ocppId } });
+    const cp = await this.prisma.chargePoint.findUnique({ where: { ocppId } });
 
     if (!cp) {
       this.logger.log('New ChargePoint detected');
-      let defaultStation = await this.prisma.station.findFirst({ where: { name: 'Unknown' } });
+      let defaultStation = await this.prisma.station.findFirst({
+        where: { name: 'Unknown' },
+      });
       if (!defaultStation) {
         defaultStation = await this.prisma.station.create({
-          data: { name: 'Unknown', address: 'N/A', latitude: 0, longitude: 0 }
+          data: { name: 'Unknown', address: 'N/A', latitude: 0, longitude: 0 },
         });
       }
 
@@ -459,9 +554,9 @@ export class StationService {
           status: 'Online',
           model: payload.chargePointModel,
           vendor: payload.chargePointVendor,
-          firmwareVersion: payload.firmwareVersion
+          firmwareVersion: payload.firmwareVersion,
         },
-        include: { station: { include: { site: true } } }
+        include: { station: { include: { site: true } } },
       });
 
       await this.provisioningService.provision(createdCp, createdCp.station);
@@ -470,10 +565,10 @@ export class StationService {
         where: { id: cp.id },
         data: {
           status: 'Online',
-          firmwareVersion: payload.firmwareVersion || cp.firmwareVersion
+          firmwareVersion: payload.firmwareVersion || cp.firmwareVersion,
           // Last heartbeat not in schema currently
         },
-        include: { station: { include: { site: true } } }
+        include: { station: { include: { site: true } } },
       });
 
       await this.provisioningService.provision(updatedCp, updatedCp.station);
@@ -485,7 +580,7 @@ export class StationService {
     if (cp) {
       await this.prisma.chargePoint.update({
         where: { id: cp.id },
-        data: { status: 'Online' }
+        data: { status: 'Online' },
       });
     }
   }
@@ -515,7 +610,9 @@ export class StationService {
 
   private normalizeList(values?: string[]): string[] {
     if (!values || values.length === 0) return [];
-    return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+    return Array.from(
+      new Set(values.map((value) => value.trim()).filter(Boolean)),
+    );
   }
 
   private normalizeFingerprint(value: string): string {
@@ -528,7 +625,10 @@ export class StationService {
     }
   }
 
-  private assertOptionalIsoDate(value: string | undefined, field: string): void {
+  private assertOptionalIsoDate(
+    value: string | undefined,
+    field: string,
+  ): void {
     if (!value) return;
     if (Number.isNaN(Date.parse(value))) {
       throw new BadRequestException(`${field} must be a valid ISO datetime`);
@@ -562,11 +662,18 @@ export class StationService {
     return (value || 'Unknown').trim().toLowerCase();
   }
 
-  private statusBucket(status: string | undefined): 'available' | 'busy' | 'offline' | 'other' {
+  private statusBucket(
+    status: string | undefined,
+  ): 'available' | 'busy' | 'offline' | 'other' {
     const normalized = this.normalizeChargePointStatus(status);
-    if (normalized === 'available' || normalized === 'online') return 'available';
+    if (normalized === 'available' || normalized === 'online')
+      return 'available';
     if (normalized === 'charging' || normalized === 'occupied') return 'busy';
-    if (normalized === 'offline' || normalized === 'faulted' || normalized === 'unavailable') {
+    if (
+      normalized === 'offline' ||
+      normalized === 'faulted' ||
+      normalized === 'unavailable'
+    ) {
       return 'offline';
     }
     return 'other';
@@ -575,17 +682,32 @@ export class StationService {
   private statusFilterValues(status: string): string[] {
     const normalized = this.normalizeChargePointStatus(status);
     const values = new Set<string>([status.trim()]);
-    const add = (...entries: string[]) => entries.forEach((entry) => values.add(entry));
+    const add = (...entries: string[]) =>
+      entries.forEach((entry) => values.add(entry));
 
     switch (normalized) {
       case 'online':
       case 'available':
-        add('online', 'Online', 'ONLINE', 'available', 'Available', 'AVAILABLE');
+        add(
+          'online',
+          'Online',
+          'ONLINE',
+          'available',
+          'Available',
+          'AVAILABLE',
+        );
         break;
       case 'charging':
       case 'occupied':
       case 'busy':
-        add('charging', 'Charging', 'CHARGING', 'occupied', 'Occupied', 'OCCUPIED');
+        add(
+          'charging',
+          'Charging',
+          'CHARGING',
+          'occupied',
+          'Occupied',
+          'OCCUPIED',
+        );
         break;
       case 'offline':
       case 'faulted':
@@ -599,7 +721,7 @@ export class StationService {
           'FAULTED',
           'unavailable',
           'Unavailable',
-          'UNAVAILABLE'
+          'UNAVAILABLE',
         );
         break;
       default:
@@ -614,7 +736,7 @@ export class StationService {
     const trimmed = raw.trim().replace(/\/+$/, '');
     if (!/^wss?:\/\//i.test(trimmed)) {
       this.logger.warn(
-        `Invalid OCPP_PUBLIC_WS_BASE_URL "${raw}", falling back to wss://ocpp.evzonecharging.com`
+        `Invalid OCPP_PUBLIC_WS_BASE_URL "${raw}", falling back to wss://ocpp.evzonecharging.com`,
       );
       return 'wss://ocpp.evzonecharging.com';
     }

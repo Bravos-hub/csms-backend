@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import type { SASLOptions } from 'kafkajs';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { validateKafkaTopicsOrThrow } from './contracts/kafka-topics';
 import cookieParser from 'cookie-parser';
@@ -13,7 +14,8 @@ async function bootstrap() {
   try {
     validateKafkaTopicsOrThrow();
     const app = await NestFactory.create(AppModule);
-    const kafkaEventsEnabled = (process.env.KAFKA_EVENTS_ENABLED ?? 'true') === 'true';
+    const kafkaEventsEnabled =
+      (process.env.KAFKA_EVENTS_ENABLED ?? 'true') === 'true';
     if (kafkaEventsEnabled) {
       app.connectMicroservice<MicroserviceOptions>({
         transport: Transport.KAFKA,
@@ -25,7 +27,8 @@ async function bootstrap() {
             sasl: buildKafkaSasl(),
           },
           consumer: {
-            groupId: process.env.KAFKA_EVENT_GROUP_ID || 'evzone-backend-api-events',
+            groupId:
+              process.env.KAFKA_EVENT_GROUP_ID || 'evzone-backend-api-events',
           },
         },
       });
@@ -35,23 +38,26 @@ async function bootstrap() {
 
     app.setGlobalPrefix('api/v1');
 
+    const bodyLimit = process.env.API_BODY_LIMIT || '1mb';
+    app.use(json({ limit: bodyLimit }));
+    app.use(urlencoded({ extended: true, limit: bodyLimit }));
+
     // Enable cookie parser middleware
     app.use(cookieParser());
 
     // Enable global validation pipe
     const { ValidationPipe } = await import('@nestjs/common');
-    app.useGlobalPipes(new ValidationPipe({
-      whitelist: true, // Strip properties not in DTO
-      transform: true, // Auto-transform payloads
-      forbidNonWhitelisted: true, // Throw error for extra properties
-    }));
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true, // Strip properties not in DTO
+        transform: true, // Auto-transform payloads
+        forbidNonWhitelisted: true, // Throw error for extra properties
+      }),
+    );
 
     const corsOrigins = process.env.CORS_ORIGINS
       ? process.env.CORS_ORIGINS.split(',')
-      : [
-        'http://localhost:5173',
-        'https://portal.evzonecharging.com',
-      ];
+      : ['http://localhost:5173', 'https://portal.evzonecharging.com'];
 
     app.enableCors({
       origin: corsOrigins,
@@ -62,7 +68,9 @@ async function bootstrap() {
     const { SwaggerModule, DocumentBuilder } = await import('@nestjs/swagger');
     const config = new DocumentBuilder()
       .setTitle('EVZone API')
-      .setDescription('EVZone Charging Platform API - Cookie-based Authentication')
+      .setDescription(
+        'EVZone Charging Platform API - Cookie-based Authentication',
+      )
       .setVersion('1.0')
       .addCookieAuth('evzone_access_token', {
         type: 'apiKey',
@@ -81,10 +89,37 @@ async function bootstrap() {
 
     const port = process.env.PORT ?? 3000;
     await app.listen(port);
+
+    const httpServer = app.getHttpServer() as {
+      requestTimeout?: number;
+      headersTimeout?: number;
+      keepAliveTimeout?: number;
+    };
+    const requestTimeoutMs = parseInt(
+      process.env.API_REQUEST_TIMEOUT_MS || '30000',
+      10,
+    );
+    const headersTimeoutMs = parseInt(
+      process.env.API_HEADERS_TIMEOUT_MS || '35000',
+      10,
+    );
+    const keepAliveTimeoutMs = parseInt(
+      process.env.API_KEEP_ALIVE_TIMEOUT_MS || '5000',
+      10,
+    );
+    httpServer.requestTimeout = requestTimeoutMs;
+    httpServer.headersTimeout = headersTimeoutMs;
+    httpServer.keepAliveTimeout = keepAliveTimeoutMs;
+
     console.log(`Application is running on: http://localhost:${port}`);
-    console.log(`API Documentation available at: http://localhost:${port}/api/docs`);
+    console.log(
+      `API Documentation available at: http://localhost:${port}/api/docs`,
+    );
   } catch (error) {
-    console.error('Failed to start application:', error instanceof Error ? error.message : error);
+    console.error(
+      'Failed to start application:',
+      error instanceof Error ? error.message : error,
+    );
     if (error instanceof Error && error.stack) {
       console.error('Stack trace:', error.stack);
     }
@@ -94,14 +129,20 @@ async function bootstrap() {
 
 function parseList(value?: string): string[] {
   if (!value) return [];
-  return value.split(',').map((entry) => entry.trim()).filter(Boolean);
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
-function buildKafkaSslOptions(): false | { rejectUnauthorized: true; ca?: Buffer[] } {
+function buildKafkaSslOptions():
+  | false
+  | { rejectUnauthorized: true; ca?: Buffer[] } {
   if (process.env.KAFKA_SSL !== 'true') {
     return false;
   }
-  const rejectUnauthorized = (process.env.KAFKA_SSL_REJECT_UNAUTHORIZED ?? 'true') === 'true';
+  const rejectUnauthorized =
+    (process.env.KAFKA_SSL_REJECT_UNAUTHORIZED ?? 'true') === 'true';
   if (!rejectUnauthorized) {
     throw new Error('KAFKA_SSL_REJECT_UNAUTHORIZED=false is not allowed');
   }
@@ -133,7 +174,10 @@ function buildKafkaSasl(): SASLOptions | undefined {
 }
 
 bootstrap().catch((error) => {
-  console.error('Bootstrap failed:', error instanceof Error ? error.message : error);
+  console.error(
+    'Bootstrap failed:',
+    error instanceof Error ? error.message : error,
+  );
   if (error instanceof Error && error.stack) {
     console.error('Stack trace:', error.stack);
   }

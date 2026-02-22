@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma.module';
@@ -47,6 +49,12 @@ import { MarketplaceContactsModule } from './modules/marketplace/marketplace-con
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
+    ThrottlerModule.forRoot([
+      {
+        ttl: parseInt(process.env.API_RATE_LIMIT_TTL_MS || '60000', 10),
+        limit: parseInt(process.env.API_RATE_LIMIT_LIMIT || '120', 10),
+      },
+    ]),
     PrismaModule,
 
     // Existing
@@ -90,6 +98,12 @@ import { MarketplaceContactsModule } from './modules/marketplace/marketplace-con
     MarketplaceContactsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
-export class AppModule { }
+export class AppModule {}

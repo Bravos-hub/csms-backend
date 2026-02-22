@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma.service';
 import { NotificationService } from '../notification/notification-service.service';
 import { StopSessionDto, SessionFilterDto } from './dto/session.dto';
 import { OcpiTokenSyncService } from '../../common/services/ocpi-token-sync.service';
+import { parsePaginationOptions } from '../../common/utils/pagination';
 
 @Injectable()
 export class SessionService {
@@ -12,10 +13,19 @@ export class SessionService {
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
     private readonly ocpiTokenSync: OcpiTokenSyncService,
-  ) { }
+  ) {}
 
-  async getActiveSessions() {
-    return this.prisma.session.findMany({ where: { status: 'ACTIVE' } });
+  async getActiveSessions(limit?: unknown, offset?: unknown) {
+    const pagination = parsePaginationOptions(
+      { limit, offset },
+      { limit: 50, maxLimit: 100 },
+    );
+    return this.prisma.session.findMany({
+      where: { status: 'ACTIVE' },
+      orderBy: { startTime: 'desc' },
+      take: pagination.limit,
+      skip: pagination.offset,
+    });
   }
 
   async findById(id: string) {
@@ -28,7 +38,16 @@ export class SessionService {
     const where: any = {};
     if (filter.status) where.status = filter.status;
     if (filter.stationId) where.stationId = filter.stationId;
-    return this.prisma.session.findMany({ where, orderBy: { startTime: 'desc' } });
+    const pagination = parsePaginationOptions(
+      { limit: filter.limit, offset: filter.offset },
+      { limit: 50, maxLimit: 200 },
+    );
+    return this.prisma.session.findMany({
+      where,
+      orderBy: { startTime: 'desc' },
+      take: pagination.limit,
+      skip: pagination.offset,
+    });
   }
 
   async stopSession(id: string, stopDto: StopSessionDto) {
@@ -40,8 +59,8 @@ export class SessionService {
       where: { id },
       data: {
         status: 'STOPPED',
-        endTime: new Date()
-      }
+        endTime: new Date(),
+      },
     });
 
     // Notify User
@@ -56,7 +75,7 @@ export class SessionService {
   private async notifyUserOfStop(userId: string, session: any) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (user && user.phone) {
-      const cost = (session.totalEnergy || 0) * 0.50; // Mock Rate
+      const cost = (session.totalEnergy || 0) * 0.5; // Mock Rate
       const msg = `EvZone: Charging Stopped. Energy: ${session.totalEnergy}Wh. Est Cost: $${cost.toFixed(2)}`;
       await this.notificationService.sendSms(user.phone, msg);
     }
@@ -65,8 +84,10 @@ export class SessionService {
   async getStatsSummary() {
     return {
       totalEnergy: 15403,
-      activeSessions: await this.prisma.session.count({ where: { status: 'ACTIVE' } }),
-      completedToday: 42
+      activeSessions: await this.prisma.session.count({
+        where: { status: 'ACTIVE' },
+      }),
+      completedToday: 42,
     };
   }
 
@@ -76,15 +97,23 @@ export class SessionService {
     const eventType = message.eventType;
     const payload = message.payload;
 
-    if (eventType === 'SessionStarted' || payload?.action === 'StartTransaction') {
-      const startPayload = payload?.action === 'StartTransaction'
-        ? { ...payload.payload, transactionId: payload.transactionId }
-        : payload;
+    if (
+      eventType === 'SessionStarted' ||
+      payload?.action === 'StartTransaction'
+    ) {
+      const startPayload =
+        payload?.action === 'StartTransaction'
+          ? { ...payload.payload, transactionId: payload.transactionId }
+          : payload;
       await this.handleStartTransaction(chargePointId, startPayload);
-    } else if (eventType === 'SessionStopped' || payload?.action === 'StopTransaction') {
-      const stopPayload = payload?.action === 'StopTransaction'
-        ? { ...payload.payload, transactionId: payload.transactionId }
-        : payload;
+    } else if (
+      eventType === 'SessionStopped' ||
+      payload?.action === 'StopTransaction'
+    ) {
+      const stopPayload =
+        payload?.action === 'StopTransaction'
+          ? { ...payload.payload, transactionId: payload.transactionId }
+          : payload;
       await this.handleStopTransaction(chargePointId, stopPayload);
     } else if (message.action === 'StartTransaction') {
       await this.handleStartTransaction(chargePointId, payload);
@@ -103,7 +132,9 @@ export class SessionService {
     });
 
     if (!chargePoint) {
-      this.logger.error(`ChargePoint ${ocppId} not found, cannot start session`);
+      this.logger.error(
+        `ChargePoint ${ocppId} not found, cannot start session`,
+      );
       return;
     }
 
@@ -130,20 +161,22 @@ export class SessionService {
       this.logger.warn('Missing transaction ID in stop transaction payload');
       return;
     }
-    const session = await this.prisma.session.findUnique({ where: { ocppTxId: txId } });
+    const session = await this.prisma.session.findUnique({
+      where: { ocppTxId: txId },
+    });
 
     if (session) {
       const meterStop = Number(payload.meterStop) || 0;
       const totalEnergy = Math.max(0, meterStop - session.meterStart);
-      
+
       const updated = await this.prisma.session.update({
         where: { id: session.id },
         data: {
           endTime: payload.timestamp ? new Date(payload.timestamp) : new Date(),
           meterStop,
           totalEnergy,
-          status: 'COMPLETED'
-        }
+          status: 'COMPLETED',
+        },
       });
 
       if (updated.userId) {
@@ -158,7 +191,10 @@ export class SessionService {
     try {
       await this.ocpiTokenSync.syncIdTagToken(idTag || null);
     } catch (error) {
-      this.logger.warn('Failed to sync OCPI token for idTag', String(error).replace(/[\n\r]/g, ''));
+      this.logger.warn(
+        'Failed to sync OCPI token for idTag',
+        String(error).replace(/[\n\r]/g, ''),
+      );
     }
   }
 }

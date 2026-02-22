@@ -1,10 +1,10 @@
-import { Controller, Get, Post, Body, Param, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Req, Query } from '@nestjs/common';
 import { BillingService } from './billing-service.service';
 import { TopUpDto, GenerateInvoiceDto } from './dto/billing.dto';
 
 @Controller()
 export class BillingController {
-  constructor(private readonly billingService: BillingService) { }
+  constructor(private readonly billingService: BillingService) {}
 
   // Wallet
   @Get('wallet/balance')
@@ -14,9 +14,13 @@ export class BillingController {
   }
 
   @Get('wallet/transactions')
-  getTransactions(@Req() req: any) {
+  getTransactions(
+    @Req() req: any,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
     const userId = req.headers['x-user-id'] || 'mock-user-id';
-    return this.billingService.getTransactions(userId);
+    return this.billingService.getTransactions(userId, limit, offset);
   }
 
   @Post('wallet/topup')
@@ -27,9 +31,13 @@ export class BillingController {
 
   // Billing
   @Get('billing/invoices')
-  getInvoices(@Req() req: any) {
+  getInvoices(
+    @Req() req: any,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
     const userId = req.headers['x-user-id'] || 'mock-user-id';
-    return this.billingService.getInvoices(userId);
+    return this.billingService.getInvoices(userId, limit, offset);
   }
 
   @Post('billing/invoices/generate')

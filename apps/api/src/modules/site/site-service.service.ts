@@ -1,22 +1,28 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma, SitePurpose } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { CreateSiteDto, UpdateSiteDto } from './dto/site.dto';
 import { CreateSiteDocumentDto } from './dto/document.dto';
+import { parsePaginationOptions } from '../../common/utils/pagination';
 
 type SiteWithRelations = Prisma.SiteGetPayload<{
   include: {
     stations: true;
     leaseDetails: true;
     documents: true;
-    owner: { select: { id: true; name: true; email: true; phone: true; region: true } };
+    owner: {
+      select: { id: true; name: true; email: true; phone: true; region: true };
+    };
   };
 }>;
 
-
 @Injectable()
 export class SiteService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   private parseArray(value?: string) {
     if (!value) return [];
@@ -47,7 +53,9 @@ export class SiteService {
       throw new BadRequestException('ownerId is required');
     }
 
-    const owner = await this.prisma.user.findUnique({ where: { id: createDto.ownerId } });
+    const owner = await this.prisma.user.findUnique({
+      where: { id: createDto.ownerId },
+    });
     if (!owner) throw new NotFoundException('Owner not found');
 
     const data: Prisma.SiteCreateInput = {
@@ -77,15 +85,14 @@ export class SiteService {
           expectedFootfall: createDto.leaseDetails.expectedFootfall,
           expectedMonthlyPrice: createDto.leaseDetails.expectedMonthlyPrice,
           status: createDto.leaseDetails.status ?? 'PENDING',
-        }
+        },
       };
     }
 
     const created = await this.prisma.site.create({
       data,
-      include: { stations: true, leaseDetails: true, documents: true }
+      include: { stations: true, leaseDetails: true, documents: true },
     });
-
 
     return this.findSiteById(created.id);
   }
@@ -98,16 +105,30 @@ export class SiteService {
     throw new BadRequestException(`Invalid site purpose: ${purpose}`);
   }
 
-  async findAllSites(params: { purpose?: string } = {}) {
+  async findAllSites(
+    params: { purpose?: string; limit?: string; offset?: string } = {},
+  ) {
     const purpose = this.normalizePurpose(params.purpose);
+    const pagination = parsePaginationOptions(
+      { limit: params.limit, offset: params.offset },
+      { limit: 50, maxLimit: 200 },
+    );
     const sites = await this.prisma.site.findMany({
       where: purpose ? { purpose } : undefined,
+      take: pagination.limit,
+      skip: pagination.offset,
       include: {
         stations: true,
         leaseDetails: true,
         documents: true,
         owner: {
-          select: { id: true, name: true, email: true, phone: true, region: true },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            region: true,
+          },
         },
       },
     });
@@ -122,7 +143,13 @@ export class SiteService {
         leaseDetails: true,
         documents: true,
         owner: {
-          select: { id: true, name: true, email: true, phone: true, region: true },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            region: true,
+          },
         },
       },
     });
@@ -133,7 +160,7 @@ export class SiteService {
   async updateSite(id: string, updateDto: UpdateSiteDto) {
     const site = await this.prisma.site.findUnique({
       where: { id },
-      include: { leaseDetails: true }
+      include: { leaseDetails: true },
     });
     if (!site) throw new NotFoundException('Site not found');
 
@@ -142,13 +169,17 @@ export class SiteService {
     if (updateDto.name) data.name = updateDto.name;
     if (updateDto.city) data.city = updateDto.city;
     if (updateDto.address) data.address = updateDto.address;
-    if (updateDto.powerCapacityKw !== undefined) data.powerCapacityKw = updateDto.powerCapacityKw;
-    if (updateDto.parkingBays !== undefined) data.parkingBays = updateDto.parkingBays;
+    if (updateDto.powerCapacityKw !== undefined)
+      data.powerCapacityKw = updateDto.powerCapacityKw;
+    if (updateDto.parkingBays !== undefined)
+      data.parkingBays = updateDto.parkingBays;
     if (updateDto.purpose) data.purpose = updateDto.purpose;
     if (updateDto.latitude !== undefined) data.latitude = updateDto.latitude;
     if (updateDto.longitude !== undefined) data.longitude = updateDto.longitude;
     if (updateDto.ownerId) {
-      const owner = await this.prisma.user.findUnique({ where: { id: updateDto.ownerId } });
+      const owner = await this.prisma.user.findUnique({
+        where: { id: updateDto.ownerId },
+      });
       if (!owner) throw new NotFoundException('Owner not found');
       data.owner = { connect: { id: owner.id } };
     }
@@ -170,7 +201,7 @@ export class SiteService {
             expectedFootfall: updateDto.leaseDetails.expectedFootfall,
             expectedMonthlyPrice: updateDto.leaseDetails.expectedMonthlyPrice,
             status: updateDto.leaseDetails.status,
-          }
+          },
         };
       } else {
         // Create new lease details
@@ -180,7 +211,7 @@ export class SiteService {
             expectedFootfall: updateDto.leaseDetails.expectedFootfall,
             expectedMonthlyPrice: updateDto.leaseDetails.expectedMonthlyPrice,
             status: updateDto.leaseDetails.status ?? 'PENDING',
-          }
+          },
         };
       }
     }
@@ -197,11 +228,16 @@ export class SiteService {
         leaseDetails: true,
         documents: true,
         owner: {
-          select: { id: true, name: true, email: true, phone: true, region: true },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            region: true,
+          },
         },
       },
     });
-
 
     return this.formatSite(updated);
   }
@@ -221,8 +257,8 @@ export class SiteService {
         verificationStatus: status,
         documentsVerified: status === 'VERIFIED',
         documentsVerifiedAt: new Date(),
-        documentsVerifiedBy: verifierId
-      }
+        documentsVerifiedBy: verifierId,
+      },
     });
   }
 
@@ -233,7 +269,7 @@ export class SiteService {
 
     const documents = await this.prisma.siteDocument.findMany({
       where: { siteId },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
     });
 
     // Map database fields to frontend interface
@@ -263,13 +299,13 @@ export class SiteService {
         mimeType: createDto.mimeType,
         uploadedBy: createDto.uploadedBy,
         description: createDto.description,
-      }
+      },
     });
   }
 
   async deleteSiteDocument(documentId: string) {
     const document = await this.prisma.siteDocument.findUnique({
-      where: { id: documentId }
+      where: { id: documentId },
     });
 
     if (!document) {
@@ -277,7 +313,7 @@ export class SiteService {
     }
 
     return this.prisma.siteDocument.delete({
-      where: { id: documentId }
+      where: { id: documentId },
     });
   }
 
@@ -293,10 +329,10 @@ export class SiteService {
       include: {
         chargePoints: {
           include: {
-            sessions: true
-          }
-        }
-      }
+            sessions: true,
+          },
+        },
+      },
     });
 
     // Collect all sessions from all charge points at this site
@@ -327,12 +363,17 @@ export class SiteService {
       // Count sessions by status
       if (session.status === 'ACTIVE') {
         activeSessions++;
-      } else if (session.status === 'COMPLETED' || session.status === 'STOPPED') {
+      } else if (
+        session.status === 'COMPLETED' ||
+        session.status === 'STOPPED'
+      ) {
         completedSessions++;
 
         // 4. Calculate session duration for completed sessions
         if (session.endTime) {
-          const durationMs = new Date(session.endTime).getTime() - new Date(session.startTime).getTime();
+          const durationMs =
+            new Date(session.endTime).getTime() -
+            new Date(session.startTime).getTime();
           const durationMinutes = durationMs / (1000 * 60);
           totalDurationMinutes += durationMinutes;
           completedSessionsCount++;
@@ -341,9 +382,10 @@ export class SiteService {
     }
 
     // Calculate average session duration
-    const averageSessionDuration = completedSessionsCount > 0
-      ? totalDurationMinutes / completedSessionsCount
-      : undefined;
+    const averageSessionDuration =
+      completedSessionsCount > 0
+        ? totalDurationMinutes / completedSessionsCount
+        : undefined;
 
     return {
       totalRevenue,
@@ -351,8 +393,7 @@ export class SiteService {
       totalEnergy,
       averageSessionDuration,
       activeSessions,
-      completedSessions
+      completedSessions,
     };
   }
-
 }

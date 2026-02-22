@@ -1,7 +1,18 @@
-import { Injectable, UnauthorizedException, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
 import { UserRole, StationOwnerCapability, Prisma } from '@prisma/client';
-import { LoginDto, CreateUserDto, UpdateUserDto, InviteUserDto } from './dto/auth.dto';
+import {
+  LoginDto,
+  CreateUserDto,
+  UpdateUserDto,
+  InviteUserDto,
+} from './dto/auth.dto';
 import { NotificationService } from '../notification/notification-service.service';
 import { MailService } from '../mail/mail.service';
 import { AdminApprovalService } from './admin-approval.service';
@@ -12,6 +23,7 @@ import * as crypto from 'crypto';
 import * as jwt from 'jsonwebtoken';
 import { SignOptions } from 'jsonwebtoken';
 import * as bcrypt from 'bcrypt';
+import { parsePaginationOptions } from '../../common/utils/pagination';
 
 @Injectable()
 export class AuthService {
@@ -61,7 +73,7 @@ export class AuthService {
     private readonly metrics: MetricsService,
     private readonly ocpiTokenSync: OcpiTokenSyncService,
     private readonly approvalService: AdminApprovalService,
-  ) { }
+  ) {}
 
   getHello(): string {
     return 'Auth Service Operational';
@@ -74,7 +86,10 @@ export class AuthService {
 
   private normalizeRegionValue(region?: string | null): string | null {
     if (!region) return null;
-    const normalized = region.trim().toUpperCase().replace(/[\s-]+/g, '_');
+    const normalized = region
+      .trim()
+      .toUpperCase()
+      .replace(/[\s-]+/g, '_');
     return normalized || null;
   }
 
@@ -89,7 +104,9 @@ export class AuthService {
     );
   }
 
-  private async ensureEvzoneOrganization(client: PrismaService | Prisma.TransactionClient = this.prisma) {
+  private async ensureEvzoneOrganization(
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ) {
     const existing = await client.organization.findFirst({
       where: { name: { equals: 'EVZONE', mode: 'insensitive' } },
     });
@@ -105,15 +122,23 @@ export class AuthService {
   }
 
   private async resolveGeography(
-    input: { zoneId?: string | null; region?: string | null; country?: string | null },
+    input: {
+      zoneId?: string | null;
+      region?: string | null;
+      country?: string | null;
+    },
     context: 'register' | 'invite',
     client: PrismaService | Prisma.TransactionClient = this.prisma,
   ): Promise<{ zoneId: string; region: string }> {
     if (input.zoneId) {
-      const zone = await client.geographicZone.findUnique({ where: { id: input.zoneId } });
+      const zone = await client.geographicZone.findUnique({
+        where: { id: input.zoneId },
+      });
       if (!zone) {
         this.incrementConsistencyCounter(
-          context === 'register' ? 'registerValidationFailures' : 'inviteValidationFailures',
+          context === 'register'
+            ? 'registerValidationFailures'
+            : 'inviteValidationFailures',
           `invalid zoneId=${input.zoneId}`,
           context,
         );
@@ -122,7 +147,10 @@ export class AuthService {
 
       return {
         zoneId: zone.id,
-        region: this.normalizeRegionValue(input.region) || this.normalizeRegionValue(zone.name) || 'UNKNOWN',
+        region:
+          this.normalizeRegionValue(input.region) ||
+          this.normalizeRegionValue(zone.name) ||
+          'UNKNOWN',
       };
     }
 
@@ -143,13 +171,18 @@ export class AuthService {
       if (zone) {
         return {
           zoneId: zone.id,
-          region: this.normalizeRegionValue(input.region) || this.normalizeRegionValue(zone.name) || 'UNKNOWN',
+          region:
+            this.normalizeRegionValue(input.region) ||
+            this.normalizeRegionValue(zone.name) ||
+            'UNKNOWN',
         };
       }
     }
 
     this.incrementConsistencyCounter(
-      context === 'register' ? 'registerValidationFailures' : 'inviteValidationFailures',
+      context === 'register'
+        ? 'registerValidationFailures'
+        : 'inviteValidationFailures',
       `unresolved geography (region=${input.region || 'n/a'}, country=${input.country || 'n/a'})`,
       context,
     );
@@ -162,7 +195,9 @@ export class AuthService {
     const startTime = Date.now();
     try {
       this.logger.log(`Login attempt for ${loginDto.email}`);
-      const user = await this.prisma.user.findUnique({ where: { email: loginDto.email } });
+      const user = await this.prisma.user.findUnique({
+        where: { email: loginDto.email },
+      });
       if (!user) {
         throw new UnauthorizedException('Invalid credentials');
       }
@@ -171,7 +206,10 @@ export class AuthService {
         throw new UnauthorizedException('Invalid credentials');
       }
 
-      const isPasswordValid = await bcrypt.compare(loginDto.password, user.passwordHash);
+      const isPasswordValid = await bcrypt.compare(
+        loginDto.password,
+        user.passwordHash,
+      );
       if (!isPasswordValid) {
         throw new UnauthorizedException('Invalid credentials');
       }
@@ -179,8 +217,8 @@ export class AuthService {
       // Check for awaiting approval status if not handled by frontend
       if (user.status === 'AwaitingApproval') {
         this.logger.log(`User ${user.email} is awaiting approval`);
-        // We still return the user/token so frontend can redirect, 
-        // OR we can throw a specific error. 
+        // We still return the user/token so frontend can redirect,
+        // OR we can throw a specific error.
         // For now, let's allow it but log it (frontend handles the redirect)
       }
 
@@ -189,14 +227,17 @@ export class AuthService {
         this.logger.log(`Auto-activating Super Admin: ${user.email}`);
         await this.prisma.user.update({
           where: { id: user.id },
-          data: { status: 'Active' }
+          data: { status: 'Active' },
         });
         user.status = 'Active';
       }
 
       return this.generateAuthResponse(user);
     } catch (error) {
-      this.logger.error(`Login error for ${loginDto.email}: ${error.message}`, error.stack);
+      this.logger.error(
+        `Login error for ${loginDto.email}: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }
@@ -209,36 +250,55 @@ export class AuthService {
       success: true,
       duration: 0,
       userId: user.id,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
 
     return result;
   }
 
-
   async register(createUserDto: CreateUserDto & { frontendUrl?: string }) {
-    const exists = await this.prisma.user.findUnique({ where: { email: createUserDto.email } });
+    const exists = await this.prisma.user.findUnique({
+      where: { email: createUserDto.email },
+    });
     if (exists) {
       if (exists.status === 'Pending') {
-        const verificationToken = await this.generateEmailVerificationToken(exists.id);
+        const verificationToken = await this.generateEmailVerificationToken(
+          exists.id,
+        );
         try {
-          await this.mailService.sendVerificationEmail(createUserDto.email, verificationToken, createUserDto.frontendUrl);
+          await this.mailService.sendVerificationEmail(
+            createUserDto.email,
+            verificationToken,
+            createUserDto.frontendUrl,
+          );
         } catch (error) {
-          this.logger.error('Failed to send verification email', String(error).replace(/[\n\r]/g, ''));
+          this.logger.error(
+            'Failed to send verification email',
+            String(error).replace(/[\n\r]/g, ''),
+          );
         }
         await this.syncOcpiTokenSafe(exists);
-        return { success: true, message: 'Registration successful. Please check your email.' };
+        return {
+          success: true,
+          message: 'Registration successful. Please check your email.',
+        };
       }
       throw new BadRequestException('User already exists');
     }
 
     if (createUserDto.phone) {
-      const phoneExists = await this.prisma.user.findUnique({ where: { phone: createUserDto.phone } });
-      if (phoneExists) throw new BadRequestException('User with this phone number already exists');
+      const phoneExists = await this.prisma.user.findUnique({
+        where: { phone: createUserDto.phone },
+      });
+      if (phoneExists)
+        throw new BadRequestException(
+          'User with this phone number already exists',
+        );
     }
 
     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
-    const requestedRole = (createUserDto.role as UserRole) || UserRole.SITE_OWNER;
+    const requestedRole =
+      (createUserDto.role as UserRole) || UserRole.SITE_OWNER;
 
     // Registration Transaction
     const result = await this.prisma.$transaction(async (tx) => {
@@ -280,7 +340,7 @@ export class AuthService {
           subscribedPackage: createUserDto.subscribedPackage || 'Free',
           ownerCapability: createUserDto.ownerCapability as any,
           organizationId: organization.id,
-        }
+        },
       });
 
       // 3. Create User Application for Admin Approval
@@ -295,7 +355,7 @@ export class AuthService {
           role: requestedRole,
           subscribedPackage: createUserDto.subscribedPackage,
           status: 'PENDING',
-        }
+        },
       });
 
       return { user, organization };
@@ -304,10 +364,19 @@ export class AuthService {
     await this.syncOcpiTokenSafe(result.user);
 
     try {
-      const verificationToken = await this.generateEmailVerificationToken(result.user.id);
-      await this.mailService.sendVerificationEmail(createUserDto.email, verificationToken, createUserDto.frontendUrl);
+      const verificationToken = await this.generateEmailVerificationToken(
+        result.user.id,
+      );
+      await this.mailService.sendVerificationEmail(
+        createUserDto.email,
+        verificationToken,
+        createUserDto.frontendUrl,
+      );
     } catch (error) {
-      this.logger.error('Failed to send verification email', String(error).replace(/[\n\r]/g, ''));
+      this.logger.error(
+        'Failed to send verification email',
+        String(error).replace(/[\n\r]/g, ''),
+      );
     }
 
     return {
@@ -317,13 +386,15 @@ export class AuthService {
         id: result.user.id,
         email: result.user.email,
         organizationId: result.organization.id,
-      }
+      },
     };
   }
 
   async inviteUser(inviteDto: InviteUserDto, inviterId?: string) {
     if (!inviterId) {
-      throw new UnauthorizedException('Authenticated inviter context is required');
+      throw new UnauthorizedException(
+        'Authenticated inviter context is required',
+      );
     }
 
     const inviter = await this.prisma.user.findUnique({
@@ -340,7 +411,9 @@ export class AuthService {
       throw new NotFoundException('Inviter not found');
     }
 
-    const exists = await this.prisma.user.findUnique({ where: { email: inviteDto.email } });
+    const exists = await this.prisma.user.findUnique({
+      where: { email: inviteDto.email },
+    });
     if (exists) throw new BadRequestException('User already exists');
 
     const inviteRole = inviteDto.role as unknown as UserRole;
@@ -359,11 +432,14 @@ export class AuthService {
       );
     }
 
-    const geography = await this.resolveGeography({
-      zoneId: inviteDto.zoneId || inviter.zoneId,
-      region: inviteDto.region || inviter.region,
-      country: inviter.country,
-    }, 'invite');
+    const geography = await this.resolveGeography(
+      {
+        zoneId: inviteDto.zoneId || inviter.zoneId,
+        region: inviteDto.region || inviter.region,
+        country: inviter.country,
+      },
+      'invite',
+    );
 
     const passwordHash = inviteDto.password
       ? await bcrypt.hash(inviteDto.password, 10)
@@ -386,25 +462,26 @@ export class AuthService {
         region: geography.region,
         zoneId: geography.zoneId,
         organizationId,
-        ownerCapability: inviteDto.ownerCapability as unknown as StationOwnerCapability,
+        ownerCapability:
+          inviteDto.ownerCapability as unknown as StationOwnerCapability,
       },
     });
 
     try {
       // Human-readable role name mapping (matching frontend labels roughly)
       const roleLabels: any = {
-        'SUPER_ADMIN': 'Super Admin',
-        'EVZONE_ADMIN': 'EVzone Admin',
-        'EVZONE_OPERATOR': 'EVzone Operations',
-        'STATION_OPERATOR': 'Station Operator',
-        'SITE_OWNER': 'Site Owner',
-        'STATION_ADMIN': 'Station Admin',
-        'MANAGER': 'Manager',
-        'ATTENDANT': 'Attendant',
-        'CASHIER': 'Cashier',
-        'STATION_OWNER': 'Station Owner',
-        'SWAP_PROVIDER_ADMIN': 'Swap Provider Admin',
-        'SWAP_PROVIDER_OPERATOR': 'Swap Provider Operator',
+        SUPER_ADMIN: 'Super Admin',
+        EVZONE_ADMIN: 'EVzone Admin',
+        EVZONE_OPERATOR: 'EVzone Operations',
+        STATION_OPERATOR: 'Station Operator',
+        SITE_OWNER: 'Site Owner',
+        STATION_ADMIN: 'Station Admin',
+        MANAGER: 'Manager',
+        ATTENDANT: 'Attendant',
+        CASHIER: 'Cashier',
+        STATION_OWNER: 'Station Owner',
+        SWAP_PROVIDER_ADMIN: 'Swap Provider Admin',
+        SWAP_PROVIDER_OPERATOR: 'Swap Provider Operator',
       };
 
       const roleName = roleLabels[inviteDto.role] || inviteDto.role;
@@ -415,13 +492,20 @@ export class AuthService {
         inviteDto.frontendUrl,
       );
     } catch (error) {
-      this.logger.error('Failed to send invitation email', String(error).replace(/[\n\r]/g, ''));
+      this.logger.error(
+        'Failed to send invitation email',
+        String(error).replace(/[\n\r]/g, ''),
+      );
     }
 
     return { success: true, user };
   }
 
-  async issueServiceToken(clientId: string, clientSecret: string, scope?: string) {
+  async issueServiceToken(
+    clientId: string,
+    clientSecret: string,
+    scope?: string,
+  ) {
     const serviceAccount = await this.prisma.serviceAccount.findUnique({
       where: { clientId },
     });
@@ -450,11 +534,17 @@ export class AuthService {
       type: 'SERVICE',
     };
 
-    const token = jwt.sign(payload, this.config.get<string>('JWT_SERVICE_SECRET') || 'dev_secret', {
-      expiresIn: (this.config.get('JWT_SERVICE_EXPIRY') as SignOptions['expiresIn']) || '1y',
-      issuer: this.config.get('JWT_SERVICE_ISSUER'),
-      audience: this.config.get('JWT_SERVICE_AUDIENCE'),
-    });
+    const token = jwt.sign(
+      payload,
+      this.config.get<string>('JWT_SERVICE_SECRET') || 'dev_secret',
+      {
+        expiresIn:
+          (this.config.get('JWT_SERVICE_EXPIRY') as SignOptions['expiresIn']) ||
+          '1y',
+        issuer: this.config.get('JWT_SERVICE_ISSUER'),
+        audience: this.config.get('JWT_SERVICE_AUDIENCE'),
+      },
+    );
 
     return {
       accessToken: token,
@@ -467,7 +557,7 @@ export class AuthService {
     if (!identifier) throw new BadRequestException('Identifier required');
 
     let user = await this.prisma.user.findFirst({
-      where: isEmail ? { email: identifier } : { phone: identifier }
+      where: isEmail ? { email: identifier } : { phone: identifier },
     });
 
     if (!user) {
@@ -476,7 +566,7 @@ export class AuthService {
       }
 
       user = await this.prisma.user.create({
-        data: { phone: identifier, name: 'Mobile User', status: 'Pending' }
+        data: { phone: identifier, name: 'Mobile User', status: 'Pending' },
       });
 
       await this.syncOcpiTokenSafe(user);
@@ -487,13 +577,20 @@ export class AuthService {
 
     await this.prisma.user.update({
       where: { id: user.id },
-      data: { otpCode: code, otpExpiresAt: expires }
+      data: { otpCode: code, otpExpiresAt: expires },
     });
 
     if (isEmail) {
-      await this.mailService.sendMail(user.email!, 'Verification OTP', `<p>Your OTP is <b>${code}</b></p>`);
+      await this.mailService.sendMail(
+        user.email!,
+        'Verification OTP',
+        `<p>Your OTP is <b>${code}</b></p>`,
+      );
     } else {
-      await this.notificationService.sendSms(identifier, `EvZone: Your verification code is ${code}`);
+      await this.notificationService.sendSms(
+        identifier,
+        `EvZone: Your verification code is ${code}`,
+      );
     }
 
     return { status: 'OTP Sent', identifier };
@@ -502,7 +599,7 @@ export class AuthService {
   async verifyOtp(identifier: string, code: string) {
     const isEmail = identifier.includes('@');
     const user = await this.prisma.user.findFirst({
-      where: isEmail ? { email: identifier } : { phone: identifier }
+      where: isEmail ? { email: identifier } : { phone: identifier },
     });
     if (!user) throw new UnauthorizedException('User not found');
 
@@ -516,7 +613,7 @@ export class AuthService {
 
     const updatedUser = await this.prisma.user.update({
       where: { id: user.id },
-      data: { status: 'Active', otpCode: null, otpExpiresAt: null }
+      data: { status: 'Active', otpCode: null, otpExpiresAt: null },
     });
 
     await this.syncOcpiTokenSafe(updatedUser);
@@ -527,7 +624,7 @@ export class AuthService {
   async resetPassword(identifier: string, code: string, newPassword: string) {
     const isEmail = identifier.includes('@');
     const user = await this.prisma.user.findFirst({
-      where: isEmail ? { email: identifier } : { phone: identifier }
+      where: isEmail ? { email: identifier } : { phone: identifier },
     });
     if (!user) throw new UnauthorizedException('User not found');
 
@@ -547,8 +644,8 @@ export class AuthService {
         passwordHash: hashedPassword,
         otpCode: null,
         otpExpiresAt: null,
-        status: 'Active'
-      }
+        status: 'Active',
+      },
     });
 
     await this.syncOcpiTokenSafe(updatedUser);
@@ -565,13 +662,18 @@ export class AuthService {
     const accessToken = jwt.sign(
       { sub: user.id, email: user.email, role: user.role },
       secret as jwt.Secret,
-      { expiresIn: (this.config.get<string>('JWT_ACCESS_EXPIRY') || '15m') as any } as SignOptions
+      {
+        expiresIn: (this.config.get<string>('JWT_ACCESS_EXPIRY') ||
+          '15m') as any,
+      } as SignOptions,
     );
 
     const refreshToken = jwt.sign(
       { sub: user.id, type: 'refresh', jti: crypto.randomUUID() },
       secret as jwt.Secret,
-      { expiresIn: this.config.get<string>('JWT_REFRESH_EXPIRY') || '7d' } as SignOptions
+      {
+        expiresIn: this.config.get<string>('JWT_REFRESH_EXPIRY') || '7d',
+      } as SignOptions,
     );
 
     const refreshExpiry = new Date();
@@ -599,8 +701,8 @@ export class AuthService {
         region: user.region,
         zoneId: user.zoneId,
         ownerCapability: user.ownerCapability,
-        organizationId: user.organizationId
-      }
+        organizationId: user.organizationId,
+      },
     };
   }
 
@@ -627,15 +729,20 @@ export class AuthService {
         },
       });
 
-      if (!storedToken) throw new UnauthorizedException('Token not found, expired, or revoked');
+      if (!storedToken)
+        throw new UnauthorizedException('Token not found, expired, or revoked');
 
-      const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+      });
       if (!user) throw new UnauthorizedException('User not found');
 
       const accessToken = jwt.sign(
         { sub: user.id, email: user.email, role: user.role },
         secret as jwt.Secret,
-        { expiresIn: this.config.get<string>('JWT_ACCESS_EXPIRY') || '15m' } as SignOptions
+        {
+          expiresIn: this.config.get<string>('JWT_ACCESS_EXPIRY') || '15m',
+        } as SignOptions,
       );
 
       this.metrics.recordAuthMetric({
@@ -660,7 +767,7 @@ export class AuthService {
           region: user.region,
           zoneId: user.zoneId,
           ownerCapability: user.ownerCapability,
-          organizationId: user.organizationId
+          organizationId: user.organizationId,
         },
       };
     } catch (error) {
@@ -701,15 +808,22 @@ export class AuthService {
 
   async findAllUsers(
     params: {
-      search?: string
-      role?: string
-      status?: string
-      region?: string
-      zoneId?: string
-      orgId?: string
-      organizationId?: string
+      search?: string;
+      role?: string;
+      status?: string;
+      region?: string;
+      zoneId?: string;
+      orgId?: string;
+      organizationId?: string;
+      limit?: string;
+      offset?: string;
     } = {},
   ) {
+    const pagination = parsePaginationOptions(
+      { limit: params.limit, offset: params.offset },
+      { limit: 50, maxLimit: 200 },
+    );
+
     const where: any = {};
     if (params.search) {
       where.OR = [
@@ -739,18 +853,22 @@ export class AuthService {
     const users = await this.prisma.user.findMany({
       where,
       orderBy: { createdAt: 'desc' },
+      take: pagination.limit,
+      skip: pagination.offset,
       select: {
         ...this.userSafeSelect,
         organization: {
           select: this.organizationSafeSelect,
         },
         _count: {
-          select: { ownedStations: true, operatedStations: true }
-        }
-      }
+          select: { ownedStations: true, operatedStations: true },
+        },
+      },
     });
 
-    const missingOrg = users.filter((user) => !user.organizationId && !this.isEvzoneRole(user.role)).length;
+    const missingOrg = users.filter(
+      (user) => !user.organizationId && !this.isEvzoneRole(user.role),
+    ).length;
     if (missingOrg > 0) {
       this.incrementConsistencyCounter(
         'usersMissingOrganization',
@@ -764,14 +882,16 @@ export class AuthService {
 
   async getCrmStats() {
     const total = await this.prisma.user.count();
-    const active = await this.prisma.user.count({ where: { status: 'Active' } });
+    const active = await this.prisma.user.count({
+      where: { status: 'Active' },
+    });
     // Revenue mock (or sum transactions if possible)
     const totalRevenue = 125000;
 
     return {
       total,
       active,
-      totalRevenue
+      totalRevenue,
     };
   }
 
@@ -782,8 +902,8 @@ export class AuthService {
         ...this.userSafeSelect,
         organization: {
           select: this.organizationSafeSelect,
-        }
-      }
+        },
+      },
     });
     if (!user) throw new NotFoundException('User not found');
     return user;
@@ -805,12 +925,15 @@ export class AuthService {
     try {
       const updated = await this.prisma.user.update({
         where: { id },
-        data: updateDto
+        data: updateDto,
       });
       await this.syncOcpiTokenSafe(updated);
       return updated;
     } catch (error) {
-      this.logger.error(`Failed to update user ${id}`, String(error).replace(/[\n\r]/g, ''));
+      this.logger.error(
+        `Failed to update user ${id}`,
+        String(error).replace(/[\n\r]/g, ''),
+      );
       throw new BadRequestException('Could not update user');
     }
   }
@@ -828,13 +951,19 @@ export class AuthService {
     try {
       await this.ocpiTokenSync.syncUserToken(user);
     } catch (error) {
-      this.logger.warn('Failed to sync OCPI token for user', String(error).replace(/[\n\r]/g, ''));
+      this.logger.warn(
+        'Failed to sync OCPI token for user',
+        String(error).replace(/[\n\r]/g, ''),
+      );
     }
   }
 
   private normalizeScopes(input: unknown): string[] {
     if (typeof input === 'string') {
-      return input.split(' ').map((v) => v.trim()).filter(Boolean);
+      return input
+        .split(' ')
+        .map((v) => v.trim())
+        .filter(Boolean);
     }
     if (Array.isArray(input)) {
       return input.map((v) => String(v).trim()).filter(Boolean);
@@ -842,7 +971,11 @@ export class AuthService {
     return [];
   }
 
-  private verifyServiceSecret(secret: string, salt: string, expectedHash: string): boolean {
+  private verifyServiceSecret(
+    secret: string,
+    salt: string,
+    expectedHash: string,
+  ): boolean {
     const hash = crypto.scryptSync(secret, salt, 64).toString('hex');
     const expected = Buffer.from(expectedHash, 'hex');
     const actual = Buffer.from(hash, 'hex');
@@ -853,7 +986,10 @@ export class AuthService {
   /**
    * Generate an email verification token
    */
-  async generateEmailVerificationToken(userId: string, expiresIn: number = 86400000): Promise<string> {
+  async generateEmailVerificationToken(
+    userId: string,
+    expiresIn: number = 86400000,
+  ): Promise<string> {
     const token = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + expiresIn); // 24 hours by default
 
@@ -872,17 +1008,21 @@ export class AuthService {
   /**
    * Verify an email verification token
    */
-  async verifyEmailToken(token: string): Promise<{ userId: string; email: string }> {
+  async verifyEmailToken(
+    token: string,
+  ): Promise<{ userId: string; email: string }> {
     // Validate token format (must be a UUID)
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(token)) {
       throw new BadRequestException('Invalid verification token format');
     }
 
-    const verificationToken = await this.prisma.emailVerificationToken.findUnique({
-      where: { token },
-      include: { user: true },
-    });
+    const verificationToken =
+      await this.prisma.emailVerificationToken.findUnique({
+        where: { token },
+        include: { user: true },
+      });
 
     if (!verificationToken) {
       throw new BadRequestException('Invalid or expired verification token');
@@ -890,7 +1030,9 @@ export class AuthService {
 
     // Check if token has expired
     if (verificationToken.expiresAt < new Date()) {
-      await this.prisma.emailVerificationToken.delete({ where: { id: verificationToken.id } });
+      await this.prisma.emailVerificationToken.delete({
+        where: { id: verificationToken.id },
+      });
       throw new BadRequestException('Verification token has expired');
     }
 
@@ -899,7 +1041,7 @@ export class AuthService {
       where: { id: verificationToken.userId },
       data: {
         emailVerifiedAt: new Date(),
-        status: 'AwaitingApproval' // Move to approval stage after email verification
+        status: 'AwaitingApproval', // Move to approval stage after email verification
       },
     });
 
@@ -911,13 +1053,21 @@ export class AuthService {
     // Send application received email
     try {
       if (user.email) {
-        await this.mailService.sendApplicationReceivedEmail(user.email, user.name);
+        await this.mailService.sendApplicationReceivedEmail(
+          user.email,
+          user.name,
+        );
       }
     } catch (error) {
-      this.logger.error('Failed to send application received email', String(error).replace(/[\n\r]/g, ''));
+      this.logger.error(
+        'Failed to send application received email',
+        String(error).replace(/[\n\r]/g, ''),
+      );
     }
 
-    this.logger.log(`Email verified for user ${user.id}, now awaiting admin approval`);
+    this.logger.log(
+      `Email verified for user ${user.id}, now awaiting admin approval`,
+    );
     return { userId: user.id, email: user.email || '' };
   }
 
@@ -947,7 +1097,10 @@ export class AuthService {
     try {
       await this.mailService.sendVerificationEmail(email, token);
     } catch (error) {
-      this.logger.error(`Failed to send verification email to ${email}`, String(error).replace(/[\n\r]/g, ''));
+      this.logger.error(
+        `Failed to send verification email to ${email}`,
+        String(error).replace(/[\n\r]/g, ''),
+      );
       throw new Error('Failed to send verification email');
     }
   }
@@ -975,10 +1128,13 @@ export class AuthService {
         'Password Reset Request',
         `<p>A password reset was requested for your account.</p>
          <p>Your reset code is: <b>${code}</b></p>
-         <p>This code will expire in 15 minutes.</p>`
+         <p>This code will expire in 15 minutes.</p>`,
       );
     } catch (error) {
-      this.logger.error(`Failed to send password reset email to ${user.email}`, error);
+      this.logger.error(
+        `Failed to send password reset email to ${user.email}`,
+        error,
+      );
       throw new Error('Failed to send password reset email');
     }
   }
@@ -1000,7 +1156,7 @@ export class AuthService {
   async toggleMfaRequirement(userId: string, required: boolean): Promise<void> {
     await this.prisma.user.update({
       where: { id: userId },
-      data: { status: required ? 'MfaRequired' : 'Active' }
+      data: { status: required ? 'MfaRequired' : 'Active' },
     });
   }
 }

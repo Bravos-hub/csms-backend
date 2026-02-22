@@ -14,9 +14,16 @@ import {
   Query,
 } from '@nestjs/common';
 import type { Response, Request } from 'express';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiCookieAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBody,
+  ApiCookieAuth,
+} from '@nestjs/swagger';
 import { AuthService } from './auth-service.service';
 import { MetricsService } from '../../common/services/metrics.service';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import {
   LoginDto,
   RefreshTokenDto,
@@ -24,7 +31,10 @@ import {
   UpdateUserDto,
   ServiceTokenRequestDto,
 } from './dto/auth.dto';
-import { COOKIE_NAMES, getCookieOptions } from '../../common/utils/cookie.config';
+import {
+  COOKIE_NAMES,
+  getCookieOptions,
+} from '../../common/utils/cookie.config';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 @ApiTags('Authentication')
@@ -35,23 +45,27 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly metricsService: MetricsService,
-  ) { }
+  ) {}
 
   @Get('metrics')
+  @SkipThrottle()
   @ApiOperation({ summary: 'Get authentication metrics' })
   getMetrics() {
     return this.metricsService.getMetricsSummary();
   }
 
   @Post('login')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({
     summary: 'User login',
-    description: 'Authenticates user and sets httpOnly cookies for access and refresh tokens',
+    description:
+      'Authenticates user and sets httpOnly cookies for access and refresh tokens',
   })
   @ApiBody({ type: LoginDto })
   @ApiResponse({
     status: 200,
-    description: 'Login successful. Cookies set: evzone_access_token, evzone_refresh_token',
+    description:
+      'Login successful. Cookies set: evzone_access_token, evzone_refresh_token',
   })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   async login(
@@ -61,8 +75,16 @@ export class AuthController {
     const result = await this.authService.login(loginDto);
 
     // Set httpOnly cookies
-    res.cookie(COOKIE_NAMES.ACCESS_TOKEN, result.accessToken, getCookieOptions(false));
-    res.cookie(COOKIE_NAMES.REFRESH_TOKEN, result.refreshToken, getCookieOptions(true));
+    res.cookie(
+      COOKIE_NAMES.ACCESS_TOKEN,
+      result.accessToken,
+      getCookieOptions(false),
+    );
+    res.cookie(
+      COOKIE_NAMES.REFRESH_TOKEN,
+      result.refreshToken,
+      getCookieOptions(true),
+    );
 
     // Return tokens and user data for localStorage persistence
     return {
@@ -73,10 +95,12 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @ApiCookieAuth('evzone_refresh_token')
   @ApiOperation({
     summary: 'Refresh access token',
-    description: 'Uses refresh token from cookie or request body to generate new access token',
+    description:
+      'Uses refresh token from cookie or request body to generate new access token',
   })
   @ApiBody({ type: RefreshTokenDto, required: false })
   @ApiResponse({
@@ -89,17 +113,28 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     // Extract refresh token from cookie or request body
-    const refreshToken = req.cookies?.[COOKIE_NAMES.REFRESH_TOKEN] || body.refreshToken;
+    const refreshToken =
+      req.cookies?.[COOKIE_NAMES.REFRESH_TOKEN] || body.refreshToken;
 
     if (!refreshToken) {
-      throw new BadRequestException('Refresh token not found in cookie or request body');
+      throw new BadRequestException(
+        'Refresh token not found in cookie or request body',
+      );
     }
 
     const result = await this.authService.refresh(refreshToken);
 
     // Set new httpOnly cookies
-    res.cookie(COOKIE_NAMES.ACCESS_TOKEN, result.accessToken, getCookieOptions(false));
-    res.cookie(COOKIE_NAMES.REFRESH_TOKEN, result.refreshToken, getCookieOptions(true));
+    res.cookie(
+      COOKIE_NAMES.ACCESS_TOKEN,
+      result.accessToken,
+      getCookieOptions(false),
+    );
+    res.cookie(
+      COOKIE_NAMES.REFRESH_TOKEN,
+      result.refreshToken,
+      getCookieOptions(true),
+    );
 
     // Return tokens in body as well for localStorage persistence
     return {
@@ -110,11 +145,9 @@ export class AuthController {
   }
 
   @Post('register')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Register new user' })
-  async register(
-    @Body() createUserDto: any,
-    @Req() req: Request,
-  ) {
+  async register(@Body() createUserDto: any, @Req() req: Request) {
     if (!createUserDto.frontendUrl) {
       const origin = req.headers.origin as string;
       const host = req.headers.host;
@@ -128,14 +161,12 @@ export class AuthController {
   }
 
   @Post('logout')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @ApiOperation({
     summary: 'User logout',
     description: 'Revokes refresh token and clears authentication cookies',
   })
-  async logout(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     // Extract refresh token from cookie
     const refreshToken = req.cookies?.[COOKIE_NAMES.REFRESH_TOKEN];
 
@@ -155,6 +186,7 @@ export class AuthController {
   }
 
   @Post('service/token')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: 'Issue service account token' })
   serviceToken(@Req() req: any, @Body() body: ServiceTokenRequestDto) {
     const authHeader = req.headers.authorization as string | undefined;
@@ -175,11 +207,16 @@ export class AuthController {
       throw new BadRequestException('clientId and clientSecret are required');
     }
 
-    return this.authService.issueServiceToken(clientId, clientSecret, body.scope);
+    return this.authService.issueServiceToken(
+      clientId,
+      clientSecret,
+      body.scope,
+    );
   }
 
   // OTP Endpoints
   @Post('otp/send')
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
   @ApiOperation({ summary: 'Request OTP' })
   requestOtp(@Body() body: { phone?: string; email?: string }) {
     if (!body.phone && !body.email)
@@ -188,14 +225,19 @@ export class AuthController {
   }
 
   @Post('otp/verify')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: 'Verify OTP' })
   verifyOtp(@Body() body: { phone?: string; email?: string; code: string }) {
     if ((!body.phone && !body.email) || !body.code)
       throw new BadRequestException('Phone/Email and code are required');
-    return this.authService.verifyOtp(body.phone || body.email || '', body.code);
+    return this.authService.verifyOtp(
+      body.phone || body.email || '',
+      body.code,
+    );
   }
 
   @Post('password/reset')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Reset password' })
   resetPassword(@Body() body: any) {
     this.logger.log('Password reset request received');
@@ -214,6 +256,7 @@ export class AuthController {
   }
 
   @Post('verify-email')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: 'Verify email with token' })
   @ApiBody({ schema: { properties: { token: { type: 'string' } } } })
   @ApiResponse({
@@ -229,6 +272,7 @@ export class AuthController {
   }
 
   @Post('resend-verification-email')
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
   @ApiOperation({ summary: 'Resend verification email' })
   @ApiBody({ schema: { properties: { email: { type: 'string' } } } })
   @ApiResponse({
@@ -246,7 +290,7 @@ export class AuthController {
 
 @Controller('users')
 export class UsersController {
-  constructor(private readonly authService: AuthService) { }
+  constructor(private readonly authService: AuthService) {}
 
   @Get('crm-stats')
   @ApiOperation({ summary: 'Get CRM user statistics' })
@@ -270,8 +314,20 @@ export class UsersController {
     @Query('zoneId') zoneId?: string,
     @Query('orgId') orgId?: string,
     @Query('organizationId') organizationId?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
   ) {
-    return this.authService.findAllUsers({ search, role, status, region, zoneId, orgId, organizationId });
+    return this.authService.findAllUsers({
+      search,
+      role,
+      status,
+      region,
+      zoneId,
+      orgId,
+      organizationId,
+      limit,
+      offset,
+    });
   }
 
   @Get(':id')
@@ -280,8 +336,12 @@ export class UsersController {
   }
 
   @Post('invite')
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
   @UseGuards(JwtAuthGuard)
-  invite(@Body() inviteDto: InviteUserDto, @Req() req: Request & { user?: { sub?: string } }) {
+  invite(
+    @Body() inviteDto: InviteUserDto,
+    @Req() req: Request & { user?: { sub?: string } },
+  ) {
     if (!inviteDto.frontendUrl) {
       const origin = req.headers.origin as string;
       const host = req.headers.host;

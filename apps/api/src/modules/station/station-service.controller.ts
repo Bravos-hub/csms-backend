@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Put, Query, Logger } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Put,
+  Query,
+  Logger,
+} from '@nestjs/common';
 import { EventPattern, Payload } from '@nestjs/microservices';
 import { StationService } from './station-service.service';
 import { KAFKA_TOPICS } from '../../contracts/kafka-topics';
@@ -8,7 +19,7 @@ import {
   CreateChargePointDto,
   UpdateChargePointDto,
   BindChargePointCertificateDto,
-  UpdateChargePointBootstrapDto
+  UpdateChargePointBootstrapDto,
 } from './dto/station.dto';
 
 @Controller('stations')
@@ -16,7 +27,7 @@ export class StationController {
   private readonly logger = new Logger(StationController.name);
   private readonly topicCounters = new Map<string, number>();
 
-  constructor(private readonly stationService: StationService) { }
+  constructor(private readonly stationService: StationService) {}
 
   @Post()
   create(@Body() createDto: CreateStationDto) {
@@ -29,10 +40,16 @@ export class StationController {
     @Query('south') south?: string,
     @Query('east') east?: string,
     @Query('west') west?: string,
-    @Query('q') q?: string
+    @Query('q') q?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
   ) {
     const bounds = this.parseBounds(north, south, east, west);
-    return this.stationService.findAllStations(bounds, q);
+    const pagination =
+      limit !== undefined || offset !== undefined
+        ? { limit, offset }
+        : undefined;
+    return this.stationService.findAllStations(bounds, q, pagination);
   }
 
   @Get('nearby')
@@ -90,7 +107,12 @@ export class StationController {
     await this.consumeOcppMessage(KAFKA_TOPICS.stationEvents, message);
   }
 
-  private parseBounds(north?: string, south?: string, east?: string, west?: string) {
+  private parseBounds(
+    north?: string,
+    south?: string,
+    east?: string,
+    west?: string,
+  ) {
     const rawBounds = [north, south, east, west];
     const hasAnyBounds = rawBounds.some((value) => value !== undefined);
     const hasAllBounds = rawBounds.every((value) => value !== undefined);
@@ -105,10 +127,10 @@ export class StationController {
     const parsedWest = this.toFiniteNumber(west);
 
     if (
-      parsedNorth === undefined
-      || parsedSouth === undefined
-      || parsedEast === undefined
-      || parsedWest === undefined
+      parsedNorth === undefined ||
+      parsedSouth === undefined ||
+      parsedEast === undefined ||
+      parsedWest === undefined
     ) {
       return undefined;
     }
@@ -117,7 +139,7 @@ export class StationController {
       north: Math.max(parsedNorth, parsedSouth),
       south: Math.min(parsedNorth, parsedSouth),
       east: Math.max(parsedEast, parsedWest),
-      west: Math.min(parsedEast, parsedWest)
+      west: Math.min(parsedEast, parsedWest),
     };
   }
 
@@ -139,14 +161,19 @@ export class StationController {
 
 @Controller('charge-points')
 export class ChargePointController {
-  constructor(private readonly stationService: StationService) { }
+  constructor(private readonly stationService: StationService) {}
 
   @Get()
   findAll(
     @Query('stationId') stationId?: string,
-    @Query('status') status?: string
+    @Query('status') status?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
   ) {
-    return this.stationService.findAllChargePoints({ stationId, status });
+    return this.stationService.findAllChargePoints(
+      { stationId, status },
+      { limit, offset },
+    );
   }
 
   @Get('by-ocpp/:ocppId')
@@ -185,12 +212,18 @@ export class ChargePointController {
   }
 
   @Post(':id/security/certificate-bind')
-  bindCertificate(@Param('id') id: string, @Body() dto: BindChargePointCertificateDto) {
+  bindCertificate(
+    @Param('id') id: string,
+    @Body() dto: BindChargePointCertificateDto,
+  ) {
     return this.stationService.bindChargePointCertificate(id, dto);
   }
 
   @Patch(':id/security/bootstrap')
-  updateBootstrap(@Param('id') id: string, @Body() dto: UpdateChargePointBootstrapDto) {
+  updateBootstrap(
+    @Param('id') id: string,
+    @Body() dto: UpdateChargePointBootstrapDto,
+  ) {
     return this.stationService.updateChargePointBootstrap(id, dto);
   }
 }

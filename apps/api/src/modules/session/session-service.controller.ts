@@ -6,11 +6,11 @@ import { KAFKA_TOPICS } from '../../contracts/kafka-topics';
 
 @Controller('sessions')
 export class SessionController {
-  constructor(private readonly sessionService: SessionService) { }
+  constructor(private readonly sessionService: SessionService) {}
 
   @Get('active')
-  getActive() {
-    return this.sessionService.getActiveSessions();
+  getActive(@Query('limit') limit?: string, @Query('offset') offset?: string) {
+    return this.sessionService.getActiveSessions(limit, offset);
   }
 
   @Get('stats/summary')
