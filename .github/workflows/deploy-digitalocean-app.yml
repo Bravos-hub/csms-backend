@@ -20,7 +20,7 @@ jobs:
     env:
       DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
       DROPLET_USER: ${{ secrets.DROPLET_USER }}
-      DROPLET_PASSWORD: ${{ secrets.DROPLET_PASSWORD }}
+      DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
 
     steps:
       - name: Validate required secrets
@@ -34,8 +34,8 @@ jobs:
             echo "Missing required secret: DROPLET_USER"
             exit 1
           fi
-          if [ -z "$DROPLET_PASSWORD" ]; then
-            echo "Missing required secret: DROPLET_PASSWORD"
+          if [ -z "$DROPLET_SSH_KEY" ]; then
+            echo "Missing required secret: DROPLET_SSH_KEY"
             exit 1
           fi
 
@@ -44,7 +44,8 @@ jobs:
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
-          password: ${{ secrets.DROPLET_PASSWORD }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          fingerprint: ${{ secrets.DROPLET_HOST_FINGERPRINT }}
           port: ${{ secrets.DROPLET_SSH_PORT || '22' }}
           script_stop: true
           command_timeout: 45m
@@ -54,6 +55,9 @@ jobs:
             if [ -z "$DEPLOY_DIR" ]; then
               DEPLOY_DIR="$HOME/csms-backend"
             fi
+            case "$DEPLOY_DIR" in
+              "~/"*) DEPLOY_DIR="$HOME/${DEPLOY_DIR#~/}" ;;
+            esac
             cd "$DEPLOY_DIR"
             if [ -n "$(git status --porcelain)" ]; then
               STASH_NAME="ci-autostash-$(date -u +%Y%m%dT%H%M%SZ)"
@@ -64,3 +68,39 @@ jobs:
             git pull --ff-only origin main
             chmod +x ./scripts/deploy-compose.sh
             ./scripts/deploy-compose.sh
+
+            HEALTH_URL="${{ secrets.DROPLET_HEALTHCHECK_URL }}"
+            if [ -z "$HEALTH_URL" ]; then
+              HEALTH_URL="http://127.0.0.1:3000/health"
+            fi
+            MAX_ATTEMPTS=24
+            SLEEP_SECONDS=5
+            ATTEMPT=1
+            HEALTHY=0
+            while [ "$ATTEMPT" -le "$MAX_ATTEMPTS" ]; do
+              RESPONSE="$(curl -sS --max-time 10 -w '\n%{http_code}' "$HEALTH_URL" || true)"
+              HTTP_CODE="$(printf '%s\n' "$RESPONSE" | tail -n1)"
+              BODY="$(printf '%s\n' "$RESPONSE" | sed '$d')"
+
+              if [ "$HTTP_CODE" = "200" ] && printf '%s' "$BODY" | grep -q '"status":"ok"'; then
+                HEALTHY=1
+                echo "Post-deploy /health check passed on attempt $ATTEMPT."
+                echo "$BODY"
+                break
+              fi
+
+              echo "Health attempt $ATTEMPT/$MAX_ATTEMPTS failed (http=$HTTP_CODE)."
+              if [ -n "$BODY" ]; then
+                echo "$BODY"
+              fi
+              ATTEMPT=$((ATTEMPT + 1))
+              sleep "$SLEEP_SECONDS"
+            done
+
+            if [ "$HEALTHY" -ne 1 ]; then
+              echo "Post-deploy /health check failed after $MAX_ATTEMPTS attempts."
+              docker compose ps || true
+              docker compose logs --tail=200 api || true
+              docker compose logs --tail=200 worker || true
+              exit 1
+            fi
