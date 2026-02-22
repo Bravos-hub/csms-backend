@@ -6,6 +6,7 @@ import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import type { SASLOptions } from 'kafkajs';
 import { json, urlencoded } from 'express';
+import { RequestMethod } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { validateKafkaTopicsOrThrow } from './contracts/kafka-topics';
 import cookieParser from 'cookie-parser';
@@ -36,7 +37,13 @@ async function bootstrap() {
       console.log('Kafka event microservice listener started');
     }
 
-    app.setGlobalPrefix('api/v1');
+    app.setGlobalPrefix('api/v1', {
+      exclude: [
+        { path: 'health', method: RequestMethod.GET },
+        { path: 'health/live', method: RequestMethod.GET },
+        { path: 'health/ready', method: RequestMethod.GET },
+      ],
+    });
 
     const bodyLimit = process.env.API_BODY_LIMIT || '1mb';
     app.use(json({ limit: bodyLimit }));
@@ -166,11 +173,26 @@ function buildKafkaSasl(): SASLOptions | undefined {
   if (!mechanism || !username || !password) {
     return undefined;
   }
+
+  const supportedMechanisms = [
+    'plain',
+    'scram-sha-256',
+    'scram-sha-512',
+  ] as const;
+  if (
+    !supportedMechanisms.includes(
+      mechanism as (typeof supportedMechanisms)[number],
+    )
+  ) {
+    return undefined;
+  }
+  const typedMechanism = mechanism as (typeof supportedMechanisms)[number];
+
   return {
-    mechanism: mechanism as any,
+    mechanism: typedMechanism,
     username,
     password,
-  } as SASLOptions;
+  };
 }
 
 bootstrap().catch((error) => {

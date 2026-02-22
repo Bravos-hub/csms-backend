@@ -1,4 +1,5 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { KafkaService } from '../../platform/kafka.service';
 import { PrismaService } from '../../prisma.service';
 import { CommandEventsConsumer } from '../commands/command-events.consumer';
@@ -23,7 +24,7 @@ export class WorkerHealthController {
   }
 
   @Get('health/ready')
-  async ready() {
+  async ready(@Res({ passthrough: true }) response: Response) {
     const [db, kafka, outbox] = await Promise.all([
       this.checkDatabase(),
       this.kafka.checkConnection(),
@@ -37,6 +38,9 @@ export class WorkerHealthController {
       outbox.status === 'ok'
         ? 'ok'
         : 'degraded';
+    response.status(
+      status === 'ok' ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE,
+    );
 
     return {
       status,
@@ -51,6 +55,11 @@ export class WorkerHealthController {
         commandEventsConsumerRunning: this.commandEvents.isRunning(),
       },
     };
+  }
+
+  @Get('health')
+  async health(@Res({ passthrough: true }) response: Response) {
+    return this.ready(response);
   }
 
   @Get('metrics')

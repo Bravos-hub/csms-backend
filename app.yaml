@@ -5,11 +5,31 @@ services:
     dockerfile_path: Dockerfile
     source_dir: /
     http_port: 3000
-    instance_count: 1
+    instance_count: 2
     instance_size_slug: basic-xxs
+    autoscaling:
+      min_instance_count: 2
+      max_instance_count: 8
+      metrics:
+        cpu:
+          percent: 70
     run_command: node dist/apps/api/main
     routes:
       - path: /
+    health_check:
+      http_path: /health/ready
+      initial_delay_seconds: 20
+      period_seconds: 10
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+    liveness_health_check:
+      http_path: /health/live
+      initial_delay_seconds: 10
+      period_seconds: 15
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
     envs:
       - key: APP_NAME
         scope: BUILD_TIME
@@ -29,13 +49,40 @@ services:
       - key: FRONTEND_URL
         scope: RUN_TIME
         value: ${FRONTEND_URL}
+      - key: API_KAFKA_REQUIRED_ON_STARTUP
+        scope: RUN_TIME
+        value: "false"
+      - key: API_READINESS_REQUIRE_KAFKA
+        scope: RUN_TIME
+        value: "false"
 
   - name: worker
     dockerfile_path: Dockerfile
     source_dir: /
-    instance_count: 1
+    http_port: 3010
+    instance_count: 2
     instance_size_slug: basic-xxs
+    autoscaling:
+      min_instance_count: 2
+      max_instance_count: 10
+      metrics:
+        cpu:
+          percent: 65
     run_command: node dist/apps/worker/main
+    health_check:
+      http_path: /health/ready
+      initial_delay_seconds: 20
+      period_seconds: 10
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+    liveness_health_check:
+      http_path: /health/live
+      initial_delay_seconds: 10
+      period_seconds: 15
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
     envs:
       - key: APP_NAME
         scope: BUILD_TIME
@@ -52,6 +99,9 @@ services:
       - key: NODE_ENV
         scope: RUN_TIME
         value: production
+      - key: WORKER_PORT
+        scope: RUN_TIME
+        value: "3010"
 
 jobs:
   - name: db-migrate
