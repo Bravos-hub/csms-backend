@@ -55,6 +55,10 @@ jobs:
               DEPLOY_DIR="$HOME/csms-backend"
             fi
             cd "$DEPLOY_DIR"
+            if [ -n "$(git status --porcelain)" ]; then
+              STASH_NAME="ci-autostash-$(date -u +%Y%m%dT%H%M%SZ)"
+              git stash push --include-untracked -m "$STASH_NAME"
+            fi
             git fetch origin main
             git checkout main
             git pull --ff-only origin main
