@@ -322,75 +322,71 @@ export class SiteService {
     // Verify site exists
     await this.findSiteById(siteId);
 
-    // Get all stations for this site with their charge points and sessions
-    // Flow: Site ID → Find ChargePoints → Find Sessions → Aggregate Stats
     const stations = await this.prisma.station.findMany({
       where: { siteId },
-      include: {
-        chargePoints: {
-          include: {
-            sessions: true,
-          },
-        },
-      },
+      select: { id: true },
     });
 
-    // Collect all sessions from all charge points at this site
-    const allSessions = [];
-    for (const station of stations) {
-      for (const chargePoint of station.chargePoints) {
-        allSessions.push(...chargePoint.sessions);
-      }
+    const stationIds = stations.map((station) => station.id);
+    if (stationIds.length === 0) {
+      return {
+        totalRevenue: 0,
+        totalSessions: 0,
+        totalEnergy: 0,
+        averageSessionDuration: undefined,
+        activeSessions: 0,
+        completedSessions: 0,
+      };
     }
 
-    // Initialize aggregated stats
-    let totalRevenue = 0;
-    let totalEnergy = 0; // in kWh
-    let activeSessions = 0;
-    let completedSessions = 0;
-    let totalDurationMinutes = 0;
-    let completedSessionsCount = 0;
+    const whereByStations: Prisma.SessionWhereInput = {
+      stationId: { in: stationIds },
+    };
 
-    // Aggregate stats from all sessions
-    for (const session of allSessions) {
-      // 1. Total Revenue - Sum of all session.amount values
-      totalRevenue += session.amount || 0;
+    const [aggregate, groupedByStatus, averageRows] = await Promise.all([
+      this.prisma.session.aggregate({
+        where: whereByStations,
+        _sum: {
+          amount: true,
+          totalEnergy: true,
+        },
+        _count: {
+          _all: true,
+        },
+      }),
+      this.prisma.session.groupBy({
+        by: ['status'],
+        where: whereByStations,
+        _count: {
+          _all: true,
+        },
+      }),
+      this.prisma.$queryRaw<Array<{ avgMinutes: number | null }>>(Prisma.sql`
+        SELECT AVG(EXTRACT(EPOCH FROM ("endTime" - "startTime")) / 60.0) AS "avgMinutes"
+        FROM "sessions"
+        WHERE "stationId" IN (${Prisma.join(stationIds.map((id) => Prisma.sql`${id}`))})
+          AND "endTime" IS NOT NULL
+          AND "status" IN ('COMPLETED', 'STOPPED')
+      `),
+    ]);
 
-      // 2. Total Energy - Sum of all energy in kWh (convert from Wh)
-      const energyKwh = session.totalEnergy / 1000;
-      totalEnergy += energyKwh;
-
-      // Count sessions by status
-      if (session.status === 'ACTIVE') {
-        activeSessions++;
-      } else if (
-        session.status === 'COMPLETED' ||
-        session.status === 'STOPPED'
-      ) {
-        completedSessions++;
-
-        // 4. Calculate session duration for completed sessions
-        if (session.endTime) {
-          const durationMs =
-            new Date(session.endTime).getTime() -
-            new Date(session.startTime).getTime();
-          const durationMinutes = durationMs / (1000 * 60);
-          totalDurationMinutes += durationMinutes;
-          completedSessionsCount++;
-        }
-      }
-    }
-
-    // Calculate average session duration
+    const statusCount = new Map(
+      groupedByStatus.map((item) => [item.status, item._count._all]),
+    );
+    const activeSessions = statusCount.get('ACTIVE') || 0;
+    const completedSessions =
+      (statusCount.get('COMPLETED') || 0) + (statusCount.get('STOPPED') || 0);
+    const totalRevenue = Number(aggregate._sum.amount || 0);
+    const totalEnergyWh = Number(aggregate._sum.totalEnergy || 0);
     const averageSessionDuration =
-      completedSessionsCount > 0
-        ? totalDurationMinutes / completedSessionsCount
+      averageRows.length > 0 && averageRows[0].avgMinutes !== null
+        ? Number(averageRows[0].avgMinutes)
         : undefined;
 
     return {
       totalRevenue,
-      totalSessions: allSessions.length,
-      totalEnergy,
+      totalSessions: aggregate._count._all,
+      totalEnergy: totalEnergyWh / 1000,
       averageSessionDuration,
       activeSessions,
       completedSessions,
