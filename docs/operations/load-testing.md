@@ -33,3 +33,6 @@ Fail release if any scenario breaches configured thresholds for:
 
 - error rate (`http_req_failed`)
 - latency (`http_req_duration` p95/p99)
+
+During each run, monitor launch dashboard panels from:
+`ops/dashboards/launch-command-center.grafana.json`
