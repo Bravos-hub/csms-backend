@@ -117,6 +117,9 @@ services:
       - key: COMMAND_HISTORY_CLEANUP_BATCH_SIZE
         scope: RUN_TIME
         value: '1000'
+      - key: WORKER_AUDIT_ENABLED
+        scope: RUN_TIME
+        value: 'true'
 
 jobs:
   - name: db-migrate

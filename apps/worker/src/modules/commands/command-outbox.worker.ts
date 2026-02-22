@@ -1,4 +1,4 @@
-import { Command, CommandOutbox } from '@prisma/client';
+import { Command, CommandOutbox, Prisma } from '@prisma/client';
 import {
   Injectable,
   Logger,
@@ -15,6 +15,7 @@ import { WorkerMetricsService } from '../observability/worker-metrics.service';
 @Injectable()
 export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CommandOutboxWorker.name);
+  private readonly auditActor = 'worker:command-outbox';
   private timer: NodeJS.Timeout | null = null;
   private running = false;
 
@@ -291,6 +292,17 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
           occurredAt: now,
         },
       });
+      await this.writeAuditLog(tx, {
+        action: 'COMMAND_RETRY_SCHEDULED',
+        resource: 'Command',
+        resourceId: outbox.commandId,
+        status: 'FAILURE',
+        errorMessage: message,
+        details: {
+          outboxId: outbox.id,
+          attempts: outbox.attempts,
+        },
+      });
     });
   }
 
@@ -333,6 +345,14 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
           occurredAt: now,
         },
       });
+      await this.writeAuditLog(tx, {
+        action: 'COMMAND_DEAD_LETTERED',
+        resource: 'Command',
+        resourceId: outbox.commandId,
+        status: 'FAILURE',
+        errorMessage: message,
+        details: payload,
+      });
     });
 
     try {
@@ -347,6 +367,14 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
         `Failed to publish dead-letter message for command ${outbox.commandId}: ${kafkaError}`,
       );
       this.metrics.increment('outbox_dead_letter_publish_fail_total');
+      await this.writeAuditLog(this.prisma, {
+        action: 'COMMAND_DEAD_LETTER_PUBLISH_FAILED',
+        resource: 'Command',
+        resourceId: outbox.commandId,
+        status: 'FAILURE',
+        errorMessage: kafkaError,
+        details: payload,
+      });
     }
   }
 
@@ -370,5 +398,32 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
 
     this.metrics.setGauge('outbox_backlog_depth', queuedCount);
     this.metrics.setGauge('outbox_oldest_queued_age_seconds', oldestAgeSeconds);
+  }
+
+  private async writeAuditLog(
+    client: PrismaService | Prisma.TransactionClient,
+    input: {
+      action: string;
+      resource: string;
+      resourceId?: string;
+      status?: string;
+      errorMessage?: string;
+      details?: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    const enabled = this.getBoolean('WORKER_AUDIT_ENABLED', true);
+    if (!enabled) return;
+
+    await client.auditLog.create({
+      data: {
+        actor: this.auditActor,
+        action: input.action,
+        resource: input.resource,
+        resourceId: input.resourceId,
+        status: input.status || 'SUCCESS',
+        errorMessage: input.errorMessage,
+        details: input.details as Prisma.InputJsonValue | undefined,
+      },
+    });
   }
 }
