@@ -6,8 +6,12 @@ export class CommandsController {
   constructor(private readonly commands: CommandsService) {}
 
   @Get(':id')
-  getById(@Param('id') id: string) {
-    return { id }
+  async getById(@Param('id') id: string) {
+    const command = await this.commands.getCommandById(id)
+    if (!command) {
+      return { id, status: 'NOT_FOUND' }
+    }
+    return command
   }
 
   @Post()

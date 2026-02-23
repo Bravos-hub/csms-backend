@@ -251,3 +251,37 @@ export class UpdateChargePointBootstrapDto {
     @IsOptional()
     allowedCidrs?: string[];
 }
+
+export class RemoteStartChargePointCommandDto {
+    @IsInt()
+    @Min(1)
+    @IsOptional()
+    connectorId?: number;
+
+    @IsInt()
+    @Min(1)
+    @IsOptional()
+    evseId?: number;
+
+    @IsString()
+    @IsNotEmpty()
+    @IsOptional()
+    idTag?: string;
+
+    @IsInt()
+    @Min(1)
+    @IsOptional()
+    remoteStartId?: number;
+}
+
+export class UnlockChargePointCommandDto {
+    @IsInt()
+    @Min(1)
+    @IsOptional()
+    connectorId?: number;
+
+    @IsInt()
+    @Min(1)
+    @IsOptional()
+    evseId?: number;
+}

@@ -20,6 +20,8 @@ import {
   UpdateChargePointDto,
   BindChargePointCertificateDto,
   UpdateChargePointBootstrapDto,
+  RemoteStartChargePointCommandDto,
+  UnlockChargePointCommandDto,
 } from './dto/station.dto';
 
 @Controller('stations')
@@ -204,6 +206,27 @@ export class ChargePointController {
   @Post(':id/reboot')
   reboot(@Param('id') id: string) {
     return this.stationService.rebootChargePoint(id);
+  }
+
+  @Post(':id/commands/soft-reset')
+  softReset(@Param('id') id: string) {
+    return this.stationService.softResetChargePoint(id);
+  }
+
+  @Post(':id/commands/remote-start')
+  remoteStart(
+    @Param('id') id: string,
+    @Body() dto: RemoteStartChargePointCommandDto,
+  ) {
+    return this.stationService.remoteStartChargePoint(id, dto);
+  }
+
+  @Post(':id/commands/unlock')
+  unlock(
+    @Param('id') id: string,
+    @Body() dto: UnlockChargePointCommandDto,
+  ) {
+    return this.stationService.unlockConnector(id, dto);
   }
 
   @Get(':id/security')

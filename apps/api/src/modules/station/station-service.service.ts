@@ -14,9 +14,12 @@ import {
   UpdateChargePointDto,
   BindChargePointCertificateDto,
   UpdateChargePointBootstrapDto,
+  RemoteStartChargePointCommandDto,
+  UnlockChargePointCommandDto,
 } from './dto/station.dto';
 import { ChargerProvisioningService } from './provisioning/charger-provisioning.service';
 import { parsePaginationOptions } from '../../common/utils/pagination';
+import { CommandsService } from '../commands/commands.service';
 
 type StationBounds = {
   north: number;
@@ -41,6 +44,7 @@ export class StationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly provisioningService: ChargerProvisioningService,
+    private readonly commands: CommandsService,
   ) {
     this.enableNoAuthBootstrap =
       process.env.OCPP_ENABLE_NOAUTH_BOOTSTRAP === 'true';
@@ -526,10 +530,80 @@ export class StationService {
   }
 
   async rebootChargePoint(id: string) {
-    const cp = await this.findChargePointById(id);
-    if (!cp) throw new NotFoundException('Charge Point not found');
-    this.logger.log(`Rebooting charge point ${id}`);
-    return { status: 'Reboot command sent' };
+    return this.enqueueResetChargePointCommand(id, 'Hard', 'Reboot command queued');
+  }
+
+  async softResetChargePoint(id: string) {
+    return this.enqueueResetChargePointCommand(
+      id,
+      'Soft',
+      'Soft reset command queued',
+    );
+  }
+
+  async remoteStartChargePoint(
+    id: string,
+    dto: RemoteStartChargePointCommandDto = {},
+  ) {
+    const cp = await this.getExistingChargePoint(id);
+    const connectorId = this.normalizePositiveInt(dto.connectorId) ?? 1;
+    const evseId = this.normalizePositiveInt(dto.evseId) ?? connectorId;
+    const idTag = (dto.idTag || 'EVZONE_REMOTE').trim();
+    if (!idTag) {
+      throw new BadRequestException('idTag must not be empty');
+    }
+    const remoteStartId =
+      this.normalizePositiveInt(dto.remoteStartId) || this.generateRemoteStartId();
+
+    const response = await this.commands.enqueueCommand({
+      commandType: 'RemoteStart',
+      stationId: cp.stationId,
+      chargePointId: cp.id,
+      connectorId,
+      payload: {
+        idTag,
+        connectorId,
+        evseId,
+        remoteStartId,
+      },
+      requestedBy: {},
+    });
+
+    this.logger.log(`Queued RemoteStart command for charge point ${id}`);
+    return {
+      ...response,
+      stationId: cp.stationId,
+      chargePointId: cp.id,
+      commandType: 'RemoteStart',
+      message: 'Remote start command queued',
+    };
+  }
+
+  async unlockConnector(id: string, dto: UnlockChargePointCommandDto = {}) {
+    const cp = await this.getExistingChargePoint(id);
+    const connectorId = this.normalizePositiveInt(dto.connectorId) ?? 1;
+    const evseId = this.normalizePositiveInt(dto.evseId) ?? connectorId;
+
+    const response = await this.commands.enqueueCommand({
+      commandType: 'UnlockConnector',
+      stationId: cp.stationId,
+      chargePointId: cp.id,
+      connectorId,
+      payload: {
+        connectorId,
+        evseId,
+      },
+      requestedBy: {},
+    });
+
+    this.logger.log(`Queued UnlockConnector command for charge point ${id}`);
+    return {
+      ...response,
+      stationId: cp.stationId,
+      chargePointId: cp.id,
+      commandType: 'UnlockConnector',
+      message: 'Unlock connector command queued',
+    };
   }
 
   // --- OCPP Private Handlers ---
@@ -587,6 +661,48 @@ export class StationService {
 
   async getStatusHistory(stationId: string) {
     return [];
+  }
+
+  private async enqueueResetChargePointCommand(
+    id: string,
+    type: 'Soft' | 'Hard',
+    message: string,
+  ) {
+    const cp = await this.getExistingChargePoint(id);
+    const response = await this.commands.enqueueCommand({
+      commandType: 'Reset',
+      stationId: cp.stationId,
+      chargePointId: cp.id,
+      payload: { type },
+      requestedBy: {},
+    });
+
+    this.logger.log(`Queued ${type} Reset command for charge point ${id}`);
+    return {
+      ...response,
+      stationId: cp.stationId,
+      chargePointId: cp.id,
+      commandType: 'Reset',
+      message,
+    };
+  }
+
+  private async getExistingChargePoint(id: string) {
+    const chargePoint = await this.findChargePointById(id);
+    if (!chargePoint) throw new NotFoundException('Charge Point not found');
+    return chargePoint;
+  }
+
+  private normalizePositiveInt(value: unknown): number | undefined {
+    if (value === undefined || value === null || value === '') return undefined;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return undefined;
+    const normalized = Math.floor(parsed);
+    return normalized > 0 ? normalized : undefined;
+  }
+
+  private generateRemoteStartId(): number {
+    return Math.floor(Date.now() / 1000);
   }
 
   private normalizeOcppVersion(version?: string): '1.6' | '2.0.1' | '2.1' {
