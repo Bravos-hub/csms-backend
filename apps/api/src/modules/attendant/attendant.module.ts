@@ -6,6 +6,7 @@ import { AuthModule } from '../auth/auth-service.module';
 import { MailModule } from '../mail/mail.module';
 import { NotificationServiceModule } from '../notification/notification-service.module';
 import { AttendantController } from './attendant.controller';
+import { AttendantRoleGuard } from './attendant-role.guard';
 import { AttendantService } from './attendant.service';
 
 @Module({
@@ -18,6 +19,6 @@ import { AttendantService } from './attendant.service';
     MailModule,
   ],
   controllers: [AttendantController],
-  providers: [AttendantService],
+  providers: [AttendantService, AttendantRoleGuard],
 })
 export class AttendantModule {}

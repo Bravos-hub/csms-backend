@@ -169,6 +169,49 @@ export class AttendantService {
     };
   }
 
+  async getSession(userId: string, accessToken: string) {
+    const assignment = await this.requireAssignment(userId);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const assignmentStatus = this.resolveAssignmentStatus(
+      assignment.shiftStart,
+      assignment.shiftEnd,
+      assignment.timezone,
+      assignment.statusOverride,
+    );
+
+    return {
+      token: accessToken,
+      role: this.toFrontendRole(assignment.roleMode),
+      authenticatedAt: new Date().toISOString(),
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email || user.phone || `${user.id}@unknown.evzone`,
+        role: this.toFrontendRole(assignment.roleMode),
+      },
+      station: {
+        id: assignment.station.id,
+        name: assignment.station.name,
+        type: this.stationTypeLabel(assignment.station),
+        location: assignment.station.address,
+        tariff: this.stationTariffLabel(assignment.station),
+      },
+      assignmentStatus,
+      shift: {
+        startsAt: assignment.shiftStart,
+        endsAt: assignment.shiftEnd,
+        timezone: assignment.timezone,
+        label: `${assignment.shiftStart} - ${assignment.shiftEnd}`,
+      },
+    };
+  }
+
   async requestPasswordReset(dto: AttendantPasswordResetRequestDto) {
     const identifier = dto.emailOrPhone.trim();
     if (!identifier)

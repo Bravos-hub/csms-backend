@@ -13,6 +13,7 @@ import {
 import { Request } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AttendantRoleGuard } from './attendant-role.guard';
 import {
   AttendantAssignmentRequestDto,
   AttendantBookingsQueryDto,
@@ -45,6 +46,16 @@ export class AttendantController {
     return this.attendantService.refresh(dto);
   }
 
+  @Get('auth/session')
+  @UseGuards(JwtAuthGuard, AttendantRoleGuard)
+  getSession(@Req() req: Request & { user?: { sub?: string } }) {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ')
+      ? authHeader.slice('Bearer '.length)
+      : '';
+    return this.attendantService.getSession(req.user?.sub || '', token);
+  }
+
   @Post('auth/password/request')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   requestPasswordReset(@Body() dto: AttendantPasswordResetRequestDto) {
@@ -71,7 +82,7 @@ export class AttendantController {
   }
 
   @Get('bookings')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AttendantRoleGuard)
   listBookings(
     @Req() req: Request & { user?: { sub?: string } },
     @Query() query: AttendantBookingsQueryDto,
@@ -80,7 +91,7 @@ export class AttendantController {
   }
 
   @Get('bookings/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AttendantRoleGuard)
   getBookingById(
     @Req() req: Request & { user?: { sub?: string } },
     @Param('id') id: string,
@@ -89,7 +100,7 @@ export class AttendantController {
   }
 
   @Get('ports')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AttendantRoleGuard)
   listPorts(
     @Req() req: Request & { user?: { sub?: string } },
     @Query() query: AttendantPortsQueryDto,
@@ -98,7 +109,7 @@ export class AttendantController {
   }
 
   @Get('sessions/metrics')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AttendantRoleGuard)
   getSessionMetrics(
     @Req() req: Request & { user?: { sub?: string } },
     @Query() query: AttendantSessionMetricsQueryDto,
@@ -107,19 +118,19 @@ export class AttendantController {
   }
 
   @Get('mobile/assignment')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AttendantRoleGuard)
   getMobileAssignment(@Req() req: Request & { user?: { sub?: string } }) {
     return this.attendantService.getMobileAssignment(req.user?.sub || '');
   }
 
   @Get('mobile/jobs')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AttendantRoleGuard)
   listMobileJobs(@Req() req: Request & { user?: { sub?: string } }) {
     return this.attendantService.listMobileJobs(req.user?.sub || '');
   }
 
   @Get('transactions')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AttendantRoleGuard)
   listTransactions(
     @Req() req: Request & { user?: { sub?: string } },
     @Query() query: AttendantTransactionsQueryDto,
@@ -128,7 +139,7 @@ export class AttendantController {
   }
 
   @Get('transactions/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AttendantRoleGuard)
   getTransactionById(
     @Req() req: Request & { user?: { sub?: string } },
     @Param('id') id: string,
@@ -137,7 +148,7 @@ export class AttendantController {
   }
 
   @Get('notifications')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AttendantRoleGuard)
   listNotifications(
     @Req() req: Request & { user?: { sub?: string } },
     @Query() query: AttendantNotificationsQueryDto,
@@ -147,7 +158,7 @@ export class AttendantController {
 
   @Patch('notifications/:id/read')
   @HttpCode(204)
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AttendantRoleGuard)
   async markNotificationAsRead(
     @Req() req: Request & { user?: { sub?: string } },
     @Param('id') id: string,
@@ -157,7 +168,7 @@ export class AttendantController {
 
   @Patch('notifications/read-all')
   @HttpCode(204)
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AttendantRoleGuard)
   async markAllNotificationsAsRead(
     @Req() req: Request & { user?: { sub?: string } },
   ) {
@@ -165,7 +176,7 @@ export class AttendantController {
   }
 
   @Post('sync/batch')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AttendantRoleGuard)
   syncBatch(
     @Req() req: Request & { user?: { sub?: string } },
     @Body() dto: AttendantSyncBatchDto,
