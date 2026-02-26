@@ -46,6 +46,7 @@ import { OcpiModule } from './modules/ocpi/ocpi.module';
 import { GeographyModule } from './modules/geography/geography.module';
 import { MarketplaceContactsModule } from './modules/marketplace/marketplace-contacts.module';
 import { ObservabilityModule } from './common/observability/observability.module';
+import { AttendantModule } from './modules/attendant/attendant.module';
 
 @Module({
   imports: [
@@ -98,6 +99,7 @@ import { ObservabilityModule } from './common/observability/observability.module
     OcpiModule,
     GeographyModule,
     MarketplaceContactsModule,
+    AttendantModule,
   ],
   controllers: [AppController],
   providers: [

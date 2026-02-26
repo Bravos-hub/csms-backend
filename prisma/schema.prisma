@@ -94,6 +94,11 @@ enum MarketplaceContactEventType {
   REQUEST_PARTNERSHIP
 }
 
+enum AttendantRoleMode {
+  FIXED
+  MOBILE
+}
+
 model User {
   id              String  @id @default(uuid())
   name            String
@@ -149,6 +154,10 @@ model User {
   // Technician Status
   technicianStatus TechnicianAvailability?
   assignedJobs     Job[] @relation("TechnicianJobs")
+  attendantAssignments        AttendantAssignment[]
+  attendantAssignmentRequests AttendantAssignmentRequest[]
+  attendantNotifications      AttendantNotification[]
+  createdReceiptTransactions  ChargingReceiptTransaction[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -472,6 +481,9 @@ model Station {
   chargePoints ChargePoint[]
   incidents    Incident[]
   jobs         Job[]
+  bookings     Booking[]
+  attendantAssignments        AttendantAssignment[]
+  attendantAssignmentRequests AttendantAssignmentRequest[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -523,6 +535,7 @@ model Session {
   status      String    @default("ACTIVE")
 
   chargePoint ChargePoint @relation(fields: [ocppId], references: [ocppId])
+  receiptTransactions ChargingReceiptTransaction[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -538,13 +551,140 @@ model Booking {
   startTime     DateTime
   endTime       DateTime
   status        String   @default("PENDING")
+  bookingType   String   @default("advance")
+  customerNameSnapshot String?
+  customerRefSnapshot  String?
+  vehicleModelSnapshot String?
+  vehiclePlateSnapshot String?
+  requiredKwh          Float?
+  feeAmount            Float?
+  feeCurrency          String  @default("UGX")
+  autoCancelAt         DateTime?
+  autoCancelReason     String?
+  historyLabel         String?
 
   user User @relation(fields: [userId], references: [id])
+  station Station @relation(fields: [stationId], references: [id])
+  receiptTransactions ChargingReceiptTransaction[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("bookings")
+}
+
+model AttendantAssignment {
+  id             String            @id @default(uuid())
+  userId         String
+  roleMode       AttendantRoleMode
+  stationId      String
+  shiftStart     String
+  shiftEnd       String
+  timezone       String            @default("Africa/Kampala")
+  statusOverride String?
+  activeFrom     DateTime?
+  activeTo       DateTime?
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  station Station @relation(fields: [stationId], references: [id], onDelete: Cascade)
+
+  @@map("attendant_assignments")
+  @@index([userId, isActive])
+  @@index([stationId, isActive])
+  @@index([activeFrom, activeTo])
+}
+
+model AttendantAssignmentRequest {
+  id                  String   @id @default(uuid())
+  userId              String?
+  identifier          String
+  name                String
+  orgId               String
+  preferredStation    String
+  preferredShiftStart String
+  preferredShiftEnd   String
+  notes               String?
+  status              String   @default("pending")
+  requestedAt         DateTime @default(now())
+  reviewedAt          DateTime?
+  reviewedBy          String?
+  stationId           String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  station Station? @relation(fields: [stationId], references: [id], onDelete: SetNull)
+
+  @@map("attendant_assignment_requests")
+  @@index([identifier])
+  @@index([userId])
+  @@index([orgId, status])
+  @@index([requestedAt])
+}
+
+model ChargingReceiptTransaction {
+  id              String   @id @default(uuid())
+  sessionId       String
+  bookingId       String?
+  createdByUserId String?
+  source          String
+  paymentMethod   String
+  bookingRef      String?
+  fromBooking     Boolean  @default(false)
+  stationId       String
+  stationName     String
+  locationText    String?
+  operator        String?
+  vehicleModel    String?
+  plate           String?
+  customerName    String?
+  connector       String?
+  kwh             Float    @default(0)
+  duration        String?
+  rate            Float    @default(0)
+  taxes           Float    @default(0)
+  energyCost      Float    @default(0)
+  total           Float    @default(0)
+  startedAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  session       Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  booking       Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  createdByUser User?    @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@map("charging_receipt_transactions")
+  @@index([sessionId])
+  @@index([bookingId])
+  @@index([createdByUserId])
+  @@index([stationId])
+  @@index([createdAt])
+}
+
+model AttendantNotification {
+  id          String   @id @default(uuid())
+  userId      String
+  type        String
+  severity    String
+  title       String
+  body        String
+  targetType  String
+  targetId    String
+  targetLabel String
+  read        Boolean  @default(false)
+  readAt      DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("attendant_notifications")
+  @@index([userId, read, createdAt])
+  @@index([type, createdAt])
+  @@index([read, createdAt])
 }
 
 model Wallet {
