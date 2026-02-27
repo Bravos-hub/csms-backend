@@ -24,8 +24,7 @@ import * as jwt from 'jsonwebtoken';
 import { SignOptions } from 'jsonwebtoken';
 import * as bcrypt from 'bcrypt';
 import * as qrcode from 'qrcode';
-import * as otplib from 'otplib';
-const authenticator = otplib.authenticator;
+import * as speakeasy from 'speakeasy';
 import { parsePaginationOptions } from '../../common/utils/pagination';
 import {
   AuthAnomalyMonitorService,
@@ -1286,9 +1285,10 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    const secret = authenticator.generateSecret();
     const appName = this.config.get<string>('APP_NAME') || 'EVzone';
-    const otpauthUrl = authenticator.keyuri(user.email || 'user', appName, secret);
+    const secretObj = speakeasy.generateSecret({ name: appName });
+    const secret = secretObj.base32;
+    const otpauthUrl = secretObj.otpauth_url || '';
 
     await this.prisma.user.update({
       where: { id: userId },
@@ -1304,7 +1304,11 @@ export class AuthService {
     if (!user) throw new NotFoundException('User not found');
     if (!user.twoFactorSecret) throw new BadRequestException('2FA secret not generated');
 
-    const isValid = authenticator.verify({ token, secret: user.twoFactorSecret });
+    const isValid = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: 'base32',
+      token,
+    });
     if (!isValid) throw new BadRequestException('Invalid 2FA token');
 
     await this.prisma.user.update({
@@ -1322,7 +1326,11 @@ export class AuthService {
       throw new BadRequestException('2FA is not enabled');
     }
 
-    const isValid = authenticator.verify({ token, secret: user.twoFactorSecret });
+    const isValid = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: 'base32',
+      token,
+    });
     if (!isValid) throw new BadRequestException('Invalid 2FA token');
 
     await this.prisma.user.update({
