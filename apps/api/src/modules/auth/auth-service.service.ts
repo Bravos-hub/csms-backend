@@ -24,7 +24,8 @@ import * as jwt from 'jsonwebtoken';
 import { SignOptions } from 'jsonwebtoken';
 import * as bcrypt from 'bcrypt';
 import * as qrcode from 'qrcode';
-import { authenticator } from 'otplib';
+import * as otplib from 'otplib';
+const authenticator = otplib.authenticator;
 import { parsePaginationOptions } from '../../common/utils/pagination';
 import {
   AuthAnomalyMonitorService,
