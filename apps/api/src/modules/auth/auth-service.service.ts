@@ -23,6 +23,8 @@ import * as crypto from 'crypto';
 import * as jwt from 'jsonwebtoken';
 import { SignOptions } from 'jsonwebtoken';
 import * as bcrypt from 'bcrypt';
+import * as qrcode from 'qrcode';
+import { authenticator } from 'otplib';
 import { parsePaginationOptions } from '../../common/utils/pagination';
 import {
   AuthAnomalyMonitorService,
@@ -78,7 +80,7 @@ export class AuthService {
     private readonly anomalyMonitor: AuthAnomalyMonitorService,
     private readonly ocpiTokenSync: OcpiTokenSyncService,
     private readonly approvalService: AdminApprovalService,
-  ) {}
+  ) { }
 
   getHello(): string {
     return 'Auth Service Operational';
@@ -134,7 +136,7 @@ export class AuthService {
     },
     context: 'register' | 'invite',
     client: PrismaService | Prisma.TransactionClient = this.prisma,
-  ): Promise<{ zoneId: string; region: string }> {
+  ): Promise<{ zoneId: string | null; region: string }> {
     if (input.zoneId) {
       const zone = await client.geographicZone.findUnique({
         where: { id: input.zoneId },
@@ -182,6 +184,16 @@ export class AuthService {
             'UNKNOWN',
         };
       }
+    }
+
+    if (context === 'invite') {
+      return {
+        zoneId: null,
+        region:
+          this.normalizeRegionValue(input.region) ||
+          this.normalizeRegionValue(input.country) ||
+          'UNKNOWN',
+      };
     }
 
     this.incrementConsistencyCounter(
@@ -332,14 +344,14 @@ export class AuthService {
       const organization = this.isEvzoneRole(requestedRole)
         ? await this.ensureEvzoneOrganization(tx)
         : await tx.organization.create({
-            data: {
-              name:
-                orgType === 'COMPANY'
-                  ? createUserDto.companyName || `${createUserDto.name}'s Corp`
-                  : createUserDto.companyName || createUserDto.name,
-              type: orgType,
-            },
-          });
+          data: {
+            name:
+              orgType === 'COMPANY'
+                ? createUserDto.companyName || `${createUserDto.name}'s Corp`
+                : createUserDto.companyName || createUserDto.name,
+            type: orgType,
+          },
+        });
 
       // 2. Create User linked to Org
       const user = await tx.user.create({
@@ -1265,5 +1277,87 @@ export class AuthService {
       where: { id: userId },
       data: { status: required ? 'MfaRequired' : 'Active' },
     });
+  }
+
+  // 2FA Methods
+
+  async generate2faSecret(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const secret = authenticator.generateSecret();
+    const appName = this.config.get<string>('APP_NAME') || 'EVzone';
+    const otpauthUrl = authenticator.keyuri(user.email || 'user', appName, secret);
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { twoFactorSecret: secret },
+    });
+
+    const qrCodeUrl = await qrcode.toDataURL(otpauthUrl);
+    return { qrCodeUrl, secret }; // Usually you don't return the secret, but nice for manual entry
+  }
+
+  async verify2faSetup(userId: string, token: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (!user.twoFactorSecret) throw new BadRequestException('2FA secret not generated');
+
+    const isValid = authenticator.verify({ token, secret: user.twoFactorSecret });
+    if (!isValid) throw new BadRequestException('Invalid 2FA token');
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { twoFactorEnabled: true },
+    });
+
+    return { success: true, message: '2FA enabled successfully' };
+  }
+
+  async disable2fa(userId: string, token: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (!user.twoFactorEnabled || !user.twoFactorSecret) {
+      throw new BadRequestException('2FA is not enabled');
+    }
+
+    const isValid = authenticator.verify({ token, secret: user.twoFactorSecret });
+    if (!isValid) throw new BadRequestException('Invalid 2FA token');
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { twoFactorEnabled: false, twoFactorSecret: null },
+    });
+
+    return { success: true, message: '2FA disabled successfully' };
+  }
+
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (!user.passwordHash) throw new BadRequestException('User does not have a password set');
+
+    const isPasswordValid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isPasswordValid) throw new UnauthorizedException('Invalid current password');
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: hashedPassword },
+    });
+
+    try {
+      if (user.email) {
+        await this.mailService.sendMail(
+          user.email,
+          'Your Password Has Been Changed',
+          `<p>Hello ${user.name},</p><p>Your password was successfully changed. If you did not make this change, please contact support immediately.</p>`,
+        );
+      }
+    } catch (e) {
+      this.logger.warn('Failed to send password change notification email', e);
+    }
+
+    return { success: true, message: 'Password changed successfully' };
   }
 }
