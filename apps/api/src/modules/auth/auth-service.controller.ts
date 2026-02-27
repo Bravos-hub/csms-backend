@@ -262,6 +262,36 @@ export class AuthController {
     );
   }
 
+  // 2FA Endpoints
+  @Post('2fa/generate')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Generate 2FA secret and QR code' })
+  generate2faSecret(@Req() req: any) {
+    const userId = req.user?.sub || req.headers['x-user-id'];
+    return this.authService.generate2faSecret(userId);
+  }
+
+  @Post('2fa/verify')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Verify and enable 2FA' })
+  verify2faSetup(@Req() req: any, @Body() body: { token: string }) {
+    if (!body.token) throw new BadRequestException('Verification token is required');
+    const userId = req.user?.sub || req.headers['x-user-id'];
+    return this.authService.verify2faSetup(userId, body.token);
+  }
+
+  @Post('2fa/disable')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Disable 2FA' })
+  disable2fa(@Req() req: any, @Body() body: { token: string }) {
+    if (!body.token) throw new BadRequestException('Verification token is required');
+    const userId = req.user?.sub || req.headers['x-user-id'];
+    return this.authService.disable2fa(userId, body.token);
+  }
+
   @Post('password/reset')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Reset password' })
@@ -434,6 +464,17 @@ export class UsersController {
     } catch (error) {
       throw error;
     }
+  }
+
+  @Post('me/password')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Change current user password' })
+  async changePassword(@Req() req: any, @Body() body: any) {
+    const userId = req.user?.sub || req.headers['x-user-id'];
+    if (!body.currentPassword || !body.newPassword) {
+      throw new BadRequestException('Current and new password are required');
+    }
+    return this.authService.changePassword(userId, body.currentPassword, body.newPassword);
   }
 
   @Patch(':id')
