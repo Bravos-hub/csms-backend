@@ -18,7 +18,9 @@ export class MailService {
     const pass = this.configService.get<string>('SMTP_PASS');
 
     if (!host || !user || !pass) {
-      this.logger.warn('SMTP configuration missing. Email sending will be disabled.');
+      this.logger.warn(
+        'SMTP configuration missing. Email sending will be disabled.',
+      );
       return;
     }
 
@@ -35,7 +37,7 @@ export class MailService {
         minVersion: 'TLSv1.2',
         ciphers: 'HIGH:!aNULL:!MD5',
         rejectUnauthorized: true,
-      }
+      },
     });
 
     this.verifyConnection();
@@ -57,7 +59,9 @@ export class MailService {
       return;
     }
 
-    const from = this.configService.get<string>('SMTP_FROM') || '"EV Zone" <noreply@evzone.com>';
+    const from =
+      this.configService.get<string>('SMTP_FROM') ||
+      '"EV Zone" <noreply@evzone.com>';
 
     try {
       await this.transporter.sendMail({
@@ -73,8 +77,15 @@ export class MailService {
     }
   }
 
-  async sendVerificationEmail(email: string, token: string, frontendUrl?: string) {
-    const baseUrl = frontendUrl || this.configService.get<string>('FRONTEND_URL') || 'https://localhost:5173';
+  async sendVerificationEmail(
+    email: string,
+    token: string,
+    frontendUrl?: string,
+  ) {
+    const baseUrl =
+      frontendUrl ||
+      this.configService.get<string>('FRONTEND_URL') ||
+      'https://localhost:5173';
     const link = `${baseUrl}/auth/verify-email?token=${token}`;
 
     const html = `
@@ -88,9 +99,33 @@ export class MailService {
     await this.sendMail(email, 'Verify your email', html);
   }
 
-  async sendInvitationEmail(email: string, role?: string, organization: string = 'EV Zone', frontendUrl?: string) {
-    const baseUrl = frontendUrl || this.configService.get<string>('FRONTEND_URL') || 'https://localhost:5173';
-    const link = `${baseUrl}/auth/register?email=${encodeURIComponent(email)}`;
+  async sendInvitationEmail(
+    email: string,
+    role: string | undefined,
+    organization: string = 'EV Zone',
+    frontendUrl?: string,
+    inviteToken?: string,
+    tempPassword?: string,
+  ) {
+    const baseUrl =
+      frontendUrl ||
+      this.configService.get<string>('FRONTEND_URL') ||
+      'https://localhost:5173';
+    const tokenQuery = inviteToken
+      ? `?token=${encodeURIComponent(inviteToken)}`
+      : '';
+    const link = `${baseUrl}/auth/invitation/accept${tokenQuery}`;
+    const tempPasswordSection = tempPassword
+      ? `
+        <div style="background-color: #fff8ed; border: 1px solid #f59e0b; padding: 14px; border-radius: 6px; margin: 20px 0;">
+          <p style="margin: 0; font-size: 14px; color: #8a5a00;">Temporary password</p>
+          <p style="margin: 8px 0 0 0; font-size: 20px; font-weight: bold; letter-spacing: 0.04em; color: #1f2937;">${tempPassword}</p>
+          <p style="margin: 8px 0 0 0; font-size: 12px; color: #6b7280;">
+            Sign in with this temporary password, then change it immediately.
+          </p>
+        </div>
+      `
+      : '';
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
@@ -106,14 +141,20 @@ export class MailService {
           You have been invited to join <strong>${organization}</strong> on the EV Zone portal.
         </p>
 
-        ${role ? `<div style="background-color: #f8f9fa; padding: 15px; border-radius: 6px; margin: 20px 0;">
+        ${
+          role
+            ? `<div style="background-color: #f8f9fa; padding: 15px; border-radius: 6px; margin: 20px 0;">
           <p style="margin: 0; font-size: 14px; color: #666;">Position / Role:</p>
           <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #333;">${role}</p>
-        </div>` : ''}
+        </div>`
+            : ''
+        }
 
         <p style="font-size: 16px; color: #444; line-height: 1.6;">
-          Please click the button below to complete your registration and set up your account:
+          Please click the button below to accept your invitation and continue to sign in:
         </p>
+
+        ${tempPasswordSection}
 
         <div style="text-align: center; margin: 30px 0;">
           <a href="${link}" style="display: inline-block; padding: 14px 30px; background-color: #f59e0b; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">Accept Invitation</a>
@@ -131,7 +172,11 @@ export class MailService {
       </div>
     `;
 
-    await this.sendMail(email, `Invitation to join ${organization} on EV Zone`, html);
+    await this.sendMail(
+      email,
+      `Invitation to join ${organization} on EV Zone`,
+      html,
+    );
   }
 
   async sendApplicationReceivedEmail(email: string, name: string) {
@@ -147,8 +192,15 @@ export class MailService {
     await this.sendMail(email, 'Application Received - EV Zone', html);
   }
 
-  async sendApplicationApprovedEmail(email: string, name: string, frontendUrl?: string) {
-    const baseUrl = frontendUrl || this.configService.get<string>('FRONTEND_URL') || 'https://localhost:5173';
+  async sendApplicationApprovedEmail(
+    email: string,
+    name: string,
+    frontendUrl?: string,
+  ) {
+    const baseUrl =
+      frontendUrl ||
+      this.configService.get<string>('FRONTEND_URL') ||
+      'https://localhost:5173';
     const loginLink = `${baseUrl}/auth/login`;
 
     const html = `
@@ -164,7 +216,11 @@ export class MailService {
     await this.sendMail(email, 'Application Approved - EV Zone', html);
   }
 
-  async sendApplicationRejectedEmail(email: string, name: string, reason: string) {
+  async sendApplicationRejectedEmail(
+    email: string,
+    name: string,
+    reason: string,
+  ) {
     const html = `
       <h1>Application Update</h1>
       <p>Dear ${name},</p>
@@ -177,4 +233,3 @@ export class MailService {
     await this.sendMail(email, 'Application Update - EV Zone', html);
   }
 }
-

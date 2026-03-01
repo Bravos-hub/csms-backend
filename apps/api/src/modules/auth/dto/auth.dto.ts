@@ -1,136 +1,156 @@
-import { IsString, IsNotEmpty, IsEmail, MinLength, IsOptional, IsEnum } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsEmail,
+  MinLength,
+  IsOptional,
+  IsEnum,
+} from 'class-validator';
 import type { Role } from '@app/domain';
 
 export class LoginDto {
-    @IsEmail()
-    @IsNotEmpty()
-    email: string;
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
 
-    @IsString()
-    @IsNotEmpty()
-    password: string;
+  @IsString()
+  @IsNotEmpty()
+  password: string;
+
+  @IsString()
+  @IsOptional()
+  inviteToken?: string;
 }
 
 export class RefreshTokenDto {
-    @IsString()
-    @IsNotEmpty()
-    refreshToken: string;
+  @IsString()
+  @IsNotEmpty()
+  refreshToken: string;
 }
 
 export class CreateUserDto {
-    @IsEmail()
-    @IsNotEmpty()
-    email: string;
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
 
-    @IsString()
-    @IsNotEmpty()
-    name: string;
+  @IsString()
+  @IsNotEmpty()
+  name: string;
 
-    @IsString()
-    @IsOptional()
-    role?: Role;
+  @IsString()
+  @IsOptional()
+  role?: Role;
 
-    @IsString()
-    @IsOptional()
-    phone?: string;
+  @IsString()
+  @IsOptional()
+  phone?: string;
 
-    @IsString()
-    @IsNotEmpty()
-    @MinLength(8)
-    password: string;
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(8)
+  password: string;
 
-    @IsString()
-    @IsOptional()
-    organizationId?: string;
+  @IsString()
+  @IsOptional()
+  organizationId?: string;
 
-    @IsString()
-    @IsOptional()
-    country?: string;
+  @IsString()
+  @IsOptional()
+  country?: string;
 
-    @IsString()
-    @IsOptional()
-    region?: string;
+  @IsString()
+  @IsOptional()
+  region?: string;
 
-    @IsString()
-    @IsOptional()
-    zoneId?: string;
+  @IsString()
+  @IsOptional()
+  zoneId?: string;
 
-    @IsString()
-    @IsOptional()
-    subscribedPackage?: string;
+  @IsString()
+  @IsOptional()
+  subscribedPackage?: string;
 
-    @IsString()
-    @IsOptional()
-    accountType?: 'COMPANY' | 'INDIVIDUAL';
+  @IsString()
+  @IsOptional()
+  accountType?: 'COMPANY' | 'INDIVIDUAL';
 
-    @IsString()
-    @IsOptional()
-    companyName?: string;
+  @IsString()
+  @IsOptional()
+  companyName?: string;
 
-    @IsString()
-    @IsOptional()
-    taxId?: string;
+  @IsString()
+  @IsOptional()
+  taxId?: string;
 
-    @IsString()
-    @IsOptional()
-    ownerCapability?: 'CHARGE' | 'SWAP' | 'BOTH';
+  @IsString()
+  @IsOptional()
+  ownerCapability?: 'CHARGE' | 'SWAP' | 'BOTH';
 }
 
 export class UpdateUserDto {
-    @IsString()
-    @IsOptional()
-    name?: string;
+  @IsString()
+  @IsOptional()
+  name?: string;
 
-    @IsString()
-    @IsOptional()
-    phone?: string;
+  @IsString()
+  @IsOptional()
+  phone?: string;
 
-    @IsEnum(['Active', 'Pending', 'Suspended', 'Inactive', 'Invited'])
-    @IsOptional()
-    status?: 'Active' | 'Pending' | 'Suspended' | 'Inactive' | 'Invited';
+  @IsEnum(['Active', 'Pending', 'Suspended', 'Inactive', 'Invited'])
+  @IsOptional()
+  status?: 'Active' | 'Pending' | 'Suspended' | 'Inactive' | 'Invited';
 }
 
 export class InviteUserDto {
-    @IsEmail()
-    @IsNotEmpty()
-    email: string;
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
 
-    @IsString()
-    @IsNotEmpty()
-    role: Role;
+  @IsString()
+  @IsNotEmpty()
+  role: Role;
 
-    @IsString()
-    @IsOptional()
-    @MinLength(8)
-    password?: string;
+  @IsString()
+  @IsOptional()
+  ownerCapability?: string;
 
-    @IsString()
-    @IsOptional()
-    ownerCapability?: string;
+  @IsString()
+  @IsOptional()
+  frontendUrl?: string;
 
-    @IsString()
-    @IsOptional()
-    frontendUrl?: string;
+  @IsString()
+  @IsOptional()
+  region?: string;
 
-    @IsString()
-    @IsOptional()
-    region?: string;
+  @IsString()
+  @IsOptional()
+  zoneId?: string;
+}
 
-    @IsString()
-    @IsOptional()
-    zoneId?: string;
+export class SwitchOrganizationDto {
+  @IsString()
+  @IsNotEmpty()
+  organizationId: string;
+}
+
+export class AcceptInvitationResponseDto {
+  email: string;
+  organizationName: string;
+  role: string;
+  requiresTempPassword: boolean;
+  inviteToken: string;
 }
 
 export class ServiceTokenRequestDto {
-    @IsString()
-    @IsOptional()
-    clientId?: string;
+  @IsString()
+  @IsOptional()
+  clientId?: string;
 
-    @IsString()
-    @IsOptional()
-    clientSecret?: string;
+  @IsString()
+  @IsOptional()
+  clientSecret?: string;
 
-    @IsString()
-    @IsOptional()
-    scope?: string; // space-delimited, OAuth-style
+  @IsString()
+  @IsOptional()
+  scope?: string; // space-delimited, OAuth-style
 }

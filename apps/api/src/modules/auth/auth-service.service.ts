@@ -3,10 +3,17 @@ import {
   UnauthorizedException,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
-import { UserRole, StationOwnerCapability, Prisma } from '@prisma/client';
+import {
+  InvitationStatus,
+  MembershipStatus,
+  Prisma,
+  StationOwnerCapability,
+  UserRole,
+} from '@prisma/client';
 import {
   LoginDto,
   CreateUserDto,
@@ -34,6 +41,7 @@ import {
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private readonly invitationTtlMs = 7 * 24 * 60 * 60 * 1000;
   private readonly consistencyCounters = {
     registerValidationFailures: 0,
     inviteValidationFailures: 0,
@@ -67,8 +75,23 @@ export class AuthService {
     subscribedPackage: true,
     organizationId: true,
     ownerCapability: true,
+    mustChangePassword: true,
     createdAt: true,
     updatedAt: true,
+  } as const;
+  private readonly membershipSummarySelect = {
+    id: true,
+    organizationId: true,
+    role: true,
+    ownerCapability: true,
+    status: true,
+    organization: {
+      select: {
+        id: true,
+        name: true,
+        type: true,
+      },
+    },
   } as const;
 
   constructor(
@@ -80,10 +103,81 @@ export class AuthService {
     private readonly anomalyMonitor: AuthAnomalyMonitorService,
     private readonly ocpiTokenSync: OcpiTokenSyncService,
     private readonly approvalService: AdminApprovalService,
-  ) { }
+  ) {}
 
   getHello(): string {
     return 'Auth Service Operational';
+  }
+
+  private normalizeEmail(email: string): string {
+    return email.trim().toLowerCase();
+  }
+
+  private generateOpaqueToken(bytes: number = 32): string {
+    return crypto.randomBytes(bytes).toString('base64url');
+  }
+
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  private generateTemporaryPassword(length: number = 14): string {
+    const alphabet =
+      'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+    const random = crypto.randomBytes(length);
+    return Array.from(random)
+      .map((value) => alphabet[value % alphabet.length])
+      .join('');
+  }
+
+  private async recordAuditEvent(input: {
+    actor: string;
+    action: string;
+    resource: string;
+    resourceId?: string;
+    details?: Prisma.InputJsonValue;
+    status?: string;
+    errorMessage?: string;
+  }) {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          actor: input.actor,
+          action: input.action,
+          resource: input.resource,
+          resourceId: input.resourceId,
+          details: input.details,
+          status: input.status || 'SUCCESS',
+          errorMessage: input.errorMessage,
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to record audit event ${input.action}`,
+        String(error).replace(/[\n\r]/g, ''),
+      );
+    }
+  }
+
+  private toRoleLabel(role: string): string {
+    const roleLabels: Record<string, string> = {
+      SUPER_ADMIN: 'Super Admin',
+      EVZONE_ADMIN: 'EVzone Admin',
+      EVZONE_OPERATOR: 'EVzone Operations',
+      STATION_OPERATOR: 'Station Operator',
+      SITE_OWNER: 'Site Owner',
+      STATION_ADMIN: 'Station Admin',
+      MANAGER: 'Manager',
+      ATTENDANT: 'Attendant',
+      CASHIER: 'Cashier',
+      STATION_OWNER: 'Station Owner',
+      SWAP_PROVIDER_ADMIN: 'Swap Provider Admin',
+      SWAP_PROVIDER_OPERATOR: 'Swap Provider Operator',
+      TECHNICIAN_ORG: 'Technician (Org)',
+      TECHNICIAN_PUBLIC: 'Technician (Public)',
+    };
+
+    return roleLabels[role] || role;
   }
 
   private isEvzoneRole(role: UserRole | string | undefined): role is UserRole {
@@ -208,6 +302,132 @@ export class AuthService {
     );
   }
 
+  private async getActiveMemberships(
+    userId: string,
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ) {
+    return client.organizationMembership.findMany({
+      where: {
+        userId,
+        status: MembershipStatus.ACTIVE,
+      },
+      orderBy: { createdAt: 'asc' },
+      select: this.membershipSummarySelect,
+    });
+  }
+
+  private resolveActiveOrganizationId(
+    activeMemberships: Array<{ organizationId: string }>,
+    fallbackOrganizationId?: string | null,
+    preferredOrganizationId?: string | null,
+  ): string | null {
+    if (preferredOrganizationId) {
+      const preferred = activeMemberships.find(
+        (membership) => membership.organizationId === preferredOrganizationId,
+      );
+      if (preferred) return preferred.organizationId;
+    }
+
+    if (fallbackOrganizationId) {
+      const fallback = activeMemberships.find(
+        (membership) => membership.organizationId === fallbackOrganizationId,
+      );
+      if (fallback) return fallback.organizationId;
+    }
+
+    if (activeMemberships.length > 0) {
+      return activeMemberships[0].organizationId;
+    }
+
+    return fallbackOrganizationId || null;
+  }
+
+  private resolveEffectiveRole(
+    user: {
+      role: UserRole;
+    },
+    activeMemberships: Array<{ organizationId: string; role: UserRole }>,
+    activeOrganizationId: string | null,
+  ): UserRole {
+    if (!activeOrganizationId) {
+      return user.role;
+    }
+
+    const membership = activeMemberships.find(
+      (item) => item.organizationId === activeOrganizationId,
+    );
+
+    return membership?.role || user.role;
+  }
+
+  private async syncLegacyOrganizationId(
+    userId: string,
+    currentOrganizationId: string | null | undefined,
+    activeOrganizationId: string | null,
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ) {
+    if (
+      !activeOrganizationId ||
+      currentOrganizationId === activeOrganizationId
+    ) {
+      return;
+    }
+
+    await client.user.update({
+      where: { id: userId },
+      data: { organizationId: activeOrganizationId },
+    });
+  }
+
+  private async resolveInvitationByToken(
+    token: string,
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ) {
+    const tokenHash = this.hashToken(token);
+    const invitation = await client.userInvitation.findUnique({
+      where: { tokenHash },
+      include: {
+        organization: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!invitation) {
+      throw new BadRequestException('Invitation is invalid');
+    }
+
+    if (invitation.status === InvitationStatus.REVOKED) {
+      throw new BadRequestException('Invitation has been revoked');
+    }
+
+    if (invitation.status === InvitationStatus.ACTIVATED) {
+      throw new BadRequestException('Invitation has already been used');
+    }
+
+    if (invitation.expiresAt <= new Date()) {
+      if (
+        invitation.status === InvitationStatus.PENDING ||
+        invitation.status === InvitationStatus.ACCEPTED
+      ) {
+        await client.userInvitation.update({
+          where: { id: invitation.id },
+          data: { status: InvitationStatus.EXPIRED },
+        });
+      }
+      throw new BadRequestException('Invitation has expired');
+    }
+
+    if (invitation.status === InvitationStatus.EXPIRED) {
+      throw new BadRequestException('Invitation has expired');
+    }
+
+    return invitation;
+  }
+
   async login(loginDto: LoginDto, context?: AuthMonitoringContext) {
     const startTime = Date.now();
     const monitoringContext = this.createMonitoringContext(
@@ -216,9 +436,10 @@ export class AuthService {
       loginDto.email,
     );
     try {
-      this.logger.log(`Login attempt for ${loginDto.email}`);
-      const user = await this.prisma.user.findUnique({
-        where: { email: loginDto.email },
+      const normalizedEmail = this.normalizeEmail(loginDto.email);
+      this.logger.log(`Login attempt for ${normalizedEmail}`);
+      let user = await this.prisma.user.findFirst({
+        where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
       });
       if (!user) {
         throw new UnauthorizedException('Invalid credentials');
@@ -234,6 +455,24 @@ export class AuthService {
       );
       if (!isPasswordValid) {
         throw new UnauthorizedException('Invalid credentials');
+      }
+
+      let preferredOrganizationId: string | undefined;
+      if (loginDto.inviteToken) {
+        const activation = await this.activateInvitationOnLogin({
+          userId: user.id,
+          inviteToken: loginDto.inviteToken,
+          loginPassword: loginDto.password,
+        });
+        preferredOrganizationId = activation.organizationId;
+
+        user = await this.prisma.user.findUnique({
+          where: { id: user.id },
+        });
+
+        if (!user) {
+          throw new UnauthorizedException('User not found');
+        }
       }
 
       // Check for awaiting approval status if not handled by frontend
@@ -254,7 +493,9 @@ export class AuthService {
         user.status = 'Active';
       }
 
-      const response = await this.generateAuthResponse(user);
+      const response = await this.generateAuthResponse(user, {
+        preferredOrganizationId,
+      });
       this.anomalyMonitor.recordSuccess(monitoringContext);
       return response;
     } catch (error) {
@@ -270,8 +511,132 @@ export class AuthService {
     }
   }
 
-  private async generateAuthResponse(user: any) {
-    const result = await this.issueTokens(user);
+  private async activateInvitationOnLogin(input: {
+    userId: string;
+    inviteToken: string;
+    loginPassword: string;
+  }): Promise<{ organizationId: string; usedTempPassword: boolean }> {
+    const activation = await this.prisma.$transaction(async (tx) => {
+      const invitation = await this.resolveInvitationByToken(
+        input.inviteToken,
+        tx,
+      );
+      const user = await tx.user.findUnique({
+        where: { id: input.userId },
+      });
+
+      if (!user || !user.email) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
+
+      if (invitation.userId && invitation.userId !== user.id) {
+        throw new BadRequestException('Invitation does not match this account');
+      }
+
+      if (
+        this.normalizeEmail(invitation.email) !==
+        this.normalizeEmail(user.email)
+      ) {
+        throw new BadRequestException(
+          'Invitation email does not match authenticated account',
+        );
+      }
+
+      let usedTempPassword = false;
+      if (invitation.tempPasswordHash) {
+        usedTempPassword = await bcrypt.compare(
+          input.loginPassword,
+          invitation.tempPasswordHash,
+        );
+      }
+
+      await tx.organizationMembership.upsert({
+        where: {
+          userId_organizationId: {
+            userId: user.id,
+            organizationId: invitation.organizationId,
+          },
+        },
+        create: {
+          userId: user.id,
+          organizationId: invitation.organizationId,
+          role: invitation.role,
+          ownerCapability: invitation.ownerCapability,
+          status: MembershipStatus.ACTIVE,
+          invitedBy: invitation.invitedBy || undefined,
+        },
+        update: {
+          role: invitation.role,
+          ownerCapability: invitation.ownerCapability,
+          status: MembershipStatus.ACTIVE,
+          invitedBy: invitation.invitedBy || undefined,
+        },
+      });
+
+      const now = new Date();
+      await tx.userInvitation.update({
+        where: { id: invitation.id },
+        data: {
+          userId: user.id,
+          status: InvitationStatus.ACTIVATED,
+          acceptedAt: invitation.acceptedAt || now,
+          activatedAt: now,
+        },
+      });
+
+      const updateData: Prisma.UserUpdateInput = {};
+      if (!user.emailVerifiedAt) {
+        updateData.emailVerifiedAt = now;
+      }
+      if (usedTempPassword) {
+        updateData.mustChangePassword = true;
+      }
+      if (user.status === 'Invited' || user.status === 'Pending') {
+        updateData.status = 'Active';
+      }
+
+      if (Object.keys(updateData).length > 0) {
+        await tx.user.update({
+          where: { id: user.id },
+          data: updateData,
+        });
+      }
+
+      await this.syncLegacyOrganizationId(
+        user.id,
+        user.organizationId,
+        invitation.organizationId,
+        tx,
+      );
+
+      return {
+        invitationId: invitation.id,
+        organizationId: invitation.organizationId,
+        usedTempPassword,
+      };
+    });
+
+    await this.recordAuditEvent({
+      actor: input.userId,
+      action: 'INVITE_ACTIVATED',
+      resource: 'UserInvitation',
+      resourceId: activation.invitationId,
+      details: {
+        organizationId: activation.organizationId,
+      },
+    });
+
+    return {
+      organizationId: activation.organizationId,
+      usedTempPassword: activation.usedTempPassword,
+    };
+  }
+
+  private async generateAuthResponse(
+    user: any,
+    options?: { preferredOrganizationId?: string },
+  ) {
+    const result = await this.issueTokens(user, options);
 
     this.metrics.recordAuthMetric({
       operation: 'login',
@@ -344,14 +709,14 @@ export class AuthService {
       const organization = this.isEvzoneRole(requestedRole)
         ? await this.ensureEvzoneOrganization(tx)
         : await tx.organization.create({
-          data: {
-            name:
-              orgType === 'COMPANY'
-                ? createUserDto.companyName || `${createUserDto.name}'s Corp`
-                : createUserDto.companyName || createUserDto.name,
-            type: orgType,
-          },
-        });
+            data: {
+              name:
+                orgType === 'COMPANY'
+                  ? createUserDto.companyName || `${createUserDto.name}'s Corp`
+                  : createUserDto.companyName || createUserDto.name,
+              type: orgType,
+            },
+          });
 
       // 2. Create User linked to Org
       const user = await tx.user.create({
@@ -368,6 +733,16 @@ export class AuthService {
           subscribedPackage: createUserDto.subscribedPackage || 'Free',
           ownerCapability: createUserDto.ownerCapability as any,
           organizationId: organization.id,
+        },
+      });
+
+      await tx.organizationMembership.create({
+        data: {
+          userId: user.id,
+          organizationId: organization.id,
+          role: requestedRole,
+          ownerCapability: createUserDto.ownerCapability as any,
+          status: MembershipStatus.ACTIVE,
         },
       });
 
@@ -439,10 +814,7 @@ export class AuthService {
       throw new NotFoundException('Inviter not found');
     }
 
-    const exists = await this.prisma.user.findUnique({
-      where: { email: inviteDto.email },
-    });
-    if (exists) throw new BadRequestException('User already exists');
+    const normalizedEmail = this.normalizeEmail(inviteDto.email);
 
     const inviteRole = inviteDto.role as unknown as UserRole;
     const organizationId = this.isEvzoneRole(inviteRole)
@@ -460,64 +832,169 @@ export class AuthService {
       );
     }
 
-    const geography = await this.resolveGeography(
-      {
-        zoneId: inviteDto.zoneId || inviter.zoneId,
-        region: inviteDto.region || inviter.region,
-        country: inviter.country,
+    const existingUser = await this.prisma.user.findFirst({
+      where: {
+        email: { equals: normalizedEmail, mode: 'insensitive' },
       },
-      'invite',
-    );
-
-    const passwordHash = inviteDto.password
-      ? await bcrypt.hash(inviteDto.password, 10)
-      : undefined;
-
-    const user = await this.prisma.user.create({
       select: {
-        ...this.userSafeSelect,
-        organization: {
-          select: this.organizationSafeSelect,
-        },
-      },
-      data: {
-        email: inviteDto.email,
-        name: inviteDto.email.split('@')[0],
-        role: inviteRole,
-        status: inviteDto.password ? 'Active' : 'Invited',
-        passwordHash,
-        country: inviter.country,
-        region: geography.region,
-        zoneId: geography.zoneId,
-        organizationId,
-        ownerCapability:
-          inviteDto.ownerCapability as unknown as StationOwnerCapability,
+        id: true,
+        email: true,
+        name: true,
+        country: true,
+        region: true,
+        zoneId: true,
+        organizationId: true,
+        status: true,
       },
     });
 
-    try {
-      // Human-readable role name mapping (matching frontend labels roughly)
-      const roleLabels: any = {
-        SUPER_ADMIN: 'Super Admin',
-        EVZONE_ADMIN: 'EVzone Admin',
-        EVZONE_OPERATOR: 'EVzone Operations',
-        STATION_OPERATOR: 'Station Operator',
-        SITE_OWNER: 'Site Owner',
-        STATION_ADMIN: 'Station Admin',
-        MANAGER: 'Manager',
-        ATTENDANT: 'Attendant',
-        CASHIER: 'Cashier',
-        STATION_OWNER: 'Station Owner',
-        SWAP_PROVIDER_ADMIN: 'Swap Provider Admin',
-        SWAP_PROVIDER_OPERATOR: 'Swap Provider Operator',
-      };
+    if (existingUser) {
+      const existingActiveMembership =
+        await this.prisma.organizationMembership.findUnique({
+          where: {
+            userId_organizationId: {
+              userId: existingUser.id,
+              organizationId,
+            },
+          },
+          select: {
+            id: true,
+            status: true,
+          },
+        });
 
-      const roleName = roleLabels[inviteDto.role] || inviteDto.role;
+      if (existingActiveMembership?.status === MembershipStatus.ACTIVE) {
+        throw new ConflictException(
+          'User is already an active member of this organization',
+        );
+      }
+    }
+
+    await this.prisma.userInvitation.updateMany({
+      where: {
+        email: { equals: normalizedEmail, mode: 'insensitive' },
+        organizationId,
+        status: { in: [InvitationStatus.PENDING, InvitationStatus.ACCEPTED] },
+      },
+      data: {
+        status: InvitationStatus.REVOKED,
+      },
+    });
+
+    const inviteToken = this.generateOpaqueToken();
+    const tokenHash = this.hashToken(inviteToken);
+    const expiresAt = new Date(Date.now() + this.invitationTtlMs);
+
+    const invitationResult = await this.prisma.$transaction(async (tx) => {
+      let userId = existingUser?.id;
+      let tempPassword: string | undefined;
+      let tempPasswordHash: string | null = null;
+
+      if (!existingUser) {
+        const geography = await this.resolveGeography(
+          {
+            zoneId: inviteDto.zoneId || inviter.zoneId,
+            region: inviteDto.region || inviter.region,
+            country: inviter.country,
+          },
+          'invite',
+          tx,
+        );
+
+        tempPassword = this.generateTemporaryPassword();
+        tempPasswordHash = await bcrypt.hash(tempPassword, 10);
+
+        const createdUser = await tx.user.create({
+          data: {
+            email: normalizedEmail,
+            name: normalizedEmail.split('@')[0],
+            role: inviteRole,
+            status: 'Invited',
+            passwordHash: tempPasswordHash,
+            country: inviter.country,
+            region: geography.region,
+            zoneId: geography.zoneId,
+            organizationId,
+            ownerCapability:
+              inviteDto.ownerCapability as unknown as StationOwnerCapability,
+            mustChangePassword: false,
+          },
+          select: {
+            id: true,
+          },
+        });
+
+        userId = createdUser.id;
+      }
+
+      if (!userId) {
+        throw new BadRequestException('Unable to resolve invited user');
+      }
+
+      await tx.organizationMembership.upsert({
+        where: {
+          userId_organizationId: {
+            userId,
+            organizationId,
+          },
+        },
+        create: {
+          userId,
+          organizationId,
+          role: inviteRole,
+          ownerCapability:
+            inviteDto.ownerCapability as unknown as StationOwnerCapability,
+          status: MembershipStatus.INVITED,
+          invitedBy: inviter.id,
+        },
+        update: {
+          role: inviteRole,
+          ownerCapability:
+            inviteDto.ownerCapability as unknown as StationOwnerCapability,
+          status: MembershipStatus.INVITED,
+          invitedBy: inviter.id,
+        },
+      });
+
+      const invitation = await tx.userInvitation.create({
+        data: {
+          email: normalizedEmail,
+          userId,
+          organizationId,
+          role: inviteRole,
+          ownerCapability:
+            inviteDto.ownerCapability as unknown as StationOwnerCapability,
+          invitedBy: inviter.id,
+          tokenHash,
+          status: InvitationStatus.PENDING,
+          expiresAt,
+          tempPasswordHash,
+          tempPasswordIssuedAt: tempPassword ? new Date() : null,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      return {
+        invitationId: invitation.id,
+        tempPassword,
+      };
+    });
+
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { name: true },
+    });
+
+    try {
       await this.mailService.sendInvitationEmail(
-        inviteDto.email,
-        roleName,
-        user.organization?.name || 'EVZONE',
+        normalizedEmail,
+        this.toRoleLabel(inviteRole),
+        organization?.name || 'EVZONE',
         inviteDto.frontendUrl,
+        inviteToken,
+        invitationResult.tempPassword,
       );
     } catch (error) {
       this.logger.error(
@@ -526,7 +1003,142 @@ export class AuthService {
       );
     }
 
-    return { success: true, user };
+    await this.recordAuditEvent({
+      actor: inviter.id,
+      action: 'INVITE_SENT',
+      resource: 'UserInvitation',
+      resourceId: invitationResult.invitationId,
+      details: {
+        email: normalizedEmail,
+        organizationId,
+        role: inviteRole,
+        isExistingUser: Boolean(existingUser),
+      },
+    });
+
+    return {
+      success: true,
+      inviteId: invitationResult.invitationId,
+      expiresAt,
+      isExistingUser: Boolean(existingUser),
+    };
+  }
+
+  async acceptInvitationToken(token: string) {
+    const inviteToken = token?.trim();
+    if (!inviteToken) {
+      throw new BadRequestException('Invitation token is required');
+    }
+
+    const invitation = await this.prisma.$transaction(async (tx) => {
+      const resolved = await this.resolveInvitationByToken(inviteToken, tx);
+
+      if (resolved.status === InvitationStatus.PENDING) {
+        return tx.userInvitation.update({
+          where: { id: resolved.id },
+          data: {
+            status: InvitationStatus.ACCEPTED,
+            acceptedAt: new Date(),
+          },
+          include: {
+            organization: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        });
+      }
+
+      return resolved;
+    });
+
+    await this.recordAuditEvent({
+      actor: invitation.email,
+      action: 'INVITE_ACCEPTED',
+      resource: 'UserInvitation',
+      resourceId: invitation.id,
+      details: {
+        organizationId: invitation.organizationId,
+      },
+    });
+
+    return {
+      email: invitation.email,
+      organizationName: invitation.organization?.name || 'EVZONE',
+      role: invitation.role,
+      requiresTempPassword: Boolean(invitation.tempPasswordHash),
+      inviteToken,
+    };
+  }
+
+  async switchOrganization(userId: string, organizationId: string) {
+    if (!userId) {
+      throw new UnauthorizedException('Authenticated user context is required');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        organization: {
+          select: this.organizationSafeSelect,
+        },
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    let membership = await this.prisma.organizationMembership.findUnique({
+      where: {
+        userId_organizationId: {
+          userId,
+          organizationId,
+        },
+      },
+    });
+
+    if (!membership && user.organizationId === organizationId) {
+      membership = await this.prisma.organizationMembership.create({
+        data: {
+          userId,
+          organizationId,
+          role: user.role,
+          ownerCapability: user.ownerCapability,
+          status: MembershipStatus.ACTIVE,
+        },
+      });
+    }
+
+    if (!membership || membership.status !== MembershipStatus.ACTIVE) {
+      throw new UnauthorizedException(
+        'No active membership found for selected organization',
+      );
+    }
+
+    if (user.organizationId !== organizationId) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { organizationId },
+      });
+      user.organizationId = organizationId;
+    }
+
+    await this.recordAuditEvent({
+      actor: user.id,
+      action: 'ORG_SWITCHED',
+      resource: 'OrganizationMembership',
+      resourceId: membership.id,
+      details: {
+        organizationId,
+      },
+    });
+
+    return this.generateAuthResponse(user, {
+      preferredOrganizationId: organizationId,
+    });
   }
 
   async issueServiceToken(
@@ -732,6 +1344,7 @@ export class AuthService {
           otpCode: null,
           otpExpiresAt: null,
           status: 'Active',
+          mustChangePassword: false,
         },
       });
 
@@ -748,14 +1361,97 @@ export class AuthService {
     }
   }
 
-  private async issueTokens(user: any) {
+  private async buildAuthUserContext(
+    user: any,
+    options?: { preferredOrganizationId?: string },
+  ) {
+    const activeMemberships = await this.getActiveMemberships(user.id);
+    const memberships =
+      activeMemberships.length > 0
+        ? activeMemberships
+        : user.organizationId
+          ? (() => {
+              const legacyOrganization = user.organization
+                ? {
+                    id: user.organization.id,
+                    name: user.organization.name,
+                    type: user.organization.type,
+                  }
+                : null;
+
+              if (!legacyOrganization) {
+                return [];
+              }
+
+              return [
+                {
+                  id: `legacy-${user.id}-${legacyOrganization.id}`,
+                  organizationId: legacyOrganization.id,
+                  role: user.role as UserRole,
+                  ownerCapability:
+                    (user.ownerCapability as StationOwnerCapability | null) ||
+                    null,
+                  status: MembershipStatus.ACTIVE,
+                  organization: legacyOrganization,
+                },
+              ];
+            })()
+          : [];
+
+    const activeOrganizationId = this.resolveActiveOrganizationId(
+      memberships,
+      user.organizationId,
+      options?.preferredOrganizationId,
+    );
+    const effectiveRole = this.resolveEffectiveRole(
+      user,
+      memberships.map((item) => ({
+        organizationId: item.organizationId,
+        role: item.role,
+      })),
+      activeOrganizationId,
+    );
+
+    await this.syncLegacyOrganizationId(
+      user.id,
+      user.organizationId,
+      activeOrganizationId,
+    );
+
+    return {
+      activeOrganizationId,
+      effectiveRole,
+      memberships: memberships.map((membership) => ({
+        id: membership.id,
+        organizationId: membership.organizationId,
+        role: membership.role,
+        ownerCapability: membership.ownerCapability || undefined,
+        status: membership.status,
+        organizationName: membership.organization?.name,
+        organizationType: membership.organization?.type,
+      })),
+    };
+  }
+
+  private async issueTokens(
+    user: any,
+    options?: { preferredOrganizationId?: string },
+  ) {
     const secret = this.config.get<string>('JWT_SECRET');
     if (!secret) {
       throw new Error('JWT_SECRET not configured');
     }
 
+    const context = await this.buildAuthUserContext(user, options);
+
     const accessToken = jwt.sign(
-      { sub: user.id, email: user.email, role: user.role },
+      {
+        sub: user.id,
+        email: user.email,
+        role: context.effectiveRole,
+        organizationId: context.activeOrganizationId,
+        activeOrganizationId: context.activeOrganizationId,
+      },
       secret as jwt.Secret,
       {
         expiresIn: (this.config.get<string>('JWT_ACCESS_EXPIRY') ||
@@ -789,14 +1485,18 @@ export class AuthService {
         id: user.id,
         email: user.email,
         phone: user.phone,
-        role: user.role,
+        role: context.effectiveRole,
         providerId: user.providerId,
         name: user.name,
         status: user.status,
         region: user.region,
         zoneId: user.zoneId,
         ownerCapability: user.ownerCapability,
-        organizationId: user.organizationId,
+        organizationId: context.activeOrganizationId || user.organizationId,
+        orgId: context.activeOrganizationId || user.organizationId,
+        activeOrganizationId: context.activeOrganizationId,
+        memberships: context.memberships,
+        mustChangePassword: Boolean(user.mustChangePassword),
       },
     };
   }
@@ -832,9 +1532,16 @@ export class AuthService {
         where: { id: payload.sub },
       });
       if (!user) throw new UnauthorizedException('User not found');
+      const authUserContext = await this.buildAuthUserContext(user);
 
       const accessToken = jwt.sign(
-        { sub: user.id, email: user.email, role: user.role },
+        {
+          sub: user.id,
+          email: user.email,
+          role: authUserContext.effectiveRole,
+          organizationId: authUserContext.activeOrganizationId,
+          activeOrganizationId: authUserContext.activeOrganizationId,
+        },
         secret as jwt.Secret,
         {
           expiresIn: this.config.get<string>('JWT_ACCESS_EXPIRY') || '15m',
@@ -857,14 +1564,19 @@ export class AuthService {
           id: user.id,
           email: user.email,
           phone: user.phone,
-          role: user.role,
+          role: authUserContext.effectiveRole,
           providerId: user.providerId,
           name: user.name,
           status: user.status,
           region: user.region,
           zoneId: user.zoneId,
           ownerCapability: user.ownerCapability,
-          organizationId: user.organizationId,
+          organizationId:
+            authUserContext.activeOrganizationId || user.organizationId,
+          orgId: authUserContext.activeOrganizationId || user.organizationId,
+          activeOrganizationId: authUserContext.activeOrganizationId,
+          memberships: authUserContext.memberships,
+          mustChangePassword: Boolean(user.mustChangePassword),
         },
       };
     } catch (error) {
@@ -952,7 +1664,23 @@ export class AuthService {
       where.zoneId = params.zoneId;
     }
     if (params.orgId || params.organizationId) {
-      where.organizationId = params.orgId || params.organizationId;
+      const scopedOrgId = params.orgId || params.organizationId;
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { organizationId: scopedOrgId },
+            {
+              memberships: {
+                some: {
+                  organizationId: scopedOrgId,
+                  status: MembershipStatus.ACTIVE,
+                },
+              },
+            },
+          ],
+        },
+      ];
     }
 
     const users = await this.prisma.user.findMany({
@@ -1015,15 +1743,44 @@ export class AuthService {
   }
 
   async getCurrentUser(id: string) {
-    return this.prisma.user.findUnique({
+    const user = await this.prisma.user.findUnique({
       where: { id },
       select: {
         ...this.userSafeSelect,
         organization: {
           select: this.organizationSafeSelect,
         },
+        memberships: {
+          where: {
+            status: MembershipStatus.ACTIVE,
+          },
+          select: this.membershipSummarySelect,
+        },
       },
     });
+
+    if (!user) return null;
+
+    const activeOrganizationId = this.resolveActiveOrganizationId(
+      user.memberships,
+      user.organizationId,
+    );
+
+    return {
+      ...user,
+      organizationId: activeOrganizationId || user.organizationId,
+      orgId: activeOrganizationId || user.organizationId,
+      activeOrganizationId,
+      memberships: user.memberships.map((membership) => ({
+        id: membership.id,
+        organizationId: membership.organizationId,
+        role: membership.role,
+        ownerCapability: membership.ownerCapability,
+        status: membership.status,
+        organizationName: membership.organization?.name,
+        organizationType: membership.organization?.type,
+      })),
+    };
   }
 
   async updateUser(id: string, updateDto: UpdateUserDto) {
@@ -1302,7 +2059,8 @@ export class AuthService {
   async verify2faSetup(userId: string, token: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
-    if (!user.twoFactorSecret) throw new BadRequestException('2FA secret not generated');
+    if (!user.twoFactorSecret)
+      throw new BadRequestException('2FA secret not generated');
 
     const isValid = speakeasy.totp.verify({
       secret: user.twoFactorSecret,
@@ -1341,18 +2099,27 @@ export class AuthService {
     return { success: true, message: '2FA disabled successfully' };
   }
 
-  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
-    if (!user.passwordHash) throw new BadRequestException('User does not have a password set');
+    if (!user.passwordHash)
+      throw new BadRequestException('User does not have a password set');
 
-    const isPasswordValid = await bcrypt.compare(currentPassword, user.passwordHash);
-    if (!isPasswordValid) throw new UnauthorizedException('Invalid current password');
+    const isPasswordValid = await bcrypt.compare(
+      currentPassword,
+      user.passwordHash,
+    );
+    if (!isPasswordValid)
+      throw new UnauthorizedException('Invalid current password');
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await this.prisma.user.update({
       where: { id: userId },
-      data: { passwordHash: hashedPassword },
+      data: { passwordHash: hashedPassword, mustChangePassword: false },
     });
 
     try {

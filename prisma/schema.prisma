@@ -99,6 +99,21 @@ enum AttendantRoleMode {
   MOBILE
 }
 
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  REVOKED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  ACTIVATED
+  EXPIRED
+  REVOKED
+}
+
 model User {
   id              String  @id @default(uuid())
   name            String
@@ -110,6 +125,7 @@ model User {
   ownerCapability StationOwnerCapability? // Only for STATION_OWNER
   twoFactorSecret String?
   twoFactorEnabled Boolean @default(false)
+  mustChangePassword Boolean @default(false)
   otpCode         String?
   otpExpiresAt    DateTime?
   emailVerifiedAt DateTime?
@@ -129,6 +145,8 @@ model User {
   // Relations
   organization         Organization?       @relation(fields: [organizationId], references: [id])
   provider             SwapProvider?       @relation(fields: [providerId], references: [id])
+  memberships          OrganizationMembership[]
+  invitations          UserInvitation[]
   applications         TenantApplication[] @relation("Applications")
   ownedStations    Station[] @relation("StationOwner")
   operatedStations Station[] @relation("StationOperator")
@@ -185,6 +203,8 @@ model Organization {
   city            String?
   
   users       User[]
+  memberships OrganizationMembership[]
+  invitations UserInvitation[]
   sites       Site[]
   swapProviders SwapProvider[] @relation("ProviderOrganization")
   ownerProviderRelationships ProviderRelationship[] @relation("OwnerOrganization")
@@ -193,6 +213,53 @@ model Organization {
   updatedAt   DateTime @updatedAt
 
   @@map("organizations")
+}
+
+model OrganizationMembership {
+  id              String                 @id @default(uuid())
+  userId          String
+  organizationId  String
+  role            UserRole
+  ownerCapability StationOwnerCapability?
+  status          MembershipStatus       @default(INVITED)
+  invitedBy       String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("organization_memberships")
+  @@unique([userId, organizationId])
+  @@index([organizationId, status])
+  @@index([userId, status])
+}
+
+model UserInvitation {
+  id                  String                 @id @default(uuid())
+  email               String
+  userId              String?
+  organizationId      String
+  role                UserRole
+  ownerCapability     StationOwnerCapability?
+  invitedBy           String?
+  tokenHash           String                 @unique
+  status              InvitationStatus       @default(PENDING)
+  expiresAt           DateTime
+  acceptedAt          DateTime?
+  activatedAt         DateTime?
+  tempPasswordHash    String?
+  tempPasswordIssuedAt DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("user_invitations")
+  @@index([email, organizationId, status])
+  @@index([organizationId, status])
+  @@index([expiresAt])
 }
 
 model SwapProvider {

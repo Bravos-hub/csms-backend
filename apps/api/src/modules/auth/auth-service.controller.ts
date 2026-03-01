@@ -30,6 +30,7 @@ import {
   InviteUserDto,
   UpdateUserDto,
   ServiceTokenRequestDto,
+  SwitchOrganizationDto,
 } from './dto/auth.dto';
 import {
   COOKIE_NAMES,
@@ -147,6 +148,54 @@ export class AuthController {
     );
 
     // Return tokens in body as well for localStorage persistence
+    return {
+      user: result.user,
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+    };
+  }
+
+  @Get('invitations/accept')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Validate and accept invitation token' })
+  async acceptInvitation(@Query('token') token?: string) {
+    if (!token) {
+      throw new BadRequestException('Invitation token is required');
+    }
+
+    return this.authService.acceptInvitationToken(token);
+  }
+
+  @Post('switch-organization')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Switch active organization context' })
+  async switchOrganization(
+    @Body() body: SwitchOrganizationDto,
+    @Req() req: Request & { user?: { sub?: string } },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const userId = req.user?.sub;
+    if (!userId) {
+      throw new BadRequestException('Authenticated user is required');
+    }
+
+    const result = await this.authService.switchOrganization(
+      userId,
+      body.organizationId,
+    );
+
+    res.cookie(
+      COOKIE_NAMES.ACCESS_TOKEN,
+      result.accessToken,
+      getCookieOptions(false),
+    );
+    res.cookie(
+      COOKIE_NAMES.REFRESH_TOKEN,
+      result.refreshToken,
+      getCookieOptions(true),
+    );
+
     return {
       user: result.user,
       accessToken: result.accessToken,
@@ -277,7 +326,8 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Verify and enable 2FA' })
   verify2faSetup(@Req() req: any, @Body() body: { token: string }) {
-    if (!body.token) throw new BadRequestException('Verification token is required');
+    if (!body.token)
+      throw new BadRequestException('Verification token is required');
     const userId = req.user?.sub || req.headers['x-user-id'];
     return this.authService.verify2faSetup(userId, body.token);
   }
@@ -287,7 +337,8 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Disable 2FA' })
   disable2fa(@Req() req: any, @Body() body: { token: string }) {
-    if (!body.token) throw new BadRequestException('Verification token is required');
+    if (!body.token)
+      throw new BadRequestException('Verification token is required');
     const userId = req.user?.sub || req.headers['x-user-id'];
     return this.authService.disable2fa(userId, body.token);
   }
@@ -474,7 +525,11 @@ export class UsersController {
     if (!body.currentPassword || !body.newPassword) {
       throw new BadRequestException('Current and new password are required');
     }
-    return this.authService.changePassword(userId, body.currentPassword, body.newPassword);
+    return this.authService.changePassword(
+      userId,
+      body.currentPassword,
+      body.newPassword,
+    );
   }
 
   @Patch(':id')
