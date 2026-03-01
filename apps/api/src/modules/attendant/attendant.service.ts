@@ -75,18 +75,46 @@ export class AttendantService {
 
   async login(dto: AttendantLoginDto) {
     const identifier = dto.emailOrPhone.trim();
+    const normalizedIdentifier = this.normalizeIdentifier(identifier);
+    const identifierHash = this.hashIdentifierForLog(normalizedIdentifier);
+
     const user = await this.findUserByIdentifier(identifier);
-    if (!user?.passwordHash)
+    if (!user?.passwordHash) {
+      this.logger.warn(
+        JSON.stringify({
+          event: 'attendant_login_failed',
+          reason: 'user_missing_or_no_password',
+          identifierHash,
+        }),
+      );
       throw new UnauthorizedException('Invalid credentials');
+    }
 
     const validPassword = await bcrypt.compare(dto.password, user.passwordHash);
-    if (!validPassword) throw new UnauthorizedException('Invalid credentials');
+    if (!validPassword) {
+      this.logger.warn(
+        JSON.stringify({
+          event: 'attendant_login_failed',
+          reason: 'invalid_password',
+          identifierHash,
+          userId: user.id,
+        }),
+      );
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
     const assignment = await this.findActiveAssignment(user.id);
     if (!assignment) {
+      this.logger.log(
+        JSON.stringify({
+          event: 'attendant_login_unassigned',
+          identifierHash,
+          userId: user.id,
+        }),
+      );
       return {
         kind: 'unassigned' as const,
-        identifier: this.normalizeIdentifier(identifier),
+        identifier: normalizedIdentifier,
         message: 'No active station assignment found for this account.',
         suggestedAction: 'request_assignment' as const,
       };
@@ -1000,6 +1028,14 @@ export class AttendantService {
 
   private normalizeIdentifier(value: string): string {
     return value.trim().toLowerCase();
+  }
+
+  private hashIdentifierForLog(value: string): string {
+    return crypto
+      .createHash('sha256')
+      .update(this.normalizeIdentifier(value))
+      .digest('hex')
+      .slice(0, 16);
   }
 
   private normalizePhone(value: string): string {

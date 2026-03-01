@@ -171,6 +171,20 @@ We provide a **Master Startup Script** that launches:
 3.  **Check Logs**:
     *   Observe `station-service` logs to see the new charger being auto-provisioned upon connection.
 
+### Attendant Login State Check (Read-only)
+
+Use this helper when credentials appear correct but attendant login still fails:
+
+```bash
+npx tsx ./scripts/ops/check-attendant-login-state.ts --identifier test1@evzonecharging.com
+```
+
+What it verifies:
+- user existence by email/phone
+- role, status, and password-hash presence
+- attendant assignment existence
+- active assignment window validity (`isActive`, `activeFrom`, `activeTo`)
+
 ## 🛠️ Tech Stack
 
 *   **Framework**: [NestJS](https://nestjs.com/) (Monorepo Mode)
