@@ -2,7 +2,10 @@ import { Module } from '@nestjs/common';
 // import { TypeOrmModule } from '@nestjs/typeorm'; (Removed)
 import { ConfigModule } from '@nestjs/config';
 import { ClientsModule, Transport } from '@nestjs/microservices';
-import { StationController, ChargePointController } from './station-service.controller';
+import {
+  StationController,
+  ChargePointController,
+} from './station-service.controller';
 import { StationService } from './station-service.service';
 import { CommandsModule } from '../commands/commands.module';
 // import { Station } from './stations/entities/station.entity'; (Removed)
@@ -36,4 +39,4 @@ import { ChargerProvisioningService } from './provisioning/charger-provisioning.
   controllers: [StationController, ChargePointController],
   providers: [StationService, PrismaService, ChargerProvisioningService],
 })
-export class StationServiceModule { }
+export class StationServiceModule {}

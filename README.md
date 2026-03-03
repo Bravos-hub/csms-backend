@@ -185,6 +185,35 @@ What it verifies:
 - attendant assignment existence
 - active assignment window validity (`isActive`, `activeFrom`, `activeTo`)
 
+### Team Assignment Ops Checks (Read-only)
+
+Use these checks for station-team rollout diagnostics:
+
+```bash
+npm run ops:check-team-user-assignment -- --identifier test1@evzonecharging.com
+npm run ops:check-station-team-consistency
+```
+
+What they verify:
+- member existence, role/status, and organization membership
+- station-team assignments vs attendant projection (`attendant_assignments`)
+- active users without active station-team assignments (`Active-Unassigned` risk)
+
+### Team Assignment Runbook
+
+1. Invite with station-role seed:
+- Call `POST /api/v1/users/team/invite` with at least one `initialAssignments` row.
+
+2. Legacy invite activation:
+- If `initialAssignmentsJson` is missing on invitation, activation keeps the user active but unassigned.
+
+3. Resolve `Active-Unassigned`:
+- Use `PUT /api/v1/users/team/:id/assignments` to replace assignments with at least one active row.
+- For attendant rows, projection sync updates `attendant_assignments` automatically.
+
+4. Verify projection:
+- Run `npm run ops:check-station-team-consistency` and confirm mismatch counts are zero.
+
 ## 🛠️ Tech Stack
 
 *   **Framework**: [NestJS](https://nestjs.com/) (Monorepo Mode)

@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Patch,
+  Put,
   Param,
   Delete,
   Req,
@@ -31,6 +32,10 @@ import {
   UpdateUserDto,
   ServiceTokenRequestDto,
   SwitchOrganizationDto,
+  TeamInviteUserDto,
+  TeamStationAssignmentsUpdateDto,
+  StaffPayoutProfileDto,
+  StationContextSwitchDto,
 } from './dto/auth.dto';
 import {
   COOKIE_NAMES,
@@ -482,6 +487,108 @@ export class UsersController {
       limit,
       offset,
     });
+  }
+
+  @Get('team')
+  @UseGuards(JwtAuthGuard)
+  findTeam(@Req() req: Request & { user?: { sub?: string } }) {
+    return this.authService.findTeamMembers(req.user?.sub || '');
+  }
+
+  @Post('team/invite')
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @UseGuards(JwtAuthGuard)
+  inviteTeamMember(
+    @Body() inviteDto: TeamInviteUserDto,
+    @Req() req: Request & { user?: { sub?: string } },
+  ) {
+    if (!inviteDto.frontendUrl) {
+      const origin = req.headers.origin as string;
+      const host = req.headers.host;
+      if (origin && (!host || !origin.includes(host))) {
+        inviteDto.frontendUrl = origin;
+      }
+    }
+
+    return this.authService.inviteTeamMember(inviteDto, req.user?.sub || '');
+  }
+
+  @Patch('team/:id')
+  @UseGuards(JwtAuthGuard)
+  updateTeamMember(
+    @Param('id') id: string,
+    @Body() updateDto: UpdateUserDto,
+    @Req() req: Request & { user?: { sub?: string } },
+  ) {
+    return this.authService.updateTeamMember(
+      id,
+      updateDto,
+      req.user?.sub || '',
+    );
+  }
+
+  @Get('team/:id/assignments')
+  @UseGuards(JwtAuthGuard)
+  getTeamAssignments(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: { sub?: string } },
+  ) {
+    return this.authService.getTeamAssignments(id, req.user?.sub || '');
+  }
+
+  @Put('team/:id/assignments')
+  @UseGuards(JwtAuthGuard)
+  updateTeamAssignments(
+    @Param('id') id: string,
+    @Body() body: TeamStationAssignmentsUpdateDto,
+    @Req() req: Request & { user?: { sub?: string } },
+  ) {
+    return this.authService.replaceTeamAssignments(
+      id,
+      body.assignments,
+      req.user?.sub || '',
+    );
+  }
+
+  @Get('team/:id/payout-profile')
+  @UseGuards(JwtAuthGuard)
+  getTeamPayoutProfile(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: { sub?: string } },
+  ) {
+    return this.authService.getStaffPayoutProfile(id, req.user?.sub || '');
+  }
+
+  @Put('team/:id/payout-profile')
+  @UseGuards(JwtAuthGuard)
+  upsertTeamPayoutProfile(
+    @Param('id') id: string,
+    @Body() body: StaffPayoutProfileDto,
+    @Req() req: Request & { user?: { sub?: string } },
+  ) {
+    return this.authService.upsertStaffPayoutProfile(
+      id,
+      body,
+      req.user?.sub || '',
+    );
+  }
+
+  @Get('me/station-contexts')
+  @UseGuards(JwtAuthGuard)
+  getStationContexts(@Req() req: Request & { user?: { sub?: string } }) {
+    return this.authService.getUserStationContexts(req.user?.sub || '');
+  }
+
+  @Post('me/station-context')
+  @UseGuards(JwtAuthGuard)
+  switchStationContext(
+    @Body() body: StationContextSwitchDto,
+    @Req() req: Request & { user?: { sub?: string } },
+  ) {
+    return this.authService.switchUserStationContext(
+      req.user?.sub || '',
+      body.assignmentId,
+    );
   }
 
   @Get(':id')

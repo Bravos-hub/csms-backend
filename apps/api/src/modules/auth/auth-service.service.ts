@@ -11,7 +11,9 @@ import {
   InvitationStatus,
   MembershipStatus,
   Prisma,
+  PayoutMethod,
   StationOwnerCapability,
+  AttendantRoleMode,
   UserRole,
 } from '@prisma/client';
 import {
@@ -19,6 +21,9 @@ import {
   CreateUserDto,
   UpdateUserDto,
   InviteUserDto,
+  TeamInviteUserDto,
+  TeamStationAssignmentDto,
+  StaffPayoutProfileDto,
 } from './dto/auth.dto';
 import { NotificationService } from '../notification/notification-service.service';
 import { MailService } from '../mail/mail.service';
@@ -52,6 +57,19 @@ export class AuthService {
     UserRole.EVZONE_ADMIN,
     UserRole.EVZONE_OPERATOR,
   ]);
+  private readonly stationAssignmentManagerRoles = new Set<UserRole>([
+    UserRole.STATION_OWNER,
+    UserRole.STATION_ADMIN,
+  ]);
+  private readonly teamAssignableRoles = new Set<UserRole>([
+    UserRole.STATION_ADMIN,
+    UserRole.MANAGER,
+    UserRole.ATTENDANT,
+    UserRole.CASHIER,
+    UserRole.TECHNICIAN_ORG,
+    UserRole.STATION_OPERATOR,
+  ]);
+  private readonly defaultAttendantTimezone = 'Africa/Kampala';
   private readonly organizationSafeSelect = {
     id: true,
     name: true,
@@ -76,6 +94,7 @@ export class AuthService {
     organizationId: true,
     ownerCapability: true,
     mustChangePassword: true,
+    lastStationAssignmentId: true,
     createdAt: true,
     updatedAt: true,
   } as const;
@@ -379,6 +398,429 @@ export class AuthService {
     });
   }
 
+  private hashIdentifier(input: string): string {
+    return crypto.createHash('sha256').update(input).digest('hex').slice(0, 12);
+  }
+
+  private parseUserRole(input: string, context: string): UserRole {
+    if (!(input in UserRole)) {
+      throw new BadRequestException(`Invalid role "${input}" for ${context}`);
+    }
+    return input as UserRole;
+  }
+
+  private assertTeamAssignableRole(role: UserRole, context: string) {
+    if (!this.teamAssignableRoles.has(role)) {
+      throw new BadRequestException(
+        `Role "${role}" is not allowed for station team assignments (${context})`,
+      );
+    }
+  }
+
+  private async getTeamManagerScope(
+    actorId: string,
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ) {
+    if (!actorId) {
+      throw new UnauthorizedException('Authenticated user context is required');
+    }
+
+    const actor = await client.user.findUnique({
+      where: { id: actorId },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        organizationId: true,
+        memberships: {
+          where: {
+            status: MembershipStatus.ACTIVE,
+          },
+          select: {
+            organizationId: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    if (!actor) {
+      throw new UnauthorizedException('Authenticated user not found');
+    }
+
+    const activeOrganizationId = actor.organizationId;
+    if (!activeOrganizationId) {
+      throw new UnauthorizedException(
+        'Authenticated user is missing an active organization context',
+      );
+    }
+
+    const membershipRoleForOrg = actor.memberships.find(
+      (membership) => membership.organizationId === activeOrganizationId,
+    )?.role;
+    const effectiveManagerRole = membershipRoleForOrg || actor.role;
+
+    if (!this.stationAssignmentManagerRoles.has(effectiveManagerRole)) {
+      throw new UnauthorizedException(
+        'Only STATION_OWNER and STATION_ADMIN can manage station teams',
+      );
+    }
+
+    return {
+      actor,
+      organizationId: activeOrganizationId,
+      managerRole: effectiveManagerRole,
+    };
+  }
+
+  private async ensureTeamMemberInScope(
+    targetUserId: string,
+    scopeOrganizationId: string,
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ) {
+    const target = await client.user.findUnique({
+      where: { id: targetUserId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        role: true,
+        status: true,
+        organizationId: true,
+        ownerCapability: true,
+        memberships: {
+          where: {
+            organizationId: scopeOrganizationId,
+          },
+          select: {
+            id: true,
+            status: true,
+            role: true,
+            ownerCapability: true,
+          },
+        },
+      },
+    });
+
+    if (!target) {
+      throw new NotFoundException('Team member not found');
+    }
+
+    if (
+      target.organizationId !== scopeOrganizationId &&
+      target.memberships.length === 0
+    ) {
+      throw new UnauthorizedException(
+        'Target user is not part of your active organization scope',
+      );
+    }
+
+    return target;
+  }
+
+  private normalizeTeamAssignments(
+    assignments: TeamStationAssignmentDto[],
+    context: string,
+  ): Array<{
+    stationId: string;
+    role: UserRole;
+    isPrimary: boolean;
+    isActive: boolean;
+    attendantMode: AttendantRoleMode | null;
+    shiftStart: string | null;
+    shiftEnd: string | null;
+    timezone: string | null;
+  }> {
+    if (!assignments?.length) {
+      throw new BadRequestException(
+        'At least one station assignment is required',
+      );
+    }
+
+    const dedupe = new Map<string, TeamStationAssignmentDto>();
+    for (const assignment of assignments) {
+      if (!assignment.stationId?.trim()) {
+        throw new BadRequestException(
+          'stationId is required for each assignment',
+        );
+      }
+      if (dedupe.has(assignment.stationId)) {
+        throw new BadRequestException(
+          `Duplicate station assignment for station ${assignment.stationId}`,
+        );
+      }
+      dedupe.set(assignment.stationId, assignment);
+    }
+
+    const normalized = Array.from(dedupe.values()).map((assignment) => {
+      const role = this.parseUserRole(assignment.role as string, context);
+      this.assertTeamAssignableRole(role, context);
+
+      const isActive = assignment.isActive ?? true;
+      const isPrimary = assignment.isPrimary ?? false;
+
+      if (role === UserRole.ATTENDANT) {
+        return {
+          stationId: assignment.stationId,
+          role,
+          isPrimary,
+          isActive,
+          attendantMode: assignment.attendantMode || AttendantRoleMode.FIXED,
+          shiftStart: assignment.shiftStart || '00:00',
+          shiftEnd: assignment.shiftEnd || '23:59',
+          timezone: assignment.timezone || this.defaultAttendantTimezone,
+        };
+      }
+
+      return {
+        stationId: assignment.stationId,
+        role,
+        isPrimary,
+        isActive,
+        attendantMode: null,
+        shiftStart: null,
+        shiftEnd: null,
+        timezone: null,
+      };
+    });
+
+    const hasPrimary = normalized.some((assignment) => assignment.isPrimary);
+    if (!hasPrimary && normalized.length > 0) {
+      normalized[0].isPrimary = true;
+    }
+
+    const activeAssignments = normalized.filter(
+      (assignment) => assignment.isActive,
+    );
+    if (
+      activeAssignments.length > 0 &&
+      !activeAssignments.some((item) => item.isPrimary)
+    ) {
+      activeAssignments[0].isPrimary = true;
+    }
+
+    return normalized;
+  }
+
+  private async validateStationsInOrganizationScope(
+    stationIds: string[],
+    organizationId: string,
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ) {
+    const stations = await client.station.findMany({
+      where: {
+        id: { in: stationIds },
+      },
+      select: {
+        id: true,
+        name: true,
+        orgId: true,
+      },
+    });
+
+    if (stations.length !== stationIds.length) {
+      const existingIds = new Set(stations.map((station) => station.id));
+      const missing = stationIds.filter(
+        (stationId) => !existingIds.has(stationId),
+      );
+      throw new NotFoundException(
+        `One or more stations do not exist: ${missing.join(', ')}`,
+      );
+    }
+
+    const outOfScope = stations.find(
+      (station) => station.orgId !== organizationId,
+    );
+    if (outOfScope) {
+      throw new UnauthorizedException(
+        `Station ${outOfScope.id} is outside your organization scope`,
+      );
+    }
+
+    return stations;
+  }
+
+  private async syncAttendantProjectionForUser(
+    userId: string,
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ) {
+    const activeAttendantAssignments =
+      await client.stationTeamAssignment.findMany({
+        where: {
+          userId,
+          isActive: true,
+          role: UserRole.ATTENDANT,
+        },
+        select: {
+          id: true,
+          stationId: true,
+          attendantMode: true,
+          shiftStart: true,
+          shiftEnd: true,
+          timezone: true,
+        },
+      });
+
+    const existingAttendantRows = await client.attendantAssignment.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        stationId: true,
+        isActive: true,
+      },
+    });
+
+    const activeStationIdSet = new Set(
+      activeAttendantAssignments.map((assignment) => assignment.stationId),
+    );
+
+    const existingByStation = new Map<
+      string,
+      Array<{ id: string; stationId: string; isActive: boolean }>
+    >();
+    for (const row of existingAttendantRows) {
+      const rows = existingByStation.get(row.stationId) || [];
+      rows.push(row);
+      existingByStation.set(row.stationId, rows);
+    }
+
+    for (const assignment of activeAttendantAssignments) {
+      const existingRowsForStation =
+        existingByStation.get(assignment.stationId) || [];
+      const primaryRow = existingRowsForStation[0];
+      const roleMode = assignment.attendantMode || AttendantRoleMode.FIXED;
+      const shiftStart = assignment.shiftStart || '00:00';
+      const shiftEnd = assignment.shiftEnd || '23:59';
+      const timezone = assignment.timezone || this.defaultAttendantTimezone;
+
+      if (primaryRow) {
+        await client.attendantAssignment.update({
+          where: { id: primaryRow.id },
+          data: {
+            roleMode,
+            shiftStart,
+            shiftEnd,
+            timezone,
+            isActive: true,
+          },
+        });
+
+        const duplicateIds = existingRowsForStation
+          .slice(1)
+          .map((row) => row.id);
+        if (duplicateIds.length > 0) {
+          await client.attendantAssignment.updateMany({
+            where: { id: { in: duplicateIds } },
+            data: { isActive: false },
+          });
+        }
+      } else {
+        await client.attendantAssignment.create({
+          data: {
+            userId,
+            stationId: assignment.stationId,
+            roleMode,
+            shiftStart,
+            shiftEnd,
+            timezone,
+            isActive: true,
+          },
+        });
+      }
+    }
+
+    const staleRows = existingAttendantRows.filter(
+      (row) => !activeStationIdSet.has(row.stationId) && row.isActive,
+    );
+    if (staleRows.length > 0) {
+      await client.attendantAssignment.updateMany({
+        where: {
+          id: { in: staleRows.map((row) => row.id) },
+        },
+        data: {
+          isActive: false,
+        },
+      });
+    }
+  }
+
+  private async resolveStationContexts(
+    userId: string,
+    organizationId: string | null,
+    lastStationAssignmentId?: string | null,
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ) {
+    const where: Prisma.StationTeamAssignmentWhereInput = {
+      userId,
+      isActive: true,
+    };
+
+    if (organizationId) {
+      where.station = {
+        orgId: organizationId,
+      };
+    }
+
+    const assignments = await client.stationTeamAssignment.findMany({
+      where,
+      include: {
+        station: {
+          select: {
+            id: true,
+            name: true,
+            orgId: true,
+          },
+        },
+      },
+      orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+    });
+
+    const stationContexts = assignments.map((assignment) => ({
+      assignmentId: assignment.id,
+      stationId: assignment.stationId,
+      stationName: assignment.station?.name || null,
+      organizationId: assignment.station?.orgId || null,
+      role: assignment.role,
+      isPrimary: assignment.isPrimary,
+      attendantMode: assignment.attendantMode,
+      shiftStart: assignment.shiftStart,
+      shiftEnd: assignment.shiftEnd,
+      timezone: assignment.timezone,
+    }));
+
+    const activeStationContext =
+      stationContexts.find(
+        (context) => context.assignmentId === lastStationAssignmentId,
+      ) ||
+      stationContexts.find((context) => context.isPrimary) ||
+      stationContexts[0] ||
+      null;
+
+    return {
+      stationContexts,
+      activeStationContext,
+    };
+  }
+
+  private validatePayoutProfileInput(payload: StaffPayoutProfileDto) {
+    if (payload.method === PayoutMethod.MOBILE_MONEY && !payload.phoneNumber) {
+      throw new BadRequestException(
+        'phoneNumber is required for MOBILE_MONEY payout profiles',
+      );
+    }
+
+    if (
+      payload.method === PayoutMethod.BANK_TRANSFER &&
+      (!payload.bankName || !payload.accountNumber)
+    ) {
+      throw new BadRequestException(
+        'bankName and accountNumber are required for BANK_TRANSFER payout profiles',
+      );
+    }
+  }
+
   private async resolveInvitationByToken(
     token: string,
     client: PrismaService | Prisma.TransactionClient = this.prisma,
@@ -602,6 +1044,76 @@ export class AuthService {
         });
       }
 
+      let materializedAssignmentCount = 0;
+      const rawInitialAssignments = invitation.initialAssignmentsJson;
+      if (
+        Array.isArray(rawInitialAssignments) &&
+        rawInitialAssignments.length > 0
+      ) {
+        const normalizedAssignments = this.normalizeTeamAssignments(
+          rawInitialAssignments as unknown as TeamStationAssignmentDto[],
+          'invitation activation',
+        );
+        await this.validateStationsInOrganizationScope(
+          normalizedAssignments.map((assignment) => assignment.stationId),
+          invitation.organizationId,
+          tx,
+        );
+
+        await tx.stationTeamAssignment.updateMany({
+          where: {
+            userId: user.id,
+            stationId: {
+              in: normalizedAssignments.map(
+                (assignment) => assignment.stationId,
+              ),
+            },
+            isActive: true,
+          },
+          data: {
+            isActive: false,
+            isPrimary: false,
+          },
+        });
+
+        const createdAssignments: Array<{ id: string; isPrimary: boolean }> =
+          [];
+        for (const assignment of normalizedAssignments) {
+          const created = await tx.stationTeamAssignment.create({
+            data: {
+              userId: user.id,
+              stationId: assignment.stationId,
+              role: assignment.role,
+              isPrimary: assignment.isPrimary,
+              isActive: assignment.isActive,
+              assignedByUserId: invitation.invitedBy || null,
+              attendantMode: assignment.attendantMode,
+              shiftStart: assignment.shiftStart,
+              shiftEnd: assignment.shiftEnd,
+              timezone: assignment.timezone,
+            },
+            select: { id: true, isPrimary: true },
+          });
+          createdAssignments.push(created);
+        }
+
+        materializedAssignmentCount = createdAssignments.length;
+        const preferredAssignment =
+          createdAssignments.find((assignment) => assignment.isPrimary) ||
+          createdAssignments[0];
+
+        if (preferredAssignment) {
+          await tx.user.update({
+            where: { id: user.id },
+            data: {
+              lastStationAssignmentId: preferredAssignment.id,
+            },
+          });
+        }
+
+        await this.syncAttendantProjectionForUser(user.id, tx);
+      }
+
       await this.syncLegacyOrganizationId(
         user.id,
         user.organizationId,
@@ -613,6 +1125,7 @@ export class AuthService {
         invitationId: invitation.id,
         organizationId: invitation.organizationId,
         usedTempPassword,
+        materializedAssignmentCount,
       };
     });
 
@@ -623,6 +1136,7 @@ export class AuthService {
       resourceId: activation.invitationId,
       details: {
         organizationId: activation.organizationId,
+        assignmentSeedCount: activation.materializedAssignmentCount,
       },
     });
 
@@ -815,6 +1329,9 @@ export class AuthService {
     }
 
     const normalizedEmail = this.normalizeEmail(inviteDto.email);
+    const normalizedInitialAssignments = inviteDto.initialAssignments?.length
+      ? this.normalizeTeamAssignments(inviteDto.initialAssignments, 'invite')
+      : [];
 
     const inviteRole = inviteDto.role as unknown as UserRole;
     const organizationId = this.isEvzoneRole(inviteRole)
@@ -829,6 +1346,13 @@ export class AuthService {
       );
       throw new BadRequestException(
         'Inviter is missing organization assignment; cannot invite non-EVZONE users',
+      );
+    }
+
+    if (normalizedInitialAssignments.length > 0) {
+      await this.validateStationsInOrganizationScope(
+        normalizedInitialAssignments.map((assignment) => assignment.stationId),
+        organizationId,
       );
     }
 
@@ -970,6 +1494,12 @@ export class AuthService {
           expiresAt,
           tempPasswordHash,
           tempPasswordIssuedAt: tempPassword ? new Date() : null,
+          ...(normalizedInitialAssignments.length > 0
+            ? {
+                initialAssignmentsJson:
+                  normalizedInitialAssignments as unknown as Prisma.InputJsonValue,
+              }
+            : {}),
         },
         select: {
           id: true,
@@ -1403,20 +1933,38 @@ export class AuthService {
       user.organizationId,
       options?.preferredOrganizationId,
     );
-    const effectiveRole = this.resolveEffectiveRole(
+    const { stationContexts, activeStationContext } =
+      await this.resolveStationContexts(
+        user.id,
+        activeOrganizationId,
+        user.lastStationAssignmentId,
+      );
+    const membershipRole = this.resolveEffectiveRole(
       user,
-      memberships.map((item) => ({
-        organizationId: item.organizationId,
-        role: item.role,
+      memberships.map((membership) => ({
+        organizationId: membership.organizationId,
+        role: membership.role,
       })),
       activeOrganizationId,
     );
+    const effectiveRole = activeStationContext?.role || membershipRole;
 
     await this.syncLegacyOrganizationId(
       user.id,
       user.organizationId,
       activeOrganizationId,
     );
+    if (
+      activeStationContext &&
+      user.lastStationAssignmentId !== activeStationContext.assignmentId
+    ) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          lastStationAssignmentId: activeStationContext.assignmentId,
+        },
+      });
+    }
 
     return {
       activeOrganizationId,
@@ -1430,6 +1978,8 @@ export class AuthService {
         organizationName: membership.organization?.name,
         organizationType: membership.organization?.type,
       })),
+      stationContexts,
+      activeStationContext,
     };
   }
 
@@ -1496,6 +2046,8 @@ export class AuthService {
         orgId: context.activeOrganizationId || user.organizationId,
         activeOrganizationId: context.activeOrganizationId,
         memberships: context.memberships,
+        stationContexts: context.stationContexts,
+        activeStationContext: context.activeStationContext,
         mustChangePassword: Boolean(user.mustChangePassword),
       },
     };
@@ -1576,6 +2128,8 @@ export class AuthService {
           orgId: authUserContext.activeOrganizationId || user.organizationId,
           activeOrganizationId: authUserContext.activeOrganizationId,
           memberships: authUserContext.memberships,
+          stationContexts: authUserContext.stationContexts,
+          activeStationContext: authUserContext.activeStationContext,
           mustChangePassword: Boolean(user.mustChangePassword),
         },
       };
@@ -1713,6 +2267,528 @@ export class AuthService {
     return users;
   }
 
+  async findTeamMembers(actorId: string) {
+    const scope = await this.getTeamManagerScope(actorId);
+
+    const memberships = await this.prisma.organizationMembership.findMany({
+      where: {
+        organizationId: scope.organizationId,
+        status: {
+          in: [
+            MembershipStatus.ACTIVE,
+            MembershipStatus.INVITED,
+            MembershipStatus.SUSPENDED,
+          ],
+        },
+      },
+      include: {
+        user: {
+          select: this.userSafeSelect,
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    const userIds = memberships.map((membership) => membership.userId);
+    if (userIds.length === 0) {
+      return [];
+    }
+
+    const assignmentRows = await this.prisma.stationTeamAssignment.findMany({
+      where: {
+        userId: { in: userIds },
+        isActive: true,
+        station: {
+          orgId: scope.organizationId,
+        },
+      },
+      select: {
+        userId: true,
+      },
+    });
+
+    const payoutProfiles = await this.prisma.staffPayoutProfile.findMany({
+      where: {
+        userId: { in: userIds },
+      },
+      select: {
+        userId: true,
+      },
+    });
+
+    const assignmentCountByUser = assignmentRows.reduce((acc, row) => {
+      acc.set(row.userId, (acc.get(row.userId) || 0) + 1);
+      return acc;
+    }, new Map<string, number>());
+    const payoutProfileUserIds = new Set(
+      payoutProfiles.map((profile) => profile.userId),
+    );
+
+    return memberships.map((membership) => {
+      const user = membership.user;
+      const activeAssignments = assignmentCountByUser.get(user.id) || 0;
+      const displayStatus =
+        user.status === 'Active' && activeAssignments === 0
+          ? 'Active-Unassigned'
+          : user.status;
+
+      return {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: membership.role,
+        status: user.status,
+        displayStatus,
+        ownerCapability: membership.ownerCapability || user.ownerCapability,
+        activeAssignments,
+        hasPayoutProfile: payoutProfileUserIds.has(user.id),
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      };
+    });
+  }
+
+  async inviteTeamMember(inviteDto: TeamInviteUserDto, inviterId: string) {
+    const scope = await this.getTeamManagerScope(inviterId);
+    const normalizedAssignments = this.normalizeTeamAssignments(
+      inviteDto.initialAssignments,
+      'team invite',
+    );
+
+    await this.validateStationsInOrganizationScope(
+      normalizedAssignments.map((assignment) => assignment.stationId),
+      scope.organizationId,
+    );
+
+    const inviteRole = this.parseUserRole(
+      inviteDto.role as string,
+      'team invite',
+    );
+    this.assertTeamAssignableRole(inviteRole, 'team invite');
+
+    const invitePayload: InviteUserDto = {
+      ...inviteDto,
+      role: inviteRole as unknown as InviteUserDto['role'],
+      initialAssignments:
+        normalizedAssignments as unknown as TeamStationAssignmentDto[],
+    };
+
+    return this.inviteUser(invitePayload, inviterId);
+  }
+
+  async updateTeamMember(
+    targetUserId: string,
+    updateDto: UpdateUserDto,
+    actorId: string,
+  ) {
+    const scope = await this.getTeamManagerScope(actorId);
+    const target = await this.ensureTeamMemberInScope(
+      targetUserId,
+      scope.organizationId,
+    );
+
+    const updateData: Prisma.UserUpdateInput = {};
+    if (typeof updateDto.name === 'string') updateData.name = updateDto.name;
+    if (typeof updateDto.phone === 'string') updateData.phone = updateDto.phone;
+    if (typeof updateDto.status === 'string')
+      updateData.status = updateDto.status;
+    if (typeof updateDto.ownerCapability === 'string') {
+      updateData.ownerCapability =
+        updateDto.ownerCapability as unknown as StationOwnerCapability;
+    }
+    if (typeof updateDto.role === 'string') {
+      const parsedRole = this.parseUserRole(
+        updateDto.role,
+        'team member update',
+      );
+      this.assertTeamAssignableRole(parsedRole, 'team member update');
+      updateData.role = parsedRole;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      throw new BadRequestException('No supported fields provided for update');
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updatedUser = await tx.user.update({
+        where: { id: targetUserId },
+        data: updateData,
+        select: this.userSafeSelect,
+      });
+
+      const membership = await tx.organizationMembership.findUnique({
+        where: {
+          userId_organizationId: {
+            userId: targetUserId,
+            organizationId: scope.organizationId,
+          },
+        },
+      });
+
+      if (membership) {
+        const membershipUpdateData: Prisma.OrganizationMembershipUpdateInput =
+          {};
+        if (updateData.role) {
+          membershipUpdateData.role = updateData.role as UserRole;
+        }
+        if (updateData.ownerCapability !== undefined) {
+          membershipUpdateData.ownerCapability =
+            (updateData.ownerCapability as StationOwnerCapability | null) ||
+            null;
+        }
+        if (updateDto.status) {
+          membershipUpdateData.status =
+            updateDto.status === 'Active'
+              ? MembershipStatus.ACTIVE
+              : updateDto.status === 'Invited' || updateDto.status === 'Pending'
+                ? MembershipStatus.INVITED
+                : MembershipStatus.SUSPENDED;
+        }
+
+        if (Object.keys(membershipUpdateData).length > 0) {
+          await tx.organizationMembership.update({
+            where: {
+              userId_organizationId: {
+                userId: targetUserId,
+                organizationId: scope.organizationId,
+              },
+            },
+            data: membershipUpdateData,
+          });
+        }
+      }
+
+      return updatedUser;
+    });
+
+    await this.recordAuditEvent({
+      actor: actorId,
+      action: 'TEAM_MEMBER_UPDATED',
+      resource: 'User',
+      resourceId: target.id,
+      details: {
+        targetUserId,
+        organizationId: scope.organizationId,
+      },
+    });
+
+    return result;
+  }
+
+  async getTeamAssignments(targetUserId: string, actorId: string) {
+    const scope = await this.getTeamManagerScope(actorId);
+    const target = await this.ensureTeamMemberInScope(
+      targetUserId,
+      scope.organizationId,
+    );
+
+    const assignments = await this.prisma.stationTeamAssignment.findMany({
+      where: {
+        userId: targetUserId,
+        station: {
+          orgId: scope.organizationId,
+        },
+      },
+      include: {
+        station: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+          },
+        },
+      },
+      orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+    });
+
+    return {
+      userId: target.id,
+      assignments: assignments.map((assignment) => ({
+        id: assignment.id,
+        stationId: assignment.stationId,
+        stationName: assignment.station?.name || null,
+        stationStatus: assignment.station?.status || null,
+        role: assignment.role,
+        isPrimary: assignment.isPrimary,
+        isActive: assignment.isActive,
+        attendantMode: assignment.attendantMode,
+        shiftStart: assignment.shiftStart,
+        shiftEnd: assignment.shiftEnd,
+        timezone: assignment.timezone,
+        createdAt: assignment.createdAt,
+        updatedAt: assignment.updatedAt,
+      })),
+    };
+  }
+
+  async replaceTeamAssignments(
+    targetUserId: string,
+    assignments: TeamStationAssignmentDto[],
+    actorId: string,
+  ) {
+    const scope = await this.getTeamManagerScope(actorId);
+    await this.ensureTeamMemberInScope(targetUserId, scope.organizationId);
+
+    const normalizedAssignments = this.normalizeTeamAssignments(
+      assignments,
+      'team assignment update',
+    );
+    await this.validateStationsInOrganizationScope(
+      normalizedAssignments.map((assignment) => assignment.stationId),
+      scope.organizationId,
+    );
+
+    await this.prisma.$transaction(async (tx) => {
+      const organizationStationIds = (
+        await tx.station.findMany({
+          where: { orgId: scope.organizationId },
+          select: { id: true },
+        })
+      ).map((station) => station.id);
+
+      if (organizationStationIds.length === 0) {
+        throw new BadRequestException(
+          'Cannot update assignments: no stations found in organization',
+        );
+      }
+
+      await tx.stationTeamAssignment.updateMany({
+        where: {
+          userId: targetUserId,
+          stationId: { in: organizationStationIds },
+          isActive: true,
+        },
+        data: {
+          isActive: false,
+          isPrimary: false,
+        },
+      });
+
+      const createdAssignments: Array<{
+        id: string;
+        isPrimary: boolean;
+        isActive: boolean;
+      }> = [];
+      for (const assignment of normalizedAssignments) {
+        const created = await tx.stationTeamAssignment.create({
+          data: {
+            userId: targetUserId,
+            stationId: assignment.stationId,
+            role: assignment.role,
+            isPrimary: assignment.isPrimary,
+            isActive: assignment.isActive,
+            assignedByUserId: actorId,
+            attendantMode: assignment.attendantMode,
+            shiftStart: assignment.shiftStart,
+            shiftEnd: assignment.shiftEnd,
+            timezone: assignment.timezone,
+          },
+          select: {
+            id: true,
+            isPrimary: true,
+            isActive: true,
+          },
+        });
+        createdAssignments.push(created);
+      }
+
+      const preferredContext =
+        createdAssignments.find(
+          (assignment) => assignment.isPrimary && assignment.isActive,
+        ) ||
+        createdAssignments.find((assignment) => assignment.isActive) ||
+        null;
+
+      await tx.user.update({
+        where: { id: targetUserId },
+        data: {
+          lastStationAssignmentId: preferredContext?.id || null,
+        },
+      });
+
+      await this.syncAttendantProjectionForUser(targetUserId, tx);
+    });
+
+    await this.recordAuditEvent({
+      actor: actorId,
+      action: 'TEAM_ASSIGNMENTS_REPLACED',
+      resource: 'StationTeamAssignment',
+      resourceId: targetUserId,
+      details: {
+        targetUserId,
+        organizationId: scope.organizationId,
+        assignmentCount: assignments.length,
+      },
+    });
+
+    return this.getTeamAssignments(targetUserId, actorId);
+  }
+
+  async getStaffPayoutProfile(targetUserId: string, actorId: string) {
+    const scope = await this.getTeamManagerScope(actorId);
+    await this.ensureTeamMemberInScope(targetUserId, scope.organizationId);
+
+    return this.prisma.staffPayoutProfile.findUnique({
+      where: {
+        userId: targetUserId,
+      },
+    });
+  }
+
+  async upsertStaffPayoutProfile(
+    targetUserId: string,
+    payoutDto: StaffPayoutProfileDto,
+    actorId: string,
+  ) {
+    const scope = await this.getTeamManagerScope(actorId);
+    await this.ensureTeamMemberInScope(targetUserId, scope.organizationId);
+    this.validatePayoutProfileInput(payoutDto);
+
+    const profile = await this.prisma.staffPayoutProfile.upsert({
+      where: {
+        userId: targetUserId,
+      },
+      update: {
+        method: payoutDto.method,
+        beneficiaryName: payoutDto.beneficiaryName,
+        providerName: payoutDto.providerName || null,
+        bankName: payoutDto.bankName || null,
+        accountNumber: payoutDto.accountNumber || null,
+        phoneNumber: payoutDto.phoneNumber || null,
+        currency: payoutDto.currency || 'UGX',
+        isActive: payoutDto.isActive ?? true,
+        updatedByUserId: actorId,
+      },
+      create: {
+        userId: targetUserId,
+        method: payoutDto.method,
+        beneficiaryName: payoutDto.beneficiaryName,
+        providerName: payoutDto.providerName || null,
+        bankName: payoutDto.bankName || null,
+        accountNumber: payoutDto.accountNumber || null,
+        phoneNumber: payoutDto.phoneNumber || null,
+        currency: payoutDto.currency || 'UGX',
+        isActive: payoutDto.isActive ?? true,
+        createdByUserId: actorId,
+        updatedByUserId: actorId,
+      },
+    });
+
+    await this.recordAuditEvent({
+      actor: actorId,
+      action: 'STAFF_PAYOUT_PROFILE_UPSERTED',
+      resource: 'StaffPayoutProfile',
+      resourceId: profile.id,
+      details: {
+        targetUserId,
+        organizationId: scope.organizationId,
+      },
+    });
+
+    return profile;
+  }
+
+  async getUserStationContexts(userId: string) {
+    if (!userId) {
+      throw new UnauthorizedException('Authenticated user context is required');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        organizationId: true,
+        lastStationAssignmentId: true,
+      },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return this.resolveStationContexts(
+      user.id,
+      user.organizationId,
+      user.lastStationAssignmentId,
+    );
+  }
+
+  async switchUserStationContext(userId: string, assignmentId: string) {
+    if (!userId) {
+      throw new UnauthorizedException('Authenticated user context is required');
+    }
+    if (!assignmentId) {
+      throw new BadRequestException('assignmentId is required');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        organizationId: true,
+      },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const assignment = await this.prisma.stationTeamAssignment.findFirst({
+      where: {
+        id: assignmentId,
+        userId,
+        isActive: true,
+        ...(user.organizationId
+          ? {
+              station: {
+                orgId: user.organizationId,
+              },
+            }
+          : {}),
+      },
+      include: {
+        station: {
+          select: {
+            id: true,
+            orgId: true,
+          },
+        },
+      },
+    });
+
+    if (!assignment) {
+      throw new UnauthorizedException(
+        'Assignment is invalid, inactive, or outside your active organization context',
+      );
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        lastStationAssignmentId: assignment.id,
+      },
+    });
+
+    const contexts = await this.resolveStationContexts(
+      user.id,
+      user.organizationId,
+      assignment.id,
+    );
+
+    await this.recordAuditEvent({
+      actor: userId,
+      action: 'STATION_CONTEXT_SWITCHED',
+      resource: 'StationTeamAssignment',
+      resourceId: assignment.id,
+      details: {
+        stationId: assignment.stationId,
+      },
+    });
+
+    return contexts;
+  }
+
   async getCrmStats() {
     const total = await this.prisma.user.count();
     const active = await this.prisma.user.count({
@@ -1765,9 +2841,25 @@ export class AuthService {
       user.memberships,
       user.organizationId,
     );
+    const stationContextBundle = await this.resolveStationContexts(
+      user.id,
+      activeOrganizationId,
+      user.lastStationAssignmentId,
+    );
+    const membershipRole = this.resolveEffectiveRole(
+      user,
+      user.memberships.map((membership) => ({
+        organizationId: membership.organizationId,
+        role: membership.role,
+      })),
+      activeOrganizationId,
+    );
+    const effectiveRole =
+      stationContextBundle.activeStationContext?.role || membershipRole;
 
     return {
       ...user,
+      role: effectiveRole,
       organizationId: activeOrganizationId || user.organizationId,
       orgId: activeOrganizationId || user.organizationId,
       activeOrganizationId,
@@ -1780,6 +2872,8 @@ export class AuthService {
         organizationName: membership.organization?.name,
         organizationType: membership.organization?.type,
       })),
+      stationContexts: stationContextBundle.stationContexts,
+      activeStationContext: stationContextBundle.activeStationContext,
     };
   }
 

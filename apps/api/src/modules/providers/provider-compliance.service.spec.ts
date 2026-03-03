@@ -1,5 +1,5 @@
-import { UserRole } from '@prisma/client'
-import { ProviderComplianceService } from './provider-compliance.service'
+import { UserRole } from '@prisma/client';
+import { ProviderComplianceService } from './provider-compliance.service';
 
 describe('ProviderComplianceService', () => {
   const prisma = {
@@ -13,7 +13,7 @@ describe('ProviderComplianceService', () => {
     providerDocument: {
       findMany: jest.fn(),
     },
-  } as any
+  } as any;
 
   const authz = {
     getActor: jest.fn(),
@@ -22,18 +22,18 @@ describe('ProviderComplianceService', () => {
     isPlatformOps: jest.fn(),
     assertProviderScope: jest.fn(),
     assertRelationshipScopedAccess: jest.fn(),
-  } as any
+  } as any;
 
   const requirementsService = {
     listForScope: jest.fn(),
-  } as any
+  } as any;
 
   const policyService = {
     getProviderPolicy: jest.fn(),
     normalizePolicy: jest.fn(),
-  } as any
+  } as any;
 
-  let service: ProviderComplianceService
+  let service: ProviderComplianceService;
 
   const defaultPolicy = {
     effectiveDateMode: 'WARN_BEFORE_ENFORCE',
@@ -46,7 +46,7 @@ describe('ProviderComplianceService', () => {
         class9aLabel: 'DG_CLASS_9A',
       },
     },
-  }
+  };
 
   const baseProvider = {
     id: 'provider-1',
@@ -57,28 +57,36 @@ describe('ProviderComplianceService', () => {
     batteriesSupported: ['MODEL-A', 'MODEL-B'],
     complianceMarkets: [],
     complianceProfile: null,
-  }
+  };
 
   beforeEach(() => {
-    jest.clearAllMocks()
-    jest.useRealTimers()
+    jest.clearAllMocks();
+    jest.useRealTimers();
 
-    service = new ProviderComplianceService(prisma, authz, requirementsService, policyService)
+    service = new ProviderComplianceService(
+      prisma,
+      authz,
+      requirementsService,
+      policyService,
+    );
 
     authz.getActor.mockResolvedValue({
       id: 'admin-1',
       role: UserRole.EVZONE_ADMIN,
       organizationId: null,
       providerId: null,
-    })
-    authz.isProviderRole.mockReturnValue(false)
-    authz.isOwnerRole.mockReturnValue(false)
-    authz.isPlatformOps.mockReturnValue(true)
-    authz.assertRelationshipScopedAccess.mockReturnValue(undefined)
+    });
+    authz.isProviderRole.mockReturnValue(false);
+    authz.isOwnerRole.mockReturnValue(false);
+    authz.isPlatformOps.mockReturnValue(true);
+    authz.assertRelationshipScopedAccess.mockReturnValue(undefined);
 
-    policyService.getProviderPolicy.mockResolvedValue({ code: 'PROVIDER_COMPLIANCE_V2', data: defaultPolicy })
-    policyService.normalizePolicy.mockImplementation((data: unknown) => data)
-  })
+    policyService.getProviderPolicy.mockResolvedValue({
+      code: 'PROVIDER_COMPLIANCE_V2',
+      data: defaultPolicy,
+    });
+    policyService.normalizePolicy.mockImplementation((data: unknown) => data);
+  });
 
   it('blocks provider when critical global document is missing', async () => {
     requirementsService.listForScope.mockReturnValue([
@@ -92,15 +100,18 @@ describe('ProviderComplianceService', () => {
         appliesTo: 'PROVIDER',
         markets: ['GLOBAL'],
       },
-    ])
+    ]);
 
-    prisma.swapProvider.findUniqueOrThrow.mockResolvedValue(baseProvider)
-    prisma.providerDocument.findMany.mockResolvedValue([])
+    prisma.swapProvider.findUniqueOrThrow.mockResolvedValue(baseProvider);
+    prisma.providerDocument.findMany.mockResolvedValue([]);
 
-    const result = await service.getProviderComplianceStatus('provider-1', 'admin-1')
-    expect(result.overallState).toBe('BLOCKED')
-    expect(result.missingCritical).toContain('PRV_CORP_INCORP')
-  })
+    const result = await service.getProviderComplianceStatus(
+      'provider-1',
+      'admin-1',
+    );
+    expect(result.overallState).toBe('BLOCKED');
+    expect(result.missingCritical).toContain('PRV_CORP_INCORP');
+  });
 
   it('downgrades GB 38031 before effective date, then blocks on/after effective date', async () => {
     requirementsService.listForScope.mockReturnValue([
@@ -116,25 +127,33 @@ describe('ProviderComplianceService', () => {
         effectiveFrom: '2026-07-01',
         roadmapAllowedBeforeEffective: true,
       },
-    ])
+    ]);
 
     prisma.swapProvider.findUniqueOrThrow.mockResolvedValue({
       ...baseProvider,
       countries: ['CN'],
-    })
-    prisma.providerDocument.findMany.mockResolvedValue([])
+    });
+    prisma.providerDocument.findMany.mockResolvedValue([]);
 
-    jest.useFakeTimers().setSystemTime(new Date('2026-06-20T00:00:00.000Z'))
-    const beforeEffective = await service.getProviderComplianceStatus('provider-1', 'admin-1')
-    expect(beforeEffective.overallState).toBe('WARN')
-    expect(beforeEffective.pendingActivation).toContain('PRV_CN_GB38031_2025')
-    expect(beforeEffective.missingCritical).not.toContain('PRV_CN_GB38031_2025')
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-20T00:00:00.000Z'));
+    const beforeEffective = await service.getProviderComplianceStatus(
+      'provider-1',
+      'admin-1',
+    );
+    expect(beforeEffective.overallState).toBe('WARN');
+    expect(beforeEffective.pendingActivation).toContain('PRV_CN_GB38031_2025');
+    expect(beforeEffective.missingCritical).not.toContain(
+      'PRV_CN_GB38031_2025',
+    );
 
-    jest.setSystemTime(new Date('2026-07-02T00:00:00.000Z'))
-    const afterEffective = await service.getProviderComplianceStatus('provider-1', 'admin-1')
-    expect(afterEffective.overallState).toBe('BLOCKED')
-    expect(afterEffective.missingCritical).toContain('PRV_CN_GB38031_2025')
-  })
+    jest.setSystemTime(new Date('2026-07-02T00:00:00.000Z'));
+    const afterEffective = await service.getProviderComplianceStatus(
+      'provider-1',
+      'admin-1',
+    );
+    expect(afterEffective.overallState).toBe('BLOCKED');
+    expect(afterEffective.missingCritical).toContain('PRV_CN_GB38031_2025');
+  });
 
   it('fails per-model requirement when one model is uncovered', async () => {
     requirementsService.listForScope.mockReturnValue([
@@ -149,9 +168,9 @@ describe('ProviderComplianceService', () => {
         markets: ['GLOBAL'],
         coverageMode: 'PER_MODEL',
       },
-    ])
+    ]);
 
-    prisma.swapProvider.findUniqueOrThrow.mockResolvedValue(baseProvider)
+    prisma.swapProvider.findUniqueOrThrow.mockResolvedValue(baseProvider);
     prisma.providerDocument.findMany.mockResolvedValue([
       {
         id: 'doc-1',
@@ -171,12 +190,15 @@ describe('ProviderComplianceService', () => {
         status: 'APPROVED',
         rejectionReason: null,
       },
-    ])
+    ]);
 
-    const result = await service.getProviderComplianceStatus('provider-1', 'admin-1')
-    expect(result.overallState).toBe('BLOCKED')
-    expect(result.missingCritical).toContain('PRV_UN38_3_REPORT')
-  })
+    const result = await service.getProviderComplianceStatus(
+      'provider-1',
+      'admin-1',
+    );
+    expect(result.overallState).toBe('BLOCKED');
+    expect(result.missingCritical).toContain('PRV_UN38_3_REPORT');
+  });
 
   it('emits HK DG policy warning when threshold is not configured', async () => {
     requirementsService.listForScope.mockReturnValue([
@@ -191,7 +213,7 @@ describe('ProviderComplianceService', () => {
         markets: ['HK'],
         policyDependency: 'HK_DG_THRESHOLD',
       },
-    ])
+    ]);
 
     prisma.providerRelationship.findUniqueOrThrow.mockResolvedValue({
       id: 'rel-1',
@@ -199,18 +221,21 @@ describe('ProviderComplianceService', () => {
       ownerOrgId: 'org-1',
       complianceMarkets: ['HK'],
       complianceProfile: { storedEnergyKwh: 300 },
-    })
+    });
     prisma.swapProvider.findUniqueOrThrow.mockResolvedValue({
       ...baseProvider,
       complianceMarkets: ['HK'],
-    })
-    prisma.providerDocument.findMany.mockResolvedValue([])
+    });
+    prisma.providerDocument.findMany.mockResolvedValue([]);
 
-    const result = await service.getRelationshipComplianceStatus('rel-1', 'admin-1')
-    expect(result.policyWarnings).toContain('HK_DG_THRESHOLD_UNCONFIGURED')
-    expect(result.overallState).toBe('WARN')
-    expect(result.missingCritical).not.toContain('STN_HK_DG_APPROVAL')
-  })
+    const result = await service.getRelationshipComplianceStatus(
+      'rel-1',
+      'admin-1',
+    );
+    expect(result.policyWarnings).toContain('HK_DG_THRESHOLD_UNCONFIGURED');
+    expect(result.overallState).toBe('WARN');
+    expect(result.missingCritical).not.toContain('STN_HK_DG_APPROVAL');
+  });
 
   it('blocks HK DG requirement when threshold is configured and exceeded', async () => {
     policyService.getProviderPolicy.mockResolvedValue({
@@ -225,7 +250,7 @@ describe('ProviderComplianceService', () => {
           },
         },
       },
-    })
+    });
 
     requirementsService.listForScope.mockReturnValue([
       {
@@ -239,7 +264,7 @@ describe('ProviderComplianceService', () => {
         markets: ['HK'],
         policyDependency: 'HK_DG_THRESHOLD',
       },
-    ])
+    ]);
 
     prisma.providerRelationship.findUniqueOrThrow.mockResolvedValue({
       id: 'rel-1',
@@ -247,15 +272,18 @@ describe('ProviderComplianceService', () => {
       ownerOrgId: 'org-1',
       complianceMarkets: ['HK'],
       complianceProfile: { storedEnergyKwh: 300 },
-    })
+    });
     prisma.swapProvider.findUniqueOrThrow.mockResolvedValue({
       ...baseProvider,
       complianceMarkets: ['HK'],
-    })
-    prisma.providerDocument.findMany.mockResolvedValue([])
+    });
+    prisma.providerDocument.findMany.mockResolvedValue([]);
 
-    const result = await service.getRelationshipComplianceStatus('rel-1', 'admin-1')
-    expect(result.overallState).toBe('BLOCKED')
-    expect(result.missingCritical).toContain('STN_HK_DG_APPROVAL')
-  })
-})
+    const result = await service.getRelationshipComplianceStatus(
+      'rel-1',
+      'admin-1',
+    );
+    expect(result.overallState).toBe('BLOCKED');
+    expect(result.missingCritical).toContain('STN_HK_DG_APPROVAL');
+  });
+});

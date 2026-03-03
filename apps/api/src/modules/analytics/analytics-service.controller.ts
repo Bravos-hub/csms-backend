@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Param, Query, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  Query,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { AnalyticsService } from './analytics-service.service';
 import { ServiceManagerService } from './service-manager.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -12,7 +21,7 @@ export class AnalyticsController {
   constructor(
     private readonly analyticsService: AnalyticsService,
     private readonly serviceManager: ServiceManagerService,
-  ) { }
+  ) {}
 
   @Get('dashboard')
   getDashboard(@Query('period') period = 'today') {

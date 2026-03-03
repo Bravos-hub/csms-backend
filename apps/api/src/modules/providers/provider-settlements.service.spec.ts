@@ -1,5 +1,5 @@
-import { UserRole } from '@prisma/client'
-import { ProviderSettlementsService } from './provider-settlements.service'
+import { UserRole } from '@prisma/client';
+import { ProviderSettlementsService } from './provider-settlements.service';
 
 describe('ProviderSettlementsService', () => {
   const prisma = {
@@ -10,7 +10,7 @@ describe('ProviderSettlementsService', () => {
     providerRelationship: {
       findUnique: jest.fn(),
     },
-  } as any
+  } as any;
 
   const authz = {
     getActor: jest.fn(),
@@ -18,14 +18,14 @@ describe('ProviderSettlementsService', () => {
     isOwnerRole: jest.fn(),
     isPlatformOps: jest.fn(),
     requirePlatformOps: jest.fn(),
-  } as any
+  } as any;
 
-  let service: ProviderSettlementsService
+  let service: ProviderSettlementsService;
 
   beforeEach(() => {
-    jest.clearAllMocks()
-    service = new ProviderSettlementsService(prisma, authz)
-  })
+    jest.clearAllMocks();
+    service = new ProviderSettlementsService(prisma, authz);
+  });
 
   it('aggregates settlement totals correctly', async () => {
     authz.getActor.mockResolvedValue({
@@ -33,8 +33,8 @@ describe('ProviderSettlementsService', () => {
       role: UserRole.EVZONE_ADMIN,
       organizationId: null,
       providerId: null,
-    })
-    authz.isPlatformOps.mockReturnValue(true)
+    });
+    authz.isPlatformOps.mockReturnValue(true);
 
     prisma.providerSettlementEntry.findMany.mockResolvedValue([
       {
@@ -71,17 +71,16 @@ describe('ProviderSettlementsService', () => {
         createdAt: new Date('2026-01-11T00:00:00.000Z'),
         updatedAt: new Date('2026-01-11T00:00:00.000Z'),
       },
-    ])
+    ]);
 
-    const summary = await service.getSummary({}, 'admin-1')
-    expect(summary.totals.gross).toBe(300)
-    expect(summary.totals.providerFee).toBe(30)
-    expect(summary.totals.platformFee).toBe(15)
-    expect(summary.totals.adjustments).toBe(-5)
-    expect(summary.totals.receivables).toBe(250)
-    expect(summary.totals.paid).toBe(85)
-    expect(summary.totals.pending).toBe(165)
-    expect(summary.totals.netPayable).toBe(165)
-  })
-})
-
+    const summary = await service.getSummary({}, 'admin-1');
+    expect(summary.totals.gross).toBe(300);
+    expect(summary.totals.providerFee).toBe(30);
+    expect(summary.totals.platformFee).toBe(15);
+    expect(summary.totals.adjustments).toBe(-5);
+    expect(summary.totals.receivables).toBe(250);
+    expect(summary.totals.paid).toBe(85);
+    expect(summary.totals.pending).toBe(165);
+    expect(summary.totals.netPayable).toBe(165);
+  });
+});

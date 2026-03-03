@@ -1,10 +1,23 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+} from '@nestjs/common';
 import { MaintenanceService } from './maintenance-service.service';
-import { CreateIncidentDto, UpdateIncidentDto, CreateDispatchDto, CreateWebhookDto } from './dto/maintenance.dto';
+import {
+  CreateIncidentDto,
+  UpdateIncidentDto,
+  CreateDispatchDto,
+  CreateWebhookDto,
+} from './dto/maintenance.dto';
 
 @Controller()
 export class MaintenanceController {
-  constructor(private readonly maintenanceService: MaintenanceService) { }
+  constructor(private readonly maintenanceService: MaintenanceService) {}
 
   // Incidents
   @Post('incidents')
@@ -41,7 +54,7 @@ export class MaintenanceController {
 
 @Controller('webhooks')
 export class WebhookController {
-  constructor(private readonly maintenanceService: MaintenanceService) { }
+  constructor(private readonly maintenanceService: MaintenanceService) {}
 
   @Post()
   create(@Body() dto: CreateWebhookDto) {

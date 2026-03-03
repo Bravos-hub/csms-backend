@@ -1,38 +1,49 @@
-import { Transform } from 'class-transformer'
-import { IsEnum, IsInt, IsObject, IsOptional, IsString, Max, Min } from 'class-validator'
-import { MarketplaceContactEntityKind, MarketplaceContactEventType } from '@prisma/client'
+import { Transform } from 'class-transformer';
+import {
+  IsEnum,
+  IsInt,
+  IsObject,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
+import {
+  MarketplaceContactEntityKind,
+  MarketplaceContactEventType,
+} from '@prisma/client';
 
 const toInt = ({ value }: { value: unknown }) => {
-  if (value == null || value === '') return undefined
-  const parsed = Number(value)
-  return Number.isNaN(parsed) ? value : parsed
-}
+  if (value == null || value === '') return undefined;
+  const parsed = Number(value);
+  return Number.isNaN(parsed) ? value : parsed;
+};
 
 export class CreateMarketplaceContactEventDto {
   @IsEnum(MarketplaceContactEntityKind)
-  entityKind: MarketplaceContactEntityKind
+  entityKind: MarketplaceContactEntityKind;
 
   @IsString()
-  entityId: string
+  entityId: string;
 
   @IsEnum(MarketplaceContactEventType)
-  eventType: MarketplaceContactEventType
+  eventType: MarketplaceContactEventType;
 
   @IsOptional()
   @IsString()
-  entityName?: string
+  entityName?: string;
 
   @IsOptional()
   @IsString()
-  entityCity?: string
+  entityCity?: string;
 
   @IsOptional()
   @IsString()
-  entityRegion?: string
+  entityRegion?: string;
 
   @IsOptional()
   @IsObject()
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>;
 }
 
 export class MarketplaceRecentContactsQueryDto {
@@ -41,5 +52,5 @@ export class MarketplaceRecentContactsQueryDto {
   @IsInt()
   @Min(1)
   @Max(50)
-  limit?: number
+  limit?: number;
 }

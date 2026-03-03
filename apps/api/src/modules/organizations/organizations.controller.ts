@@ -3,7 +3,7 @@ import { OrganizationsService } from './organizations.service';
 
 @Controller('organizations')
 export class OrganizationsController {
-  constructor(private readonly orgsService: OrganizationsService) { }
+  constructor(private readonly orgsService: OrganizationsService) {}
 
   @Get(':id')
   getById(@Param('id') id: string) {
@@ -18,7 +18,7 @@ export class OrganizationsController {
   @Post(':id/payouts')
   setupPayouts(
     @Param('id') id: string,
-    @Body() payload: { provider: string; walletNumber: string; taxId?: string }
+    @Body() payload: { provider: string; walletNumber: string; taxId?: string },
   ) {
     return this.orgsService.setupPayouts(id, payload);
   }

@@ -1,9 +1,9 @@
 jest.mock('../../prisma.service', () => ({
-  PrismaService: class PrismaServiceMock { }
+  PrismaService: class PrismaServiceMock {},
 }));
 
 jest.mock('./provisioning/charger-provisioning.service', () => ({
-  ChargerProvisioningService: class ChargerProvisioningServiceMock { }
+  ChargerProvisioningService: class ChargerProvisioningServiceMock {},
 }));
 
 import { StationService } from './station-service.service';
@@ -11,12 +11,12 @@ import { StationService } from './station-service.service';
 describe('StationService bounds filtering', () => {
   const prisma = {
     station: {
-      findMany: jest.fn()
-    }
+      findMany: jest.fn(),
+    },
   };
 
   const provisioningService = {
-    provision: jest.fn()
+    provision: jest.fn(),
   };
 
   const service = new StationService(prisma as any, provisioningService as any);
@@ -47,7 +47,7 @@ describe('StationService bounds filtering', () => {
     chargePoints: [],
     site: null,
     zone: null,
-    owner: null
+    owner: null,
   };
 
   beforeEach(() => {
@@ -60,8 +60,8 @@ describe('StationService bounds filtering', () => {
 
     expect(prisma.station.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: undefined
-      })
+        where: undefined,
+      }),
     );
   });
 
@@ -70,16 +70,16 @@ describe('StationService bounds filtering', () => {
       north: 0.578,
       south: 0.561,
       east: 32.646,
-      west: 32.637
+      west: 32.637,
     });
 
     expect(prisma.station.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
           latitude: { gte: 0.561, lte: 0.578 },
-          longitude: { gte: 32.637, lte: 32.646 }
-        }
-      })
+          longitude: { gte: 32.637, lte: 32.646 },
+        },
+      }),
     );
   });
 
@@ -91,10 +91,10 @@ describe('StationService bounds filtering', () => {
         where: {
           OR: [
             { name: { contains: 'kampala', mode: 'insensitive' } },
-            { address: { contains: 'kampala', mode: 'insensitive' } }
-          ]
-        }
-      })
+            { address: { contains: 'kampala', mode: 'insensitive' } },
+          ],
+        },
+      }),
     );
   });
 
@@ -104,9 +104,9 @@ describe('StationService bounds filtering', () => {
         north: 0.578,
         south: 0.561,
         east: 32.646,
-        west: 32.637
+        west: 32.637,
       },
-      'kampala'
+      'kampala',
     );
 
     expect(prisma.station.findMany).toHaveBeenCalledWith(
@@ -116,10 +116,10 @@ describe('StationService bounds filtering', () => {
           longitude: { gte: 32.637, lte: 32.646 },
           OR: [
             { name: { contains: 'kampala', mode: 'insensitive' } },
-            { address: { contains: 'kampala', mode: 'insensitive' } }
-          ]
-        }
-      })
+            { address: { contains: 'kampala', mode: 'insensitive' } },
+          ],
+        },
+      }),
     );
   });
 });

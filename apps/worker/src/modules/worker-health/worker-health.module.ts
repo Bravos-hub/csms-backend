@@ -4,8 +4,7 @@ import { CommandsWorkerModule } from '../commands/commands-worker.module';
 import { KafkaModule } from '../../platform/kafka.module';
 
 @Module({
-    imports: [CommandsWorkerModule, KafkaModule],
-    controllers: [WorkerHealthController],
+  imports: [CommandsWorkerModule, KafkaModule],
+  controllers: [WorkerHealthController],
 })
-export class WorkerHealthModule { }
-
+export class WorkerHealthModule {}

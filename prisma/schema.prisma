@@ -99,6 +99,12 @@ enum AttendantRoleMode {
   MOBILE
 }
 
+enum PayoutMethod {
+  MOBILE_MONEY
+  BANK_TRANSFER
+  CASH_PICKUP
+}
+
 enum MembershipStatus {
   INVITED
   ACTIVE
@@ -138,6 +144,7 @@ model User {
   subscribedPackage String? // Free, Starter, Growth, Pro, Enterprise
   organizationId    String?
   providerId        String?
+  lastStationAssignmentId String?
 
   // Relations
   zone                 GeographicZone?     @relation(fields: [zoneId], references: [id])
@@ -165,6 +172,11 @@ model User {
   attendantAssignments        AttendantAssignment[]
   attendantAssignmentRequests AttendantAssignmentRequest[]
   attendantNotifications      AttendantNotification[]
+  stationTeamAssignments      StationTeamAssignment[] @relation("StationTeamAssignmentUser")
+  teamAssignmentsCreated      StationTeamAssignment[] @relation("StationTeamAssignedBy")
+  staffPayoutProfile          StaffPayoutProfile?
+  payoutProfilesCreated       StaffPayoutProfile[] @relation("StaffPayoutProfileCreatedBy")
+  payoutProfilesUpdated       StaffPayoutProfile[] @relation("StaffPayoutProfileUpdatedBy")
   createdReceiptTransactions  ChargingReceiptTransaction[]
 
   createdAt DateTime @default(now())
@@ -250,6 +262,7 @@ model UserInvitation {
   activatedAt         DateTime?
   tempPasswordHash    String?
   tempPasswordIssuedAt DateTime?
+  initialAssignmentsJson Json?
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
 
@@ -548,6 +561,7 @@ model Station {
   bookings     Booking[]
   attendantAssignments        AttendantAssignment[]
   attendantAssignmentRequests AttendantAssignmentRequest[]
+  stationTeamAssignments      StationTeamAssignment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -659,6 +673,55 @@ model AttendantAssignment {
   @@index([userId, isActive])
   @@index([stationId, isActive])
   @@index([activeFrom, activeTo])
+}
+
+model StationTeamAssignment {
+  id               String            @id @default(uuid())
+  userId           String
+  stationId        String
+  role             UserRole
+  isPrimary        Boolean           @default(false)
+  isActive         Boolean           @default(true)
+  assignedByUserId String?
+  attendantMode    AttendantRoleMode?
+  shiftStart       String?
+  shiftEnd         String?
+  timezone         String?           @default("Africa/Kampala")
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  user         User    @relation("StationTeamAssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
+  station      Station @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  assignedByUser User? @relation("StationTeamAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+
+  @@map("station_team_assignments")
+  @@index([userId, isActive])
+  @@index([stationId, isActive])
+  @@index([userId, stationId, isActive])
+}
+
+model StaffPayoutProfile {
+  id              String       @id @default(uuid())
+  userId          String       @unique
+  method          PayoutMethod
+  beneficiaryName String
+  providerName    String?
+  bankName        String?
+  accountNumber   String?
+  phoneNumber     String?
+  currency        String       @default("UGX")
+  isActive        Boolean      @default(true)
+  createdByUserId String?
+  updatedByUserId String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  user          User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdByUser User? @relation("StaffPayoutProfileCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedByUser User? @relation("StaffPayoutProfileUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@map("staff_payout_profiles")
+  @@index([isActive])
 }
 
 model AttendantAssignmentRequest {

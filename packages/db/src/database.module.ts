@@ -19,6 +19,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       }),
     }), */
   ],
-  exports: [/* TypeOrmModule */], // Also commenting out TypeOrmModule from exports
+  exports: [
+    /* TypeOrmModule */
+  ], // Also commenting out TypeOrmModule from exports
 })
-export class DatabaseModule { }
+export class DatabaseModule {}

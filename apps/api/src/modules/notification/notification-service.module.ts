@@ -8,12 +8,9 @@ import { TwilioService } from './twilio.service';
 // import { Notification } from './notifications/entities/notification.entity'; (Removed)
 
 @Module({
-  imports: [
-    ConfigModule,
-    DatabaseModule,
-  ],
+  imports: [ConfigModule, DatabaseModule],
   controllers: [NotificationController],
   providers: [NotificationService, TwilioService],
   exports: [NotificationService],
 })
-export class NotificationServiceModule { }
+export class NotificationServiceModule {}

@@ -222,10 +222,7 @@ export class ChargePointController {
   }
 
   @Post(':id/commands/unlock')
-  unlock(
-    @Param('id') id: string,
-    @Body() dto: UnlockChargePointCommandDto,
-  ) {
+  unlock(@Param('id') id: string, @Body() dto: UnlockChargePointCommandDto) {
     return this.stationService.unlockConnector(id, dto);
   }
 

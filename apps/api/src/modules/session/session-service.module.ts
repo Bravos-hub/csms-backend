@@ -33,4 +33,4 @@ import { OcpiTokenSyncService } from '../../common/services/ocpi-token-sync.serv
   controllers: [SessionController],
   providers: [SessionService, PrismaService, OcpiTokenSyncService],
 })
-export class SessionServiceModule { }
+export class SessionServiceModule {}

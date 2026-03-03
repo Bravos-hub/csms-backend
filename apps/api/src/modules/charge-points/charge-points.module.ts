@@ -1,6 +1,6 @@
-import { Module } from '@nestjs/common'
-import { CommandsModule } from '../commands/commands.module'
-import { ChargePointsController } from './charge-points.controller'
+import { Module } from '@nestjs/common';
+import { CommandsModule } from '../commands/commands.module';
+import { ChargePointsController } from './charge-points.controller';
 
 @Module({
   imports: [CommandsModule],

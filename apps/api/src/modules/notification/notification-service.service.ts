@@ -3,7 +3,7 @@ import { TwilioService } from './twilio.service';
 
 @Injectable()
 export class NotificationService {
-  constructor(private readonly twilioService: TwilioService) { }
+  constructor(private readonly twilioService: TwilioService) {}
 
   getHello(): string {
     return 'Notification Service Operational';

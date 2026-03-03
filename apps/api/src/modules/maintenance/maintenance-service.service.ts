@@ -1,12 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
-import { CreateIncidentDto, UpdateIncidentDto, CreateDispatchDto, CreateWebhookDto } from './dto/maintenance.dto';
+import {
+  CreateIncidentDto,
+  UpdateIncidentDto,
+  CreateDispatchDto,
+  CreateWebhookDto,
+} from './dto/maintenance.dto';
 
 @Injectable()
 export class MaintenanceService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   // Incidents
   async createIncident(dto: CreateIncidentDto) {
@@ -18,8 +21,8 @@ export class MaintenanceService {
         description: dto.description,
         severity: dto.severity,
         status: 'OPEN',
-        assignedTo: dto.assignedTo
-      }
+        assignedTo: dto.assignedTo,
+      },
     });
   }
 
@@ -28,7 +31,10 @@ export class MaintenanceService {
   }
 
   async findIncidentById(id: string) {
-    const incident = await this.prisma.incident.findUnique({ where: { id }, include: { station: true, dispatches: true } });
+    const incident = await this.prisma.incident.findUnique({
+      where: { id },
+      include: { station: true, dispatches: true },
+    });
     if (!incident) throw new NotFoundException('Incident not found');
     return incident;
   }
@@ -37,7 +43,7 @@ export class MaintenanceService {
     await this.findIncidentById(id);
     return this.prisma.incident.update({
       where: { id },
-      data: dto
+      data: dto,
     });
   }
 
@@ -49,8 +55,8 @@ export class MaintenanceService {
         technicianId: dto.technicianId,
         notes: dto.notes,
         status: 'PENDING',
-        scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : new Date()
-      }
+        scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : new Date(),
+      },
     });
   }
 
@@ -65,8 +71,8 @@ export class MaintenanceService {
         url: dto.url,
         events: JSON.stringify(dto.events), // Storing array as string simplified for now if schema expects string
         secret: dto.secret,
-        active: true
-      }
+        active: true,
+      },
     });
   }
 

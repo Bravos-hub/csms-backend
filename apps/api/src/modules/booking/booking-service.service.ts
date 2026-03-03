@@ -1,19 +1,24 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
 import { CreateBookingDto, UpdateBookingDto } from './dto/booking.dto';
 
 @Injectable()
 export class BookingService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async findAll() {
     return this.prisma.booking.findMany({ include: { user: true } });
   }
 
   async findById(id: string) {
-    const booking = await this.prisma.booking.findUnique({ where: { id }, include: { user: true } });
+    const booking = await this.prisma.booking.findUnique({
+      where: { id },
+      include: { user: true },
+    });
     if (!booking) throw new NotFoundException('Booking not found');
     return booking;
   }
@@ -29,7 +34,9 @@ export class BookingService {
     let stationId = (createDto as any).stationId;
     if (!stationId && createDto.chargePointId) {
       // Assuming chargePointId is the ID (UUID) not OcppID based on schema relation
-      const cp = await this.prisma.chargePoint.findUnique({ where: { ocppId: createDto.chargePointId } });
+      const cp = await this.prisma.chargePoint.findUnique({
+        where: { ocppId: createDto.chargePointId },
+      });
       if (!cp) {
         // Try finding by ID if OcppID failed
         // const cpById = await this.prisma.chargePoint.findUnique({ where: { id: createDto.chargePointId } });
@@ -73,8 +80,8 @@ export class BookingService {
         chargePointId: createDto.chargePointId,
         startTime: new Date(createDto.startAt),
         endTime: expiry,
-        status: 'PENDING'
-      }
+        status: 'PENDING',
+      },
     });
   }
 
@@ -82,24 +89,25 @@ export class BookingService {
     const booking = await this.findById(id);
     return this.prisma.booking.update({
       where: { id },
-      data: { status: 'CANCELLED' }
+      data: { status: 'CANCELLED' },
     });
   }
 
   async checkin(id: string) {
     const booking = await this.findById(id);
-    if (booking.status !== 'PENDING') throw new BadRequestException('Booking not active');
+    if (booking.status !== 'PENDING')
+      throw new BadRequestException('Booking not active');
 
     return this.prisma.booking.update({
       where: { id },
-      data: { status: 'CONFIRMED' } // CONFIRMED or ACTIVE
+      data: { status: 'CONFIRMED' }, // CONFIRMED or ACTIVE
     });
   }
 
   async getQueue() {
     return this.prisma.booking.findMany({
       where: { status: 'PENDING' },
-      orderBy: { startTime: 'asc' }
+      orderBy: { startTime: 'asc' },
     });
   }
 }

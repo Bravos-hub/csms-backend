@@ -1,25 +1,28 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common'
-import { Prisma } from '@prisma/client'
-import { PrismaService } from '../../prisma.service'
-import { CreateMarketplaceContactEventDto } from './dto/marketplace-contacts.dto'
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../../prisma.service';
+import { CreateMarketplaceContactEventDto } from './dto/marketplace-contacts.dto';
 
 type RecentContactRow = {
-  entityKind: string
-  entityId: string
-  entityName: string | null
-  entityCity: string | null
-  entityRegion: string | null
-  lastEventType: string
-  lastContactedAt: Date
-}
+  entityKind: string;
+  entityId: string;
+  entityName: string | null;
+  entityCity: string | null;
+  entityRegion: string | null;
+  lastEventType: string;
+  lastContactedAt: Date;
+};
 
 @Injectable()
 export class MarketplaceContactsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async createEvent(actorId: string | undefined, data: CreateMarketplaceContactEventDto) {
+  async createEvent(
+    actorId: string | undefined,
+    data: CreateMarketplaceContactEventDto,
+  ) {
     if (!actorId) {
-      throw new UnauthorizedException('Missing authenticated user context')
+      throw new UnauthorizedException('Missing authenticated user context');
     }
 
     const event = await this.prisma.marketplaceContactEvent.create({
@@ -33,7 +36,7 @@ export class MarketplaceContactsService {
         entityRegion: data.entityRegion,
         metadata: data.metadata as Prisma.InputJsonValue | undefined,
       },
-    })
+    });
 
     return {
       id: event.id,
@@ -46,15 +49,15 @@ export class MarketplaceContactsService {
       entityRegion: event.entityRegion || undefined,
       metadata: event.metadata || undefined,
       createdAt: event.createdAt.toISOString(),
-    }
+    };
   }
 
   async getRecentContacts(actorId: string | undefined, limit?: number) {
     if (!actorId) {
-      throw new UnauthorizedException('Missing authenticated user context')
+      throw new UnauthorizedException('Missing authenticated user context');
     }
 
-    const safeLimit = Math.min(Math.max(limit ?? 12, 1), 50)
+    const safeLimit = Math.min(Math.max(limit ?? 12, 1), 50);
     const rows = await this.prisma.$queryRaw<RecentContactRow[]>(Prisma.sql`
       SELECT
         ranked."entityKind",
@@ -83,7 +86,7 @@ export class MarketplaceContactsService {
       WHERE ranked.rn = 1
       ORDER BY "lastContactedAt" DESC
       LIMIT ${safeLimit}
-    `)
+    `);
 
     return rows.map((row) => ({
       entityKind: row.entityKind,
@@ -93,6 +96,6 @@ export class MarketplaceContactsService {
       entityRegion: row.entityRegion || undefined,
       lastEventType: row.lastEventType,
       lastContactedAt: row.lastContactedAt.toISOString(),
-    }))
+    }));
   }
 }

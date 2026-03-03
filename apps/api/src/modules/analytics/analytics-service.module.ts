@@ -11,4 +11,4 @@ import { PrismaModule } from '../../prisma.module';
   providers: [AnalyticsService, HealthCheckService, ServiceManagerService],
   exports: [AnalyticsService, HealthCheckService],
 })
-export class AnalyticsServiceModule { }
+export class AnalyticsServiceModule {}

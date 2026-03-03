@@ -530,7 +530,11 @@ export class StationService {
   }
 
   async rebootChargePoint(id: string) {
-    return this.enqueueResetChargePointCommand(id, 'Hard', 'Reboot command queued');
+    return this.enqueueResetChargePointCommand(
+      id,
+      'Hard',
+      'Reboot command queued',
+    );
   }
 
   async softResetChargePoint(id: string) {
@@ -553,7 +557,8 @@ export class StationService {
       throw new BadRequestException('idTag must not be empty');
     }
     const remoteStartId =
-      this.normalizePositiveInt(dto.remoteStartId) || this.generateRemoteStartId();
+      this.normalizePositiveInt(dto.remoteStartId) ||
+      this.generateRemoteStartId();
 
     const response = await this.commands.enqueueCommand({
       commandType: 'RemoteStart',

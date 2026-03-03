@@ -1,6 +1,6 @@
-import { BadRequestException } from '@nestjs/common'
-import { UserRole } from '@prisma/client'
-import { ProviderDocumentsService } from './provider-documents.service'
+import { BadRequestException } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
+import { ProviderDocumentsService } from './provider-documents.service';
 
 describe('ProviderDocumentsService', () => {
   const prisma = {
@@ -8,19 +8,19 @@ describe('ProviderDocumentsService', () => {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
-  } as any
+  } as any;
 
   const authz = {
     getActor: jest.fn(),
     requirePlatformOps: jest.fn(),
-  } as any
+  } as any;
 
-  let service: ProviderDocumentsService
+  let service: ProviderDocumentsService;
 
   beforeEach(() => {
-    jest.clearAllMocks()
-    service = new ProviderDocumentsService(prisma, authz)
-  })
+    jest.clearAllMocks();
+    service = new ProviderDocumentsService(prisma, authz);
+  });
 
   it('requires reason/notes for rejected reviews', async () => {
     authz.getActor.mockResolvedValue({
@@ -28,7 +28,7 @@ describe('ProviderDocumentsService', () => {
       role: UserRole.EVZONE_ADMIN,
       organizationId: null,
       providerId: null,
-    })
+    });
     prisma.providerDocument.findUnique.mockResolvedValue({
       id: 'doc-1',
       providerId: 'provider-1',
@@ -41,7 +41,7 @@ describe('ProviderDocumentsService', () => {
       uploadedBy: 'user-1',
       status: 'PENDING',
       rejectionReason: null,
-    })
+    });
 
     await expect(
       service.reviewDocument(
@@ -51,8 +51,8 @@ describe('ProviderDocumentsService', () => {
         },
         'admin-1',
       ),
-    ).rejects.toBeInstanceOf(BadRequestException)
-  })
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
 
   it('updates document review status', async () => {
     authz.getActor.mockResolvedValue({
@@ -60,7 +60,7 @@ describe('ProviderDocumentsService', () => {
       role: UserRole.EVZONE_ADMIN,
       organizationId: null,
       providerId: null,
-    })
+    });
     prisma.providerDocument.findUnique.mockResolvedValue({
       id: 'doc-1',
       providerId: 'provider-1',
@@ -73,7 +73,7 @@ describe('ProviderDocumentsService', () => {
       uploadedBy: 'user-1',
       status: 'PENDING',
       rejectionReason: null,
-    })
+    });
     prisma.providerDocument.update.mockResolvedValue({
       id: 'doc-1',
       providerId: 'provider-1',
@@ -87,7 +87,7 @@ describe('ProviderDocumentsService', () => {
       status: 'APPROVED',
       rejectionReason: null,
       relationship: null,
-    })
+    });
 
     const reviewed = await service.reviewDocument(
       'doc-1',
@@ -95,10 +95,9 @@ describe('ProviderDocumentsService', () => {
         status: 'APPROVED',
       },
       'admin-1',
-    )
+    );
 
-    expect(reviewed.status).toBe('APPROVED')
-    expect(prisma.providerDocument.update).toHaveBeenCalled()
-  })
-})
-
+    expect(reviewed.status).toBe('APPROVED');
+    expect(prisma.providerDocument.update).toHaveBeenCalled();
+  });
+});

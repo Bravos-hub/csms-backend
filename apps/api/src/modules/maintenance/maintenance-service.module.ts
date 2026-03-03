@@ -2,7 +2,10 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 // import { TypeOrmModule } from '@nestjs/typeorm'; (Removed)
 import { DatabaseModule } from '@app/database';
-import { MaintenanceController, WebhookController } from './maintenance-service.controller';
+import {
+  MaintenanceController,
+  WebhookController,
+} from './maintenance-service.controller';
 import { MaintenanceService } from './maintenance-service.service';
 import { PrismaService } from '../../prisma.service';
 
@@ -15,4 +18,4 @@ import { PrismaService } from '../../prisma.service';
   controllers: [MaintenanceController, WebhookController],
   providers: [MaintenanceService, PrismaService],
 })
-export class MaintenanceServiceModule { }
+export class MaintenanceServiceModule {}

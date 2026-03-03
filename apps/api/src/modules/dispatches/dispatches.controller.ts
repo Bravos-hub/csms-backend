@@ -1,4 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 
 @Controller('dispatches')
 export class DispatchesController {
@@ -9,26 +18,26 @@ export class DispatchesController {
 
   @Get(':id')
   getById(@Param('id') id: string) {
-    return { id }
+    return { id };
   }
 
   @Post()
   create(@Body() payload: any) {
-    return payload
+    return payload;
   }
 
   @Patch(':id')
   update(@Param('id') id: string, @Body() payload: any) {
-    return { id, ...payload }
+    return { id, ...payload };
   }
 
   @Post(':id/assign')
   assign(@Param('id') id: string, @Body() payload: any) {
-    return { id, ...payload }
+    return { id, ...payload };
   }
 
   @Delete(':id')
   remove(@Param('id') id: string) {
-    return { id }
+    return { id };
   }
 }

@@ -9,4 +9,4 @@ import { PrismaService } from '../../prisma.service';
   controllers: [SiteController],
   providers: [SiteService, PrismaService],
 })
-export class SiteServiceModule { }
+export class SiteServiceModule {}

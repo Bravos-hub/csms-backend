@@ -1,12 +1,18 @@
 import {
+  ArrayMinSize,
   IsString,
   IsNotEmpty,
   IsEmail,
   MinLength,
   IsOptional,
   IsEnum,
+  IsArray,
+  ValidateNested,
+  IsBoolean,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import type { Role } from '@app/domain';
+import { AttendantRoleMode, PayoutMethod } from '@prisma/client';
 
 export class LoginDto {
   @IsEmail()
@@ -96,9 +102,130 @@ export class UpdateUserDto {
   @IsOptional()
   phone?: string;
 
+  @IsString()
+  @IsOptional()
+  role?: Role;
+
+  @IsString()
+  @IsOptional()
+  ownerCapability?: 'CHARGE' | 'SWAP' | 'BOTH';
+
   @IsEnum(['Active', 'Pending', 'Suspended', 'Inactive', 'Invited'])
   @IsOptional()
   status?: 'Active' | 'Pending' | 'Suspended' | 'Inactive' | 'Invited';
+}
+
+export class TeamStationAssignmentDto {
+  @IsString()
+  @IsNotEmpty()
+  stationId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  role: Role;
+
+  @IsBoolean()
+  @IsOptional()
+  isPrimary?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
+
+  @IsEnum(AttendantRoleMode)
+  @IsOptional()
+  attendantMode?: AttendantRoleMode;
+
+  @IsString()
+  @IsOptional()
+  shiftStart?: string;
+
+  @IsString()
+  @IsOptional()
+  shiftEnd?: string;
+
+  @IsString()
+  @IsOptional()
+  timezone?: string;
+}
+
+export class TeamStationAssignmentsUpdateDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => TeamStationAssignmentDto)
+  assignments: TeamStationAssignmentDto[];
+}
+
+export class TeamInviteUserDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+
+  @IsString()
+  @IsNotEmpty()
+  role: Role;
+
+  @IsString()
+  @IsOptional()
+  ownerCapability?: string;
+
+  @IsString()
+  @IsOptional()
+  frontendUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  region?: string;
+
+  @IsString()
+  @IsOptional()
+  zoneId?: string;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => TeamStationAssignmentDto)
+  initialAssignments: TeamStationAssignmentDto[];
+}
+
+export class StaffPayoutProfileDto {
+  @IsEnum(PayoutMethod)
+  method: PayoutMethod;
+
+  @IsString()
+  @IsNotEmpty()
+  beneficiaryName: string;
+
+  @IsString()
+  @IsOptional()
+  providerName?: string;
+
+  @IsString()
+  @IsOptional()
+  bankName?: string;
+
+  @IsString()
+  @IsOptional()
+  accountNumber?: string;
+
+  @IsString()
+  @IsOptional()
+  phoneNumber?: string;
+
+  @IsString()
+  @IsOptional()
+  currency?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
+}
+
+export class StationContextSwitchDto {
+  @IsString()
+  @IsNotEmpty()
+  assignmentId: string;
 }
 
 export class InviteUserDto {
@@ -125,6 +252,12 @@ export class InviteUserDto {
   @IsString()
   @IsOptional()
   zoneId?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TeamStationAssignmentDto)
+  @IsOptional()
+  initialAssignments?: TeamStationAssignmentDto[];
 }
 
 export class SwitchOrganizationDto {

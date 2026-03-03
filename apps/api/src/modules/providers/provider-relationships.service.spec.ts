@@ -1,6 +1,9 @@
-import { ConflictException, UnprocessableEntityException } from '@nestjs/common'
-import { ProviderRelationshipStatus, UserRole } from '@prisma/client'
-import { ProviderRelationshipsService } from './provider-relationships.service'
+import {
+  ConflictException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
+import { ProviderRelationshipStatus, UserRole } from '@prisma/client';
+import { ProviderRelationshipsService } from './provider-relationships.service';
 
 describe('ProviderRelationshipsService', () => {
   const prisma = {
@@ -10,25 +13,25 @@ describe('ProviderRelationshipsService', () => {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
-  } as any
+  } as any;
 
   const authz = {
     getActor: jest.fn(),
     assertOwnerOrgScope: jest.fn(),
     assertRelationshipScopedAccess: jest.fn(),
     requirePlatformOps: jest.fn(),
-  } as any
+  } as any;
 
   const providersService = {
     ensureProviderApproved: jest.fn(),
-  } as any
+  } as any;
 
-  let service: ProviderRelationshipsService
+  let service: ProviderRelationshipsService;
 
   beforeEach(() => {
-    jest.clearAllMocks()
-    service = new ProviderRelationshipsService(prisma, authz, providersService)
-  })
+    jest.clearAllMocks();
+    service = new ProviderRelationshipsService(prisma, authz, providersService);
+  });
 
   it('rejects duplicate open relationship requests', async () => {
     authz.getActor.mockResolvedValue({
@@ -36,17 +39,19 @@ describe('ProviderRelationshipsService', () => {
       role: UserRole.STATION_OWNER,
       organizationId: 'org-1',
       providerId: null,
-    })
-    providersService.ensureProviderApproved.mockResolvedValue({})
-    prisma.providerRelationship.findFirst.mockResolvedValue({ id: 'existing-rel' })
+    });
+    providersService.ensureProviderApproved.mockResolvedValue({});
+    prisma.providerRelationship.findFirst.mockResolvedValue({
+      id: 'existing-rel',
+    });
 
     await expect(
       service.requestRelationship(
         { providerId: 'provider-1', ownerOrgId: 'org-1', notes: 'hello' },
         'user-1',
       ),
-    ).rejects.toBeInstanceOf(ConflictException)
-  })
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
 
   it('fails approval when relationship is not in approvable state', async () => {
     authz.getActor.mockResolvedValue({
@@ -54,7 +59,7 @@ describe('ProviderRelationshipsService', () => {
       role: UserRole.EVZONE_ADMIN,
       organizationId: null,
       providerId: null,
-    })
+    });
     prisma.providerRelationship.findUnique.mockResolvedValue({
       id: 'rel-1',
       providerId: 'provider-1',
@@ -68,12 +73,12 @@ describe('ProviderRelationshipsService', () => {
       notes: 'already active',
       provider: { id: 'provider-1', name: 'Provider 1' },
       ownerOrg: { id: 'org-1', name: 'Org 1' },
-    })
+    });
 
-    await expect(service.approveRelationship('rel-1', { notes: 'ok' }, 'admin-1')).rejects.toBeInstanceOf(
-      UnprocessableEntityException,
-    )
-  })
+    await expect(
+      service.approveRelationship('rel-1', { notes: 'ok' }, 'admin-1'),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+  });
 
   it('transitions REQUESTED to DOCS_PENDING on provider accept', async () => {
     authz.getActor.mockResolvedValue({
@@ -81,7 +86,7 @@ describe('ProviderRelationshipsService', () => {
       role: UserRole.SWAP_PROVIDER_ADMIN,
       organizationId: 'org-provider',
       providerId: 'provider-1',
-    })
+    });
     prisma.providerRelationship.findUnique.mockResolvedValue({
       id: 'rel-1',
       providerId: 'provider-1',
@@ -95,7 +100,7 @@ describe('ProviderRelationshipsService', () => {
       notes: null,
       provider: { id: 'provider-1', name: 'Provider 1' },
       ownerOrg: { id: 'org-1', name: 'Org 1' },
-    })
+    });
     prisma.providerRelationship.update.mockResolvedValue({
       id: 'rel-1',
       providerId: 'provider-1',
@@ -109,10 +114,13 @@ describe('ProviderRelationshipsService', () => {
       notes: 'accepted',
       provider: { id: 'provider-1', name: 'Provider 1' },
       ownerOrg: { id: 'org-1', name: 'Org 1' },
-    })
+    });
 
-    const result = await service.respondToRelationship('rel-1', { action: 'ACCEPT', notes: 'accepted' }, 'provider-user-1')
-    expect(result.status).toBe('DOCS_PENDING')
-  })
-})
-
+    const result = await service.respondToRelationship(
+      'rel-1',
+      { action: 'ACCEPT', notes: 'accepted' },
+      'provider-user-1',
+    );
+    expect(result.status).toBe('DOCS_PENDING');
+  });
+});

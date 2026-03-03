@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common'
-import { CommandsService } from './commands.service'
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { CommandsService } from './commands.service';
 
 @Controller('commands')
 export class CommandsController {
@@ -7,15 +7,15 @@ export class CommandsController {
 
   @Get(':id')
   async getById(@Param('id') id: string) {
-    const command = await this.commands.getCommandById(id)
+    const command = await this.commands.getCommandById(id);
     if (!command) {
-      return { id, status: 'NOT_FOUND' }
+      return { id, status: 'NOT_FOUND' };
     }
-    return command
+    return command;
   }
 
   @Post()
   async create(@Body() payload: any) {
-    return this.commands.enqueueCommand(payload)
+    return this.commands.enqueueCommand(payload);
   }
 }

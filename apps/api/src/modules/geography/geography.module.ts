@@ -5,8 +5,8 @@ import { GeographyService } from './geography.service';
 import { PrismaService } from '../../prisma.service';
 
 @Module({
-    controllers: [GeographyController, TilesController],
-    providers: [GeographyService, PrismaService],
-    exports: [GeographyService],
+  controllers: [GeographyController, TilesController],
+  providers: [GeographyService, PrismaService],
+  exports: [GeographyService],
 })
-export class GeographyModule { }
+export class GeographyModule {}

@@ -1,8 +1,18 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
-import { UserRole } from '@prisma/client'
-import { JwtAuthGuard } from '../auth/jwt-auth.guard'
-import { RolesGuard } from '../auth/roles.guard'
-import { Roles } from '../auth/roles.decorator'
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import { UserRole } from '@prisma/client';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 import {
   CreateProviderRelationshipDto,
   RelationshipComplianceStatusesQueryDto,
@@ -12,9 +22,9 @@ import {
   SuspendProviderRelationshipDto,
   TerminateProviderRelationshipDto,
   UpdateComplianceProfileDto,
-} from './dto/providers.dto'
-import { ProviderRelationshipsService } from './provider-relationships.service'
-import { ProviderComplianceService } from './provider-compliance.service'
+} from './dto/providers.dto';
+import { ProviderRelationshipsService } from './provider-relationships.service';
+import { ProviderComplianceService } from './provider-compliance.service';
 
 @Controller('provider-relationships')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -35,46 +45,101 @@ export class ProviderRelationshipsController {
 
   @Get()
   getAll(@Query() query: ProviderRelationshipsQueryDto, @Req() req: any) {
-    return this.providerRelationshipsService.listRelationships(query, req.user?.sub)
+    return this.providerRelationshipsService.listRelationships(
+      query,
+      req.user?.sub,
+    );
   }
 
   @Post()
   create(@Body() body: CreateProviderRelationshipDto, @Req() req: any) {
-    return this.providerRelationshipsService.requestRelationship(body, req.user?.sub)
+    return this.providerRelationshipsService.requestRelationship(
+      body,
+      req.user?.sub,
+    );
   }
 
   @Patch(':id/compliance-profile')
-  updateComplianceProfile(@Param('id') id: string, @Body() body: UpdateComplianceProfileDto, @Req() req: any) {
-    return this.providerRelationshipsService.updateComplianceProfile(id, body, req.user?.sub)
+  updateComplianceProfile(
+    @Param('id') id: string,
+    @Body() body: UpdateComplianceProfileDto,
+    @Req() req: any,
+  ) {
+    return this.providerRelationshipsService.updateComplianceProfile(
+      id,
+      body,
+      req.user?.sub,
+    );
   }
 
   @Get('compliance-statuses')
-  getComplianceStatuses(@Query() query: RelationshipComplianceStatusesQueryDto, @Req() req: any) {
-    return this.providerComplianceService.getRelationshipComplianceStatuses(query.relationshipIds, req.user?.sub)
+  getComplianceStatuses(
+    @Query() query: RelationshipComplianceStatusesQueryDto,
+    @Req() req: any,
+  ) {
+    return this.providerComplianceService.getRelationshipComplianceStatuses(
+      query.relationshipIds,
+      req.user?.sub,
+    );
   }
 
   @Get(':id/compliance-status')
   getComplianceStatus(@Param('id') id: string, @Req() req: any) {
-    return this.providerComplianceService.getRelationshipComplianceStatus(id, req.user?.sub)
+    return this.providerComplianceService.getRelationshipComplianceStatus(
+      id,
+      req.user?.sub,
+    );
   }
 
   @Post(':id/respond')
-  respond(@Param('id') id: string, @Body() body: RespondProviderRelationshipDto, @Req() req: any) {
-    return this.providerRelationshipsService.respondToRelationship(id, body, req.user?.sub)
+  respond(
+    @Param('id') id: string,
+    @Body() body: RespondProviderRelationshipDto,
+    @Req() req: any,
+  ) {
+    return this.providerRelationshipsService.respondToRelationship(
+      id,
+      body,
+      req.user?.sub,
+    );
   }
 
   @Post(':id/approve')
-  approve(@Param('id') id: string, @Body() body: ProviderNotesBodyDto, @Req() req: any) {
-    return this.providerRelationshipsService.approveRelationship(id, body, req.user?.sub)
+  approve(
+    @Param('id') id: string,
+    @Body() body: ProviderNotesBodyDto,
+    @Req() req: any,
+  ) {
+    return this.providerRelationshipsService.approveRelationship(
+      id,
+      body,
+      req.user?.sub,
+    );
   }
 
   @Post(':id/suspend')
-  suspend(@Param('id') id: string, @Body() body: SuspendProviderRelationshipDto, @Req() req: any) {
-    return this.providerRelationshipsService.suspendRelationship(id, body, req.user?.sub)
+  suspend(
+    @Param('id') id: string,
+    @Body() body: SuspendProviderRelationshipDto,
+    @Req() req: any,
+  ) {
+    return this.providerRelationshipsService.suspendRelationship(
+      id,
+      body,
+      req.user?.sub,
+    );
   }
 
   @Post(':id/terminate')
-  terminate(@Param('id') id: string, @Body() body: TerminateProviderRelationshipDto, @Req() req: any) {
-    return this.providerRelationshipsService.terminateRelationship(id, body, req.user?.sub)
+  terminate(
+    @Param('id') id: string,
+    @Body() body: TerminateProviderRelationshipDto,
+    @Req() req: any,
+  ) {
+    return this.providerRelationshipsService.terminateRelationship(
+      id,
+      body,
+      req.user?.sub,
+    );
   }
 }

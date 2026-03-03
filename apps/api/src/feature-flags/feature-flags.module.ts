@@ -4,9 +4,9 @@ import { FeatureFlagsService } from './feature-flags.service';
 import { PrismaModule } from '../prisma.module';
 
 @Module({
-    imports: [PrismaModule],
-    controllers: [FeatureFlagsController],
-    providers: [FeatureFlagsService],
-    exports: [FeatureFlagsService],
+  imports: [PrismaModule],
+  controllers: [FeatureFlagsController],
+  providers: [FeatureFlagsService],
+  exports: [FeatureFlagsService],
 })
-export class FeatureFlagsModule { }
+export class FeatureFlagsModule {}

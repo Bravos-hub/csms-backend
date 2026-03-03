@@ -1,6 +1,6 @@
-import { Module } from '@nestjs/common'
-import { SseController } from './sse.controller'
-import { EventStreamService } from './sse.service'
+import { Module } from '@nestjs/common';
+import { SseController } from './sse.controller';
+import { EventStreamService } from './sse.service';
 
 @Module({
   controllers: [SseController],

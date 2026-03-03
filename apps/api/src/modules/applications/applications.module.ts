@@ -7,9 +7,9 @@ import { SignatureService } from './signature.service';
 import { ConfigModule } from '@nestjs/config';
 
 @Module({
-    imports: [DocumentsModule, ConfigModule],
-    controllers: [ApplicationsController],
-    providers: [ApplicationsService, PrismaService, SignatureService],
-    exports: [ApplicationsService],
+  imports: [DocumentsModule, ConfigModule],
+  controllers: [ApplicationsController],
+  providers: [ApplicationsService, PrismaService, SignatureService],
+  exports: [ApplicationsService],
 })
-export class ApplicationsModule { }
+export class ApplicationsModule {}

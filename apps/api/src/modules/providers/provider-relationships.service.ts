@@ -4,10 +4,10 @@ import {
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
-} from '@nestjs/common'
-import { Prisma, ProviderRelationshipStatus } from '@prisma/client'
-import { PrismaService } from '../../prisma.service'
-import { ProviderAuthzService } from './provider-authz.service'
+} from '@nestjs/common';
+import { Prisma, ProviderRelationshipStatus } from '@prisma/client';
+import { PrismaService } from '../../prisma.service';
+import { ProviderAuthzService } from './provider-authz.service';
 import {
   CreateProviderRelationshipDto,
   ProviderNotesBodyDto,
@@ -16,16 +16,16 @@ import {
   SuspendProviderRelationshipDto,
   TerminateProviderRelationshipDto,
   UpdateComplianceProfileDto,
-} from './dto/providers.dto'
-import { ProvidersService } from './providers.service'
-import { ProviderComplianceService } from './provider-compliance.service'
+} from './dto/providers.dto';
+import { ProvidersService } from './providers.service';
+import { ProviderComplianceService } from './provider-compliance.service';
 
 type RelationshipWithRelations = Prisma.ProviderRelationshipGetPayload<{
   include: {
-    provider: { select: { id: true; name: true } }
-    ownerOrg: { select: { id: true; name: true } }
-  }
-}>
+    provider: { select: { id: true; name: true } };
+    ownerOrg: { select: { id: true; name: true } };
+  };
+}>;
 
 @Injectable()
 export class ProviderRelationshipsService {
@@ -36,9 +36,15 @@ export class ProviderRelationshipsService {
     private readonly providerComplianceService: ProviderComplianceService,
   ) {}
 
-  private mapRelationship(relationship: RelationshipWithRelations | Prisma.ProviderRelationshipGetPayload<Record<string, never>>) {
-    const providerName = 'provider' in relationship ? relationship.provider?.name : undefined
-    const ownerOrgName = 'ownerOrg' in relationship ? relationship.ownerOrg?.name : undefined
+  private mapRelationship(
+    relationship:
+      | RelationshipWithRelations
+      | Prisma.ProviderRelationshipGetPayload<Record<string, never>>,
+  ) {
+    const providerName =
+      'provider' in relationship ? relationship.provider?.name : undefined;
+    const ownerOrgName =
+      'ownerOrg' in relationship ? relationship.ownerOrg?.name : undefined;
     return {
       id: relationship.id,
       providerId: relationship.providerId,
@@ -54,46 +60,55 @@ export class ProviderRelationshipsService {
       notes: relationship.notes || undefined,
       complianceMarkets: relationship.complianceMarkets,
       complianceProfile: relationship.complianceProfile || undefined,
-    }
+    };
   }
 
-  async listRelationships(query: ProviderRelationshipsQueryDto, actorId?: string) {
-    const actor = await this.authz.getActor(actorId)
-    const where: Prisma.ProviderRelationshipWhereInput = {}
+  async listRelationships(
+    query: ProviderRelationshipsQueryDto,
+    actorId?: string,
+  ) {
+    const actor = await this.authz.getActor(actorId);
+    const where: Prisma.ProviderRelationshipWhereInput = {};
 
-    if (query.status) where.status = query.status
+    if (query.status) where.status = query.status;
 
     if (query.ownerOrgId) {
-      this.authz.assertOwnerOrgScope(actor, query.ownerOrgId)
-      where.ownerOrgId = query.ownerOrgId
+      this.authz.assertOwnerOrgScope(actor, query.ownerOrgId);
+      where.ownerOrgId = query.ownerOrgId;
     }
 
     if (query.providerId) {
       if (this.authz.isProviderRole(actor.role)) {
-        this.authz.assertProviderScope(actor, query.providerId)
+        this.authz.assertProviderScope(actor, query.providerId);
       }
-      where.providerId = query.providerId
+      where.providerId = query.providerId;
     }
 
     if (query.my) {
       if (this.authz.isProviderRole(actor.role)) {
-        where.providerId = actor.providerId || '__none__'
+        where.providerId = actor.providerId || '__none__';
       } else if (this.authz.isOwnerRole(actor.role)) {
         if (!actor.organizationId) {
-          throw new ForbiddenException('Authenticated owner user has no organizationId')
+          throw new ForbiddenException(
+            'Authenticated owner user has no organizationId',
+          );
         }
-        where.ownerOrgId = actor.organizationId
+        where.ownerOrgId = actor.organizationId;
       }
     } else if (!this.authz.isPlatformOps(actor.role)) {
       if (this.authz.isProviderRole(actor.role)) {
-        where.providerId = actor.providerId || '__none__'
+        where.providerId = actor.providerId || '__none__';
       } else if (this.authz.isOwnerRole(actor.role)) {
         if (!actor.organizationId) {
-          throw new ForbiddenException('Authenticated owner user has no organizationId')
+          throw new ForbiddenException(
+            'Authenticated owner user has no organizationId',
+          );
         }
-        where.ownerOrgId = actor.organizationId
+        where.ownerOrgId = actor.organizationId;
       } else {
-        throw new ForbiddenException('You do not have access to provider relationships')
+        throw new ForbiddenException(
+          'You do not have access to provider relationships',
+        );
       }
     }
 
@@ -104,14 +119,19 @@ export class ProviderRelationshipsService {
         ownerOrg: { select: { id: true, name: true } },
       },
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-    })
-    return relationships.map((relationship) => this.mapRelationship(relationship))
+    });
+    return relationships.map((relationship) =>
+      this.mapRelationship(relationship),
+    );
   }
 
-  async requestRelationship(data: CreateProviderRelationshipDto, actorId?: string) {
-    const actor = await this.authz.getActor(actorId)
-    this.authz.assertOwnerOrgScope(actor, data.ownerOrgId)
-    await this.providersService.ensureProviderApproved(data.providerId)
+  async requestRelationship(
+    data: CreateProviderRelationshipDto,
+    actorId?: string,
+  ) {
+    const actor = await this.authz.getActor(actorId);
+    this.authz.assertOwnerOrgScope(actor, data.ownerOrgId);
+    await this.providersService.ensureProviderApproved(data.providerId);
 
     const existingOpen = await this.prisma.providerRelationship.findFirst({
       where: {
@@ -120,9 +140,11 @@ export class ProviderRelationshipsService {
         status: { not: ProviderRelationshipStatus.TERMINATED },
       },
       select: { id: true },
-    })
+    });
     if (existingOpen) {
-      throw new ConflictException('An active or pending relationship already exists for this owner/provider pair')
+      throw new ConflictException(
+        'An active or pending relationship already exists for this owner/provider pair',
+      );
     }
 
     const relationship = await this.prisma.providerRelationship.create({
@@ -133,19 +155,25 @@ export class ProviderRelationshipsService {
         notes: data.notes,
         requestedBy: actor.id,
         complianceMarkets: data.complianceMarkets ?? [],
-        complianceProfile: data.complianceProfile as Prisma.InputJsonValue | undefined,
+        complianceProfile: data.complianceProfile as
+          | Prisma.InputJsonValue
+          | undefined,
       },
       include: {
         provider: { select: { id: true, name: true } },
         ownerOrg: { select: { id: true, name: true } },
       },
-    })
+    });
 
-    return this.mapRelationship(relationship)
+    return this.mapRelationship(relationship);
   }
 
-  async respondToRelationship(id: string, body: RespondProviderRelationshipDto, actorId?: string) {
-    const actor = await this.authz.getActor(actorId)
+  async respondToRelationship(
+    id: string,
+    body: RespondProviderRelationshipDto,
+    actorId?: string,
+  ) {
+    const actor = await this.authz.getActor(actorId);
 
     const relationship = await this.prisma.providerRelationship.findUnique({
       where: { id },
@@ -153,18 +181,20 @@ export class ProviderRelationshipsService {
         provider: { select: { id: true, name: true } },
         ownerOrg: { select: { id: true, name: true } },
       },
-    })
-    if (!relationship) throw new NotFoundException('Relationship not found')
-    this.authz.assertRelationshipScopedAccess(actor, relationship)
+    });
+    if (!relationship) throw new NotFoundException('Relationship not found');
+    this.authz.assertRelationshipScopedAccess(actor, relationship);
 
     if (relationship.status !== ProviderRelationshipStatus.REQUESTED) {
-      throw new UnprocessableEntityException('Only REQUESTED relationships can be responded to')
+      throw new UnprocessableEntityException(
+        'Only REQUESTED relationships can be responded to',
+      );
     }
 
     const nextStatus =
       body.action === 'ACCEPT'
         ? ProviderRelationshipStatus.DOCS_PENDING
-        : ProviderRelationshipStatus.TERMINATED
+        : ProviderRelationshipStatus.TERMINATED;
 
     const updated = await this.prisma.providerRelationship.update({
       where: { id },
@@ -177,40 +207,50 @@ export class ProviderRelationshipsService {
         provider: { select: { id: true, name: true } },
         ownerOrg: { select: { id: true, name: true } },
       },
-    })
-    return this.mapRelationship(updated)
+    });
+    return this.mapRelationship(updated);
   }
 
-  async updateComplianceProfile(id: string, body: UpdateComplianceProfileDto, actorId?: string) {
-    const actor = await this.authz.getActor(actorId)
+  async updateComplianceProfile(
+    id: string,
+    body: UpdateComplianceProfileDto,
+    actorId?: string,
+  ) {
+    const actor = await this.authz.getActor(actorId);
     const relationship = await this.prisma.providerRelationship.findUnique({
       where: { id },
       include: {
         provider: { select: { id: true, name: true } },
         ownerOrg: { select: { id: true, name: true } },
       },
-    })
-    if (!relationship) throw new NotFoundException('Relationship not found')
-    this.authz.assertRelationshipScopedAccess(actor, relationship)
+    });
+    if (!relationship) throw new NotFoundException('Relationship not found');
+    this.authz.assertRelationshipScopedAccess(actor, relationship);
 
     const updated = await this.prisma.providerRelationship.update({
       where: { id },
       data: {
         complianceMarkets: body.complianceMarkets,
-        complianceProfile: body.complianceProfile as Prisma.InputJsonValue | undefined,
+        complianceProfile: body.complianceProfile as
+          | Prisma.InputJsonValue
+          | undefined,
       },
       include: {
         provider: { select: { id: true, name: true } },
         ownerOrg: { select: { id: true, name: true } },
       },
-    })
+    });
 
-    return this.mapRelationship(updated)
+    return this.mapRelationship(updated);
   }
 
-  async approveRelationship(id: string, body: ProviderNotesBodyDto, actorId?: string) {
-    const actor = await this.authz.getActor(actorId)
-    this.authz.requirePlatformOps(actor)
+  async approveRelationship(
+    id: string,
+    body: ProviderNotesBodyDto,
+    actorId?: string,
+  ) {
+    const actor = await this.authz.getActor(actorId);
+    this.authz.requirePlatformOps(actor);
 
     const relationship = await this.prisma.providerRelationship.findUnique({
       where: { id },
@@ -218,24 +258,35 @@ export class ProviderRelationshipsService {
         provider: { select: { id: true, name: true } },
         ownerOrg: { select: { id: true, name: true } },
       },
-    })
-    if (!relationship) throw new NotFoundException('Relationship not found')
+    });
+    if (!relationship) throw new NotFoundException('Relationship not found');
     if (
       relationship.status !== ProviderRelationshipStatus.DOCS_PENDING &&
       relationship.status !== ProviderRelationshipStatus.ADMIN_APPROVED
     ) {
-      throw new UnprocessableEntityException('Only DOCS_PENDING or ADMIN_APPROVED relationships can be approved')
+      throw new UnprocessableEntityException(
+        'Only DOCS_PENDING or ADMIN_APPROVED relationships can be approved',
+      );
     }
 
     const [providerCompliance, relationshipCompliance] = await Promise.all([
-      this.providerComplianceService.getProviderComplianceStatus(relationship.providerId, actor.id),
-      this.providerComplianceService.getRelationshipComplianceStatus(id, actor.id),
-    ])
-    const blockers = [...providerCompliance.blockerReasonCodes, ...relationshipCompliance.blockerReasonCodes]
+      this.providerComplianceService.getProviderComplianceStatus(
+        relationship.providerId,
+        actor.id,
+      ),
+      this.providerComplianceService.getRelationshipComplianceStatus(
+        id,
+        actor.id,
+      ),
+    ]);
+    const blockers = [
+      ...providerCompliance.blockerReasonCodes,
+      ...relationshipCompliance.blockerReasonCodes,
+    ];
     if (blockers.length > 0) {
       throw new UnprocessableEntityException(
         `Compliance blockers prevent relationship approval: ${Array.from(new Set(blockers)).join(', ')}`,
-      )
+      );
     }
 
     const updated = await this.prisma.providerRelationship.update({
@@ -249,13 +300,17 @@ export class ProviderRelationshipsService {
         provider: { select: { id: true, name: true } },
         ownerOrg: { select: { id: true, name: true } },
       },
-    })
-    return this.mapRelationship(updated)
+    });
+    return this.mapRelationship(updated);
   }
 
-  async suspendRelationship(id: string, body: SuspendProviderRelationshipDto, actorId?: string) {
-    const actor = await this.authz.getActor(actorId)
-    this.authz.requirePlatformOps(actor)
+  async suspendRelationship(
+    id: string,
+    body: SuspendProviderRelationshipDto,
+    actorId?: string,
+  ) {
+    const actor = await this.authz.getActor(actorId);
+    this.authz.requirePlatformOps(actor);
 
     const relationship = await this.prisma.providerRelationship.findUnique({
       where: { id },
@@ -263,10 +318,12 @@ export class ProviderRelationshipsService {
         provider: { select: { id: true, name: true } },
         ownerOrg: { select: { id: true, name: true } },
       },
-    })
-    if (!relationship) throw new NotFoundException('Relationship not found')
+    });
+    if (!relationship) throw new NotFoundException('Relationship not found');
     if (relationship.status !== ProviderRelationshipStatus.ACTIVE) {
-      throw new UnprocessableEntityException('Only ACTIVE relationships can be suspended')
+      throw new UnprocessableEntityException(
+        'Only ACTIVE relationships can be suspended',
+      );
     }
 
     const updated = await this.prisma.providerRelationship.update({
@@ -279,12 +336,16 @@ export class ProviderRelationshipsService {
         provider: { select: { id: true, name: true } },
         ownerOrg: { select: { id: true, name: true } },
       },
-    })
-    return this.mapRelationship(updated)
+    });
+    return this.mapRelationship(updated);
   }
 
-  async terminateRelationship(id: string, body: TerminateProviderRelationshipDto, actorId?: string) {
-    const actor = await this.authz.getActor(actorId)
+  async terminateRelationship(
+    id: string,
+    body: TerminateProviderRelationshipDto,
+    actorId?: string,
+  ) {
+    const actor = await this.authz.getActor(actorId);
 
     const relationship = await this.prisma.providerRelationship.findUnique({
       where: { id },
@@ -292,13 +353,15 @@ export class ProviderRelationshipsService {
         provider: { select: { id: true, name: true } },
         ownerOrg: { select: { id: true, name: true } },
       },
-    })
-    if (!relationship) throw new NotFoundException('Relationship not found')
+    });
+    if (!relationship) throw new NotFoundException('Relationship not found');
 
-    this.authz.assertRelationshipScopedAccess(actor, relationship)
+    this.authz.assertRelationshipScopedAccess(actor, relationship);
 
     if (relationship.status === ProviderRelationshipStatus.TERMINATED) {
-      throw new UnprocessableEntityException('Relationship is already terminated')
+      throw new UnprocessableEntityException(
+        'Relationship is already terminated',
+      );
     }
 
     const updated = await this.prisma.providerRelationship.update({
@@ -311,7 +374,7 @@ export class ProviderRelationshipsService {
         provider: { select: { id: true, name: true } },
         ownerOrg: { select: { id: true, name: true } },
       },
-    })
-    return this.mapRelationship(updated)
+    });
+    return this.mapRelationship(updated);
   }
 }

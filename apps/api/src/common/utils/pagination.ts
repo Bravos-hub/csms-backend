@@ -39,4 +39,3 @@ function toNonNegativeInt(value: unknown): number | undefined {
   if (normalized < 0) return undefined;
   return normalized;
 }
-

@@ -1,24 +1,27 @@
-import { Injectable } from '@nestjs/common'
-import { randomUUID } from 'crypto'
-import { PrismaService } from '../../prisma.service'
-import { CommandRequest, CommandResponse } from '../../contracts/commands'
+import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { PrismaService } from '../../prisma.service';
+import { CommandRequest, CommandResponse } from '../../contracts/commands';
 
 @Injectable()
 export class CommandsService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
-  async enqueueCommand(input: Omit<CommandRequest, 'commandId' | 'requestedAt'>): Promise<CommandResponse> {
-    const now = new Date()
-    const commandId = randomUUID()
+  async enqueueCommand(
+    input: Omit<CommandRequest, 'commandId' | 'requestedAt'>,
+  ): Promise<CommandResponse> {
+    const now = new Date();
+    const commandId = randomUUID();
 
     const command = await this.prisma.command.create({
       data: {
         id: commandId,
         stationId: input.stationId || null,
         chargePointId: input.chargePointId || null,
-        connectorId: input.connectorId !== undefined && input.connectorId !== null
-          ? String(input.connectorId)
-          : null,
+        connectorId:
+          input.connectorId !== undefined && input.connectorId !== null
+            ? String(input.connectorId)
+            : null,
         commandType: input.commandType,
         payload: (input.payload || {}) as any,
         status: 'Queued',
@@ -28,8 +31,8 @@ export class CommandsService {
         completedAt: null,
         correlationId: commandId,
         error: null,
-      }
-    })
+      },
+    });
 
     await this.prisma.commandOutbox.create({
       data: {
@@ -41,8 +44,8 @@ export class CommandsService {
         lastError: null,
         createdAt: now,
         updatedAt: now,
-      }
-    })
+      },
+    });
 
     await this.prisma.commandEvent.create({
       data: {
@@ -50,14 +53,14 @@ export class CommandsService {
         status: 'Queued',
         payload: { commandType: input.commandType },
         occurredAt: now,
-      }
-    })
+      },
+    });
 
     return {
       commandId,
       status: 'Queued',
       requestedAt: now.toISOString(),
-    }
+    };
   }
 
   async enqueueReset(chargePointId: string): Promise<CommandResponse> {
@@ -66,10 +69,13 @@ export class CommandsService {
       chargePointId,
       requestedBy: {},
       payload: {},
-    })
+    });
   }
 
-  async enqueueRemoteStop(sessionId: string, reason?: string): Promise<CommandResponse> {
+  async enqueueRemoteStop(
+    sessionId: string,
+    reason?: string,
+  ): Promise<CommandResponse> {
     return this.enqueueCommand({
       commandType: 'RemoteStop',
       requestedBy: {},
@@ -77,12 +83,12 @@ export class CommandsService {
         sessionId,
         reason,
       },
-    })
+    });
   }
 
   async getCommandById(commandId: string) {
     return this.prisma.command.findUnique({
       where: { id: commandId },
-    })
+    });
   }
 }

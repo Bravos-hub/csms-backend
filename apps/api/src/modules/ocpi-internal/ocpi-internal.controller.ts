@@ -21,20 +21,25 @@ import { PrismaService } from '../../prisma.service';
 export class OcpiInternalController {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly commandsService: CommandsService
+    private readonly commandsService: CommandsService,
   ) {}
 
   // Locations
   @Get('locations')
   @ServiceScopes('ocpi:read')
   getLocations() {
-    return this.prisma.station.findMany({ include: { chargePoints: true, site: true } });
+    return this.prisma.station.findMany({
+      include: { chargePoints: true, site: true },
+    });
   }
 
   @Get('locations/:id')
   @ServiceScopes('ocpi:read')
   getLocation(@Param('id') id: string) {
-    return this.prisma.station.findUnique({ where: { id }, include: { chargePoints: true, site: true } });
+    return this.prisma.station.findUnique({
+      where: { id },
+      include: { chargePoints: true, site: true },
+    });
   }
 
   // Tariffs
@@ -71,7 +76,9 @@ export class OcpiInternalController {
   @Get('partner-locations')
   @ServiceScopes('ocpi:read')
   async listPartnerLocations() {
-    return this.prisma.ocpiPartnerLocation.findMany({ orderBy: { updatedAt: 'desc' } });
+    return this.prisma.ocpiPartnerLocation.findMany({
+      orderBy: { updatedAt: 'desc' },
+    });
   }
 
   @Post('partner-tariffs')
@@ -82,7 +89,9 @@ export class OcpiInternalController {
     const tariffId = payload.tariffId;
     const version = payload.version || '2.2.1';
     const data = payload.data;
-    const lastUpdated = payload.lastUpdated ? new Date(payload.lastUpdated) : new Date();
+    const lastUpdated = payload.lastUpdated
+      ? new Date(payload.lastUpdated)
+      : new Date();
 
     if (!countryCode || !partyId || !tariffId || !data) {
       throw new NotImplementedException('Missing required tariff fields');
@@ -124,7 +133,9 @@ export class OcpiInternalController {
   @Get('partner-tariffs')
   @ServiceScopes('ocpi:read')
   async listPartnerTariffs() {
-    return this.prisma.ocpiPartnerTariff.findMany({ orderBy: { updatedAt: 'desc' } });
+    return this.prisma.ocpiPartnerTariff.findMany({
+      orderBy: { updatedAt: 'desc' },
+    });
   }
 
   // Tokens
@@ -142,7 +153,9 @@ export class OcpiInternalController {
     const tokenUid = payload.tokenUid;
     const tokenType = payload.tokenType || 'RFID';
     const data = payload.data;
-    const lastUpdated = payload.lastUpdated ? new Date(payload.lastUpdated) : new Date();
+    const lastUpdated = payload.lastUpdated
+      ? new Date(payload.lastUpdated)
+      : new Date();
     const valid = payload.valid !== undefined ? Boolean(payload.valid) : true;
 
     if (!countryCode || !partyId || !tokenUid || !data) {
@@ -226,7 +239,9 @@ export class OcpiInternalController {
     const tokenType = payload.tokenType || 'RFID';
     const version = payload.version || '2.2.1';
     const data = payload.data;
-    const lastUpdated = payload.lastUpdated ? new Date(payload.lastUpdated) : new Date();
+    const lastUpdated = payload.lastUpdated
+      ? new Date(payload.lastUpdated)
+      : new Date();
 
     if (!countryCode || !partyId || !tokenUid || !data) {
       throw new NotImplementedException('Missing required token fields');
@@ -277,7 +292,10 @@ export class OcpiInternalController {
     if (query.tokenType) where.tokenType = query.tokenType;
     if (query.version) where.version = query.version;
 
-    return this.prisma.ocpiPartnerToken.findMany({ where, orderBy: { updatedAt: 'desc' } });
+    return this.prisma.ocpiPartnerToken.findMany({
+      where,
+      orderBy: { updatedAt: 'desc' },
+    });
   }
 
   // Sessions
@@ -289,7 +307,9 @@ export class OcpiInternalController {
     const sessionId = payload.sessionId;
     const version = payload.version || '2.2.1';
     const data = payload.data;
-    const lastUpdated = payload.lastUpdated ? new Date(payload.lastUpdated) : new Date();
+    const lastUpdated = payload.lastUpdated
+      ? new Date(payload.lastUpdated)
+      : new Date();
 
     if (!countryCode || !partyId || !sessionId || !data) {
       throw new NotImplementedException('Missing required session fields');
@@ -364,7 +384,10 @@ export class OcpiInternalController {
     if (query.sessionId) where.sessionId = query.sessionId;
     if (query.version) where.version = query.version;
 
-    return this.prisma.ocpiPartnerSession.findMany({ where, orderBy: { updatedAt: 'desc' } });
+    return this.prisma.ocpiPartnerSession.findMany({
+      where,
+      orderBy: { updatedAt: 'desc' },
+    });
   }
 
   // CDRs
@@ -376,7 +399,9 @@ export class OcpiInternalController {
     const cdrId = payload.cdrId;
     const version = payload.version || '2.2.1';
     const data = payload.data;
-    const lastUpdated = payload.lastUpdated ? new Date(payload.lastUpdated) : new Date();
+    const lastUpdated = payload.lastUpdated
+      ? new Date(payload.lastUpdated)
+      : new Date();
 
     if (!countryCode || !partyId || !cdrId || !data) {
       throw new NotImplementedException('Missing required CDR fields');
@@ -418,7 +443,9 @@ export class OcpiInternalController {
   @Get('cdrs')
   @ServiceScopes('ocpi:read')
   async listCdrs() {
-    return this.prisma.ocpiPartnerCdr.findMany({ orderBy: { updatedAt: 'desc' } });
+    return this.prisma.ocpiPartnerCdr.findMany({
+      orderBy: { updatedAt: 'desc' },
+    });
   }
 
   // Commands
@@ -455,7 +482,9 @@ export class OcpiInternalController {
         tokenC: payload.tokenC || null,
         roles: payload.roles || undefined,
         endpoints: payload.endpoints || undefined,
-        lastSyncAt: payload.lastSyncAt ? new Date(payload.lastSyncAt) : undefined,
+        lastSyncAt: payload.lastSyncAt
+          ? new Date(payload.lastSyncAt)
+          : undefined,
       },
     });
   }
@@ -477,7 +506,9 @@ export class OcpiInternalController {
         tokenC: payload.tokenC,
         roles: payload.roles,
         endpoints: payload.endpoints,
-        lastSyncAt: payload.lastSyncAt ? new Date(payload.lastSyncAt) : undefined,
+        lastSyncAt: payload.lastSyncAt
+          ? new Date(payload.lastSyncAt)
+          : undefined,
       },
     });
   }
@@ -507,7 +538,9 @@ export class OcpiInternalController {
     const locationId = payload.locationId;
     const version = payload.version || '2.2.1';
     const data = payload.data;
-    const lastUpdated = payload.lastUpdated ? new Date(payload.lastUpdated) : new Date();
+    const lastUpdated = payload.lastUpdated
+      ? new Date(payload.lastUpdated)
+      : new Date();
     const objectType = payload.objectType || 'LOCATION';
     const evseUid = payload.evseUid;
     const connectorId = payload.connectorId;
@@ -529,7 +562,9 @@ export class OcpiInternalController {
 
     if (!existing) {
       if (objectType !== 'LOCATION') {
-        throw new NotImplementedException('Location not found for EVSE/Connector update');
+        throw new NotImplementedException(
+          'Location not found for EVSE/Connector update',
+        );
       }
 
       return this.prisma.ocpiPartnerLocation.create({
@@ -563,7 +598,12 @@ export class OcpiInternalController {
   private mergeLocation(
     existing: any,
     incoming: any,
-    context: { objectType: string; evseUid?: string; connectorId?: string; isPatch: boolean }
+    context: {
+      objectType: string;
+      evseUid?: string;
+      connectorId?: string;
+      isPatch: boolean;
+    },
   ) {
     const { objectType, evseUid, connectorId, isPatch } = context;
 
@@ -598,12 +638,18 @@ export class OcpiInternalController {
         return updated;
       }
       const evse = evses[evseIndex];
-      const connectors = Array.isArray(evse.connectors) ? [...evse.connectors] : [];
-      const connectorIndex = connectors.findIndex((connector: any) => connector.id === connectorId);
+      const connectors = Array.isArray(evse.connectors)
+        ? [...evse.connectors]
+        : [];
+      const connectorIndex = connectors.findIndex(
+        (connector: any) => connector.id === connectorId,
+      );
       if (connectorIndex === -1) {
         connectors.push(incoming);
       } else {
-        connectors[connectorIndex] = isPatch ? { ...connectors[connectorIndex], ...incoming } : incoming;
+        connectors[connectorIndex] = isPatch
+          ? { ...connectors[connectorIndex], ...incoming }
+          : incoming;
       }
       evses[evseIndex] = { ...evse, connectors };
       updated.evses = evses;

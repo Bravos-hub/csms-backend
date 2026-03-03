@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { ChargePoint, Station } from '@prisma/client';
@@ -7,317 +12,369 @@ import * as fs from 'fs';
 type ChargePointAuthProfile = 'basic' | 'mtls_bootstrap';
 
 type ProvisioningOptions = {
-    authProfile?: ChargePointAuthProfile;
-    bootstrapTtlMinutes?: number;
-    allowedIps?: string[];
-    allowedCidrs?: string[];
+  authProfile?: ChargePointAuthProfile;
+  bootstrapTtlMinutes?: number;
+  allowedIps?: string[];
+  allowedCidrs?: string[];
 };
 
 type CertificateBindInput = {
-    fingerprint: string;
-    subject?: string;
-    validFrom?: string;
-    validTo?: string;
+  fingerprint: string;
+  subject?: string;
+  validFrom?: string;
+  validTo?: string;
 };
 
 type BootstrapUpdateInput = {
-    enabled: boolean;
-    ttlMinutes?: number;
-    allowedIps?: string[];
-    allowedCidrs?: string[];
+  enabled: boolean;
+  ttlMinutes?: number;
+  allowedIps?: string[];
+  allowedCidrs?: string[];
 };
 
 type RedisChargerIdentity = {
-    chargePointId: string;
-    stationId: string;
-    tenantId: string;
-    status?: 'active' | 'disabled';
-    allowedProtocols?: string[];
-    allowedIps?: string[];
-    allowedCidrs?: string[];
-    auth?: {
-        type?: 'basic' | 'token' | 'mtls';
-        username?: string;
-        hashAlgorithm?: string;
-        secretHash?: string;
-        secretSalt?: string;
-        allowNoAuthBootstrap?: boolean;
-        noAuthUntil?: string;
-        bootstrapRequireIpAllowlist?: boolean;
-        certificates?: Array<{
-            fingerprint?: string;
-            subject?: string;
-            validFrom?: string;
-            validTo?: string;
-            status?: 'active' | 'revoked';
-            chargePointId?: string;
-        }>;
-    };
-    updatedAt?: string;
+  chargePointId: string;
+  stationId: string;
+  tenantId: string;
+  status?: 'active' | 'disabled';
+  allowedProtocols?: string[];
+  allowedIps?: string[];
+  allowedCidrs?: string[];
+  auth?: {
+    type?: 'basic' | 'token' | 'mtls';
+    username?: string;
+    hashAlgorithm?: string;
+    secretHash?: string;
+    secretSalt?: string;
+    allowNoAuthBootstrap?: boolean;
+    noAuthUntil?: string;
+    bootstrapRequireIpAllowlist?: boolean;
+    certificates?: Array<{
+      fingerprint?: string;
+      subject?: string;
+      validFrom?: string;
+      validTo?: string;
+      status?: 'active' | 'revoked';
+      chargePointId?: string;
+    }>;
+  };
+  updatedAt?: string;
 };
 
 @Injectable()
-export class ChargerProvisioningService implements OnModuleInit, OnModuleDestroy {
-    private readonly logger = new Logger(ChargerProvisioningService.name);
-    private redis: Redis;
-    private readonly identityPrefix: string;
-    private readonly bootstrapDefaultMinutes: number;
-    private readonly bootstrapMaxMinutes: number;
+export class ChargerProvisioningService
+  implements OnModuleInit, OnModuleDestroy
+{
+  private readonly logger = new Logger(ChargerProvisioningService.name);
+  private redis: Redis;
+  private readonly identityPrefix: string;
+  private readonly bootstrapDefaultMinutes: number;
+  private readonly bootstrapMaxMinutes: number;
 
-    constructor(private readonly config: ConfigService) {
-        this.identityPrefix = this.config.get<string>('OCPP_IDENTITY_PREFIX', 'chargers');
-        this.bootstrapDefaultMinutes = this.readIntEnv('OCPP_NOAUTH_BOOTSTRAP_DEFAULT_MINUTES', 30);
-        this.bootstrapMaxMinutes = this.readIntEnv('OCPP_NOAUTH_BOOTSTRAP_MAX_MINUTES', 120);
+  constructor(private readonly config: ConfigService) {
+    this.identityPrefix = this.config.get<string>(
+      'OCPP_IDENTITY_PREFIX',
+      'chargers',
+    );
+    this.bootstrapDefaultMinutes = this.readIntEnv(
+      'OCPP_NOAUTH_BOOTSTRAP_DEFAULT_MINUTES',
+      30,
+    );
+    this.bootstrapMaxMinutes = this.readIntEnv(
+      'OCPP_NOAUTH_BOOTSTRAP_MAX_MINUTES',
+      120,
+    );
+  }
+
+  onModuleInit() {
+    const redisUrl = this.config.get<string>(
+      'REDIS_URL',
+      'redis://localhost:6379',
+    );
+
+    const tlsEnabled = this.config.get<string>('REDIS_TLS') === 'true';
+    const redisOptions: any = {};
+
+    if (tlsEnabled || redisUrl.startsWith('rediss://')) {
+      const rejectUnauthorized =
+        this.config.get<string>('REDIS_TLS_REJECT_UNAUTHORIZED', 'true') ===
+        'true';
+      if (!rejectUnauthorized) {
+        throw new Error('REDIS_TLS_REJECT_UNAUTHORIZED=false is not allowed');
+      }
+      const caPath = this.config.get<string>('REDIS_TLS_CA_PATH');
+      if (caPath && !fs.existsSync(caPath)) {
+        throw new Error(`REDIS_TLS_CA_PATH not found: ${caPath}`);
+      }
+      redisOptions.tls = {
+        rejectUnauthorized: true,
+        ca: caPath ? fs.readFileSync(caPath) : undefined,
+      };
     }
 
-    onModuleInit() {
-        const redisUrl = this.config.get<string>('REDIS_URL', 'redis://localhost:6379');
+    this.redis = new Redis(redisUrl, redisOptions);
+    this.logger.log(
+      `Connected to Redis at ${redisUrl} for Charger Provisioning`,
+    );
+  }
 
-        const tlsEnabled = this.config.get<string>('REDIS_TLS') === 'true';
-        const redisOptions: any = {};
+  onModuleDestroy() {
+    this.redis.disconnect();
+  }
 
-        if (tlsEnabled || redisUrl.startsWith('rediss://')) {
-            const rejectUnauthorized = this.config.get<string>('REDIS_TLS_REJECT_UNAUTHORIZED', 'true') === 'true';
-            if (!rejectUnauthorized) {
-                throw new Error('REDIS_TLS_REJECT_UNAUTHORIZED=false is not allowed');
-            }
-            const caPath = this.config.get<string>('REDIS_TLS_CA_PATH');
-            if (caPath && !fs.existsSync(caPath)) {
-                throw new Error(`REDIS_TLS_CA_PATH not found: ${caPath}`);
-            }
-            redisOptions.tls = {
-                rejectUnauthorized: true,
-                ca: caPath ? fs.readFileSync(caPath) : undefined,
-            };
-        }
-
-        this.redis = new Redis(redisUrl, redisOptions);
-        this.logger.log(`Connected to Redis at ${redisUrl} for Charger Provisioning`);
+  async provision(
+    chargePoint: ChargePoint,
+    station: Station,
+    ocppVersion: '1.6' | '2.0.1' | '2.1' = '1.6',
+    options?: ProvisioningOptions,
+  ) {
+    if (!chargePoint.ocppId) {
+      this.logger.warn(
+        `Cannot provision charge point without OCPP ID: ${chargePoint.id}`,
+      );
+      return;
     }
 
-    onModuleDestroy() {
-        this.redis.disconnect();
+    const key = `${this.identityPrefix}:${chargePoint.ocppId}`;
+    const existing = await this.getIdentity(chargePoint.ocppId);
+    const existingAuth = existing?.auth || {};
+    const requestedProfile = options?.authProfile;
+    const authProfile: ChargePointAuthProfile =
+      requestedProfile ||
+      (existingAuth.allowNoAuthBootstrap ? 'mtls_bootstrap' : 'basic');
+    const allowedIps =
+      options?.allowedIps !== undefined
+        ? this.normalizeList(options.allowedIps)
+        : this.normalizeList(existing?.allowedIps);
+    const allowedCidrs =
+      options?.allowedCidrs !== undefined
+        ? this.normalizeList(options.allowedCidrs)
+        : this.normalizeList(existing?.allowedCidrs);
+    const bootstrapTtl = this.resolveBootstrapTtl(options?.bootstrapTtlMinutes);
+    const noAuthUntil = new Date(
+      Date.now() + bootstrapTtl * 60_000,
+    ).toISOString();
+
+    const auth: NonNullable<RedisChargerIdentity['auth']> = {
+      ...existingAuth,
+      type:
+        existingAuth.type === 'mtls' && !requestedProfile ? 'mtls' : 'basic',
+      username: chargePoint.ocppId,
+      hashAlgorithm: 'sha256',
+      secretHash:
+        chargePoint.clientSecretHash || existingAuth.secretHash || undefined,
+      secretSalt:
+        chargePoint.clientSecretSalt || existingAuth.secretSalt || undefined,
+    };
+
+    if (requestedProfile === 'mtls_bootstrap') {
+      auth.type = 'basic';
+      auth.allowNoAuthBootstrap = true;
+      auth.noAuthUntil = noAuthUntil;
+      auth.bootstrapRequireIpAllowlist = true;
+    } else if (requestedProfile === 'basic') {
+      auth.allowNoAuthBootstrap = false;
+      delete auth.noAuthUntil;
+      delete auth.bootstrapRequireIpAllowlist;
     }
 
-    async provision(
-        chargePoint: ChargePoint,
-        station: Station,
-        ocppVersion: '1.6' | '2.0.1' | '2.1' = '1.6',
-        options?: ProvisioningOptions
-    ) {
-        if (!chargePoint.ocppId) {
-            this.logger.warn(`Cannot provision charge point without OCPP ID: ${chargePoint.id}`);
-            return;
-        }
+    const identity: RedisChargerIdentity = {
+      chargePointId: chargePoint.ocppId,
+      stationId: station.id,
+      tenantId: (station as any).site?.ownerId || 'unknown-owner', // Fallback or need deeper fetch
+      status: 'active',
+      allowedProtocols: [this.gatewayVersion(ocppVersion)],
+      allowedIps,
+      allowedCidrs,
+      auth,
+      updatedAt: new Date().toISOString(),
+    };
 
-        const key = `${this.identityPrefix}:${chargePoint.ocppId}`;
-        const existing = await this.getIdentity(chargePoint.ocppId);
-        const existingAuth = existing?.auth || {};
-        const requestedProfile = options?.authProfile;
-        const authProfile: ChargePointAuthProfile =
-            requestedProfile
-                || (existingAuth.allowNoAuthBootstrap ? 'mtls_bootstrap' : 'basic');
-        const allowedIps =
-            options?.allowedIps !== undefined
-                ? this.normalizeList(options.allowedIps)
-                : this.normalizeList(existing?.allowedIps);
-        const allowedCidrs =
-            options?.allowedCidrs !== undefined
-                ? this.normalizeList(options.allowedCidrs)
-                : this.normalizeList(existing?.allowedCidrs);
-        const bootstrapTtl = this.resolveBootstrapTtl(options?.bootstrapTtlMinutes);
-        const noAuthUntil = new Date(Date.now() + bootstrapTtl * 60_000).toISOString();
+    await this.redis.set(key, JSON.stringify(identity));
+    this.logger.log(
+      `Provisioned charger ${chargePoint.ocppId} (${authProfile}) (Key: ${key})`,
+    );
+  }
 
-        const auth: NonNullable<RedisChargerIdentity['auth']> = {
-            ...existingAuth,
-            type: (existingAuth.type === 'mtls' && !requestedProfile) ? 'mtls' : 'basic',
-            username: chargePoint.ocppId,
-            hashAlgorithm: 'sha256',
-            secretHash: chargePoint.clientSecretHash || existingAuth.secretHash || undefined,
-            secretSalt: chargePoint.clientSecretSalt || existingAuth.secretSalt || undefined,
-        };
+  async bindCertificate(
+    chargePointId: string,
+    input: CertificateBindInput,
+  ): Promise<RedisChargerIdentity> {
+    const identity = await this.getIdentityOrThrow(chargePointId);
+    const auth: NonNullable<RedisChargerIdentity['auth']> = identity.auth || {};
+    const normalized = this.normalizeFingerprint(input.fingerprint);
 
-        if (requestedProfile === 'mtls_bootstrap') {
-            auth.type = 'basic';
-            auth.allowNoAuthBootstrap = true;
-            auth.noAuthUntil = noAuthUntil;
-            auth.bootstrapRequireIpAllowlist = true;
-        } else if (requestedProfile === 'basic') {
-            auth.allowNoAuthBootstrap = false;
-            delete auth.noAuthUntil;
-            delete auth.bootstrapRequireIpAllowlist;
-        }
+    auth.certificates = (auth.certificates || []).filter((entry) => {
+      if (!entry.fingerprint) return true;
+      return this.normalizeFingerprint(entry.fingerprint) !== normalized;
+    });
 
-        const identity: RedisChargerIdentity = {
-            chargePointId: chargePoint.ocppId,
-            stationId: station.id,
-            tenantId: (station as any).site?.ownerId || 'unknown-owner', // Fallback or need deeper fetch
-            status: 'active',
-            allowedProtocols: [this.gatewayVersion(ocppVersion)],
-            allowedIps,
-            allowedCidrs,
-            auth,
-            updatedAt: new Date().toISOString(),
-        };
+    auth.certificates.push({
+      fingerprint: normalized,
+      subject: input.subject,
+      validFrom: input.validFrom || new Date().toISOString(),
+      validTo: input.validTo,
+      status: 'active',
+      chargePointId,
+    });
 
-        await this.redis.set(key, JSON.stringify(identity));
-        this.logger.log(`Provisioned charger ${chargePoint.ocppId} (${authProfile}) (Key: ${key})`);
+    auth.type = 'mtls';
+    auth.allowNoAuthBootstrap = false;
+    delete auth.noAuthUntil;
+    delete auth.bootstrapRequireIpAllowlist;
+    identity.auth = auth;
+    identity.updatedAt = new Date().toISOString();
+
+    await this.redis.set(
+      this.identityKey(chargePointId),
+      JSON.stringify(identity),
+    );
+    return identity;
+  }
+
+  async getSecurityState(chargePointId: string): Promise<{
+    authProfile: 'basic' | 'mtls_bootstrap' | 'mtls';
+    bootstrapEnabled: boolean;
+    bootstrapExpiresAt?: string;
+    allowedIps: string[];
+    allowedCidrs: string[];
+    requiresClientCertificate: boolean;
+    certificatesCount: number;
+  }> {
+    const identity = await this.getIdentity(chargePointId);
+    if (!identity) {
+      return {
+        authProfile: 'basic',
+        bootstrapEnabled: false,
+        allowedIps: [],
+        allowedCidrs: [],
+        requiresClientCertificate: false,
+        certificatesCount: 0,
+      };
     }
 
-    async bindCertificate(chargePointId: string, input: CertificateBindInput): Promise<RedisChargerIdentity> {
-        const identity = await this.getIdentityOrThrow(chargePointId);
-        const auth: NonNullable<RedisChargerIdentity['auth']> = identity.auth || {};
-        const normalized = this.normalizeFingerprint(input.fingerprint);
+    const auth: NonNullable<RedisChargerIdentity['auth']> = identity.auth || {};
+    const profile =
+      auth.type === 'mtls'
+        ? 'mtls'
+        : auth.allowNoAuthBootstrap
+          ? 'mtls_bootstrap'
+          : 'basic';
 
-        auth.certificates = (auth.certificates || []).filter((entry) => {
-            if (!entry.fingerprint) return true;
-            return this.normalizeFingerprint(entry.fingerprint) !== normalized;
-        });
+    return {
+      authProfile: profile,
+      bootstrapEnabled: auth.allowNoAuthBootstrap === true,
+      bootstrapExpiresAt: auth.noAuthUntil,
+      allowedIps: this.normalizeList(identity.allowedIps),
+      allowedCidrs: this.normalizeList(identity.allowedCidrs),
+      requiresClientCertificate: profile !== 'basic',
+      certificatesCount: auth.certificates?.length || 0,
+    };
+  }
 
-        auth.certificates.push({
-            fingerprint: normalized,
-            subject: input.subject,
-            validFrom: input.validFrom || new Date().toISOString(),
-            validTo: input.validTo,
-            status: 'active',
-            chargePointId,
-        });
+  async updateBootstrap(
+    chargePointId: string,
+    input: BootstrapUpdateInput,
+  ): Promise<RedisChargerIdentity> {
+    const identity = await this.getIdentityOrThrow(chargePointId);
+    const auth: NonNullable<RedisChargerIdentity['auth']> = identity.auth || {};
 
-        auth.type = 'mtls';
-        auth.allowNoAuthBootstrap = false;
-        delete auth.noAuthUntil;
-        delete auth.bootstrapRequireIpAllowlist;
-        identity.auth = auth;
-        identity.updatedAt = new Date().toISOString();
+    const allowedIps =
+      input.allowedIps !== undefined
+        ? this.normalizeList(input.allowedIps)
+        : this.normalizeList(identity.allowedIps);
+    const allowedCidrs =
+      input.allowedCidrs !== undefined
+        ? this.normalizeList(input.allowedCidrs)
+        : this.normalizeList(identity.allowedCidrs);
 
-        await this.redis.set(this.identityKey(chargePointId), JSON.stringify(identity));
-        return identity;
+    if (input.enabled) {
+      if (allowedIps.length === 0 && allowedCidrs.length === 0) {
+        throw new Error(
+          'Bootstrap allowlist is required (allowedIps or allowedCidrs)',
+        );
+      }
+      auth.type = 'basic';
+      auth.allowNoAuthBootstrap = true;
+      auth.noAuthUntil = new Date(
+        Date.now() + this.resolveBootstrapTtl(input.ttlMinutes) * 60_000,
+      ).toISOString();
+      auth.bootstrapRequireIpAllowlist = true;
+      identity.allowedIps = allowedIps;
+      identity.allowedCidrs = allowedCidrs;
+    } else {
+      auth.allowNoAuthBootstrap = false;
+      delete auth.noAuthUntil;
     }
 
-    async getSecurityState(chargePointId: string): Promise<{
-        authProfile: 'basic' | 'mtls_bootstrap' | 'mtls';
-        bootstrapEnabled: boolean;
-        bootstrapExpiresAt?: string;
-        allowedIps: string[];
-        allowedCidrs: string[];
-        requiresClientCertificate: boolean;
-        certificatesCount: number;
-    }> {
-        const identity = await this.getIdentity(chargePointId);
-        if (!identity) {
-            return {
-                authProfile: 'basic',
-                bootstrapEnabled: false,
-                allowedIps: [],
-                allowedCidrs: [],
-                requiresClientCertificate: false,
-                certificatesCount: 0,
-            };
-        }
+    identity.auth = auth;
+    identity.updatedAt = new Date().toISOString();
+    await this.redis.set(
+      this.identityKey(chargePointId),
+      JSON.stringify(identity),
+    );
+    return identity;
+  }
 
-        const auth: NonNullable<RedisChargerIdentity['auth']> = identity.auth || {};
-        const profile = auth.type === 'mtls'
-            ? 'mtls'
-            : auth.allowNoAuthBootstrap
-                ? 'mtls_bootstrap'
-                : 'basic';
+  private gatewayVersion(
+    version: '1.6' | '2.0.1' | '2.1',
+  ): '1.6J' | '2.0.1' | '2.1' {
+    if (version === '2.0.1' || version === '2.1') return version;
+    return '1.6J';
+  }
 
-        return {
-            authProfile: profile,
-            bootstrapEnabled: auth.allowNoAuthBootstrap === true,
-            bootstrapExpiresAt: auth.noAuthUntil,
-            allowedIps: this.normalizeList(identity.allowedIps),
-            allowedCidrs: this.normalizeList(identity.allowedCidrs),
-            requiresClientCertificate: profile !== 'basic',
-            certificatesCount: auth.certificates?.length || 0,
-        };
+  private async getIdentity(
+    chargePointId: string,
+  ): Promise<RedisChargerIdentity | null> {
+    const raw = await this.redis.get(this.identityKey(chargePointId));
+    if (!raw) {
+      return null;
     }
-
-    async updateBootstrap(chargePointId: string, input: BootstrapUpdateInput): Promise<RedisChargerIdentity> {
-        const identity = await this.getIdentityOrThrow(chargePointId);
-        const auth: NonNullable<RedisChargerIdentity['auth']> = identity.auth || {};
-
-        const allowedIps =
-            input.allowedIps !== undefined
-                ? this.normalizeList(input.allowedIps)
-                : this.normalizeList(identity.allowedIps);
-        const allowedCidrs =
-            input.allowedCidrs !== undefined
-                ? this.normalizeList(input.allowedCidrs)
-                : this.normalizeList(identity.allowedCidrs);
-
-        if (input.enabled) {
-            if (allowedIps.length === 0 && allowedCidrs.length === 0) {
-                throw new Error('Bootstrap allowlist is required (allowedIps or allowedCidrs)');
-            }
-            auth.type = 'basic';
-            auth.allowNoAuthBootstrap = true;
-            auth.noAuthUntil = new Date(
-                Date.now() + this.resolveBootstrapTtl(input.ttlMinutes) * 60_000
-            ).toISOString();
-            auth.bootstrapRequireIpAllowlist = true;
-            identity.allowedIps = allowedIps;
-            identity.allowedCidrs = allowedCidrs;
-        } else {
-            auth.allowNoAuthBootstrap = false;
-            delete auth.noAuthUntil;
-        }
-
-        identity.auth = auth;
-        identity.updatedAt = new Date().toISOString();
-        await this.redis.set(this.identityKey(chargePointId), JSON.stringify(identity));
-        return identity;
+    try {
+      return JSON.parse(raw) as RedisChargerIdentity;
+    } catch {
+      return null;
     }
+  }
 
-    private gatewayVersion(version: '1.6' | '2.0.1' | '2.1'): '1.6J' | '2.0.1' | '2.1' {
-        if (version === '2.0.1' || version === '2.1') return version;
-        return '1.6J';
+  private async getIdentityOrThrow(
+    chargePointId: string,
+  ): Promise<RedisChargerIdentity> {
+    const identity = await this.getIdentity(chargePointId);
+    if (!identity) {
+      throw new Error(`Identity not found for ${chargePointId}`);
     }
+    return identity;
+  }
 
-    private async getIdentity(chargePointId: string): Promise<RedisChargerIdentity | null> {
-        const raw = await this.redis.get(this.identityKey(chargePointId));
-        if (!raw) {
-            return null;
-        }
-        try {
-            return JSON.parse(raw) as RedisChargerIdentity;
-        } catch {
-            return null;
-        }
-    }
+  private identityKey(chargePointId: string): string {
+    return `${this.identityPrefix}:${chargePointId}`;
+  }
 
-    private async getIdentityOrThrow(chargePointId: string): Promise<RedisChargerIdentity> {
-        const identity = await this.getIdentity(chargePointId);
-        if (!identity) {
-            throw new Error(`Identity not found for ${chargePointId}`);
-        }
-        return identity;
-    }
+  private normalizeList(values?: string[]): string[] {
+    if (!values || values.length === 0) return [];
+    return Array.from(
+      new Set(values.map((entry) => entry.trim()).filter(Boolean)),
+    );
+  }
 
-    private identityKey(chargePointId: string): string {
-        return `${this.identityPrefix}:${chargePointId}`;
-    }
+  private normalizeFingerprint(value: string): string {
+    return value.replace(/:/g, '').trim().toUpperCase();
+  }
 
-    private normalizeList(values?: string[]): string[] {
-        if (!values || values.length === 0) return [];
-        return Array.from(new Set(values.map((entry) => entry.trim()).filter(Boolean)));
-    }
+  private resolveBootstrapTtl(input?: number): number {
+    const fallback = Number.isFinite(input as number)
+      ? Number(input)
+      : this.bootstrapDefaultMinutes;
+    const floor = Math.max(1, Math.floor(fallback));
+    const max = Math.max(1, this.bootstrapMaxMinutes);
+    return Math.min(floor, max);
+  }
 
-    private normalizeFingerprint(value: string): string {
-        return value.replace(/:/g, '').trim().toUpperCase();
-    }
-
-    private resolveBootstrapTtl(input?: number): number {
-        const fallback = Number.isFinite(input as number) ? Number(input) : this.bootstrapDefaultMinutes;
-        const floor = Math.max(1, Math.floor(fallback));
-        const max = Math.max(1, this.bootstrapMaxMinutes);
-        return Math.min(floor, max);
-    }
-
-    private readIntEnv(key: string, fallback: number): number {
-        const raw = this.config.get<string>(key);
-        if (!raw) return fallback;
-        const parsed = parseInt(raw, 10);
-        return Number.isFinite(parsed) ? parsed : fallback;
-    }
+  private readIntEnv(key: string, fallback: number): number {
+    const raw = this.config.get<string>(key);
+    if (!raw) return fallback;
+    const parsed = parseInt(raw, 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
 }

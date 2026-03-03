@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma.service';
 
 @Injectable()
 export class TenantService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async findAll(siteId?: string) {
     const where: Prisma.TenantWhereInput = {};
@@ -17,10 +17,10 @@ export class TenantService {
           select: {
             id: true,
             name: true,
-            address: true
-          }
-        }
-      }
+            address: true,
+          },
+        },
+      },
     });
   }
 }

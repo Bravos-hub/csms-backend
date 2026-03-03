@@ -9,4 +9,4 @@ import { PrismaService } from '../../prisma.service';
   controllers: [TenantController],
   providers: [TenantService, PrismaService],
 })
-export class TenantServiceModule { }
+export class TenantServiceModule {}

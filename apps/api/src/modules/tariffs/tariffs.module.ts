@@ -1,5 +1,5 @@
-import { Module } from '@nestjs/common'
-import { TariffsController } from './tariffs.controller'
+import { Module } from '@nestjs/common';
+import { TariffsController } from './tariffs.controller';
 
 @Module({
   controllers: [TariffsController],

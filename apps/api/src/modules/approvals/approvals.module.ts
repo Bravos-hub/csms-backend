@@ -4,9 +4,9 @@ import { ApprovalsService } from './approvals.service';
 import { PrismaModule } from '../../prisma.module';
 
 @Module({
-    imports: [PrismaModule],
-    controllers: [ApprovalsController],
-    providers: [ApprovalsService],
-    exports: [ApprovalsService],
+  imports: [PrismaModule],
+  controllers: [ApprovalsController],
+  providers: [ApprovalsService],
+  exports: [ApprovalsService],
 })
-export class ApprovalsModule { }
+export class ApprovalsModule {}

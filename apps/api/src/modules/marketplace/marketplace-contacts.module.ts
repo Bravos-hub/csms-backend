@@ -1,6 +1,6 @@
-import { Module } from '@nestjs/common'
-import { MarketplaceContactsController } from './marketplace-contacts.controller'
-import { MarketplaceContactsService } from './marketplace-contacts.service'
+import { Module } from '@nestjs/common';
+import { MarketplaceContactsController } from './marketplace-contacts.controller';
+import { MarketplaceContactsService } from './marketplace-contacts.service';
 
 @Module({
   controllers: [MarketplaceContactsController],

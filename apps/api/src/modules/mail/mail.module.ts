@@ -4,8 +4,8 @@ import { MailService } from './mail.service';
 
 @Global()
 @Module({
-    imports: [ConfigModule],
-    providers: [MailService],
-    exports: [MailService],
+  imports: [ConfigModule],
+  providers: [MailService],
+  exports: [MailService],
 })
-export class MailModule { }
+export class MailModule {}

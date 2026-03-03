@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common'
-import { ProviderDocumentType } from '@prisma/client'
+import { Injectable } from '@nestjs/common';
+import { ProviderDocumentType } from '@prisma/client';
 
 export type ProviderComplianceCategory =
   | 'CORPORATE'
@@ -11,43 +11,56 @@ export type ProviderComplianceCategory =
   | 'ENVIRONMENT'
   | 'CYBER'
   | 'SITE_PERMITS'
-  | 'COMMERCIAL'
+  | 'COMMERCIAL';
 
-export type ProviderComplianceGate = 'KYB' | 'SAFETY' | 'OPERATIONS' | 'INTEGRATION'
-export type ProviderRequirementScope = 'PROVIDER' | 'STATION_OWNER'
-export type ProviderComplianceMarket = 'GLOBAL' | 'CN' | 'HK' | 'FI'
-export type ProviderRequirementCoverageMode = 'ANY' | 'PER_MODEL'
+export type ProviderComplianceGate =
+  | 'KYB'
+  | 'SAFETY'
+  | 'OPERATIONS'
+  | 'INTEGRATION';
+export type ProviderRequirementScope = 'PROVIDER' | 'STATION_OWNER';
+export type ProviderComplianceMarket = 'GLOBAL' | 'CN' | 'HK' | 'FI';
+export type ProviderRequirementCoverageMode = 'ANY' | 'PER_MODEL';
 
 export type ProviderRequirementCondition = {
-  key: string
-  operator: 'eq' | 'gte' | 'lte' | 'exists' | 'includes'
-  value?: string | number | boolean
-  description?: string
-}
+  key: string;
+  operator: 'eq' | 'gte' | 'lte' | 'exists' | 'includes';
+  value?: string | number | boolean;
+  description?: string;
+};
 
 export type ProviderRequirementDefinition = {
-  requirementCode: string
-  title: string
-  description?: string
-  gate: ProviderComplianceGate
-  category: ProviderComplianceCategory
-  isCritical: boolean
-  acceptedDocTypes: ProviderDocumentType[]
-  conditions?: ProviderRequirementCondition[]
-  appliesTo: ProviderRequirementScope
-  markets: ProviderComplianceMarket[]
-  effectiveFrom?: string
-  coverageMode?: ProviderRequirementCoverageMode
-  policyDependency?: string
-  roadmapAllowedBeforeEffective?: boolean
-}
+  requirementCode: string;
+  title: string;
+  description?: string;
+  gate: ProviderComplianceGate;
+  category: ProviderComplianceCategory;
+  isCritical: boolean;
+  acceptedDocTypes: ProviderDocumentType[];
+  conditions?: ProviderRequirementCondition[];
+  appliesTo: ProviderRequirementScope;
+  markets: ProviderComplianceMarket[];
+  effectiveFrom?: string;
+  coverageMode?: ProviderRequirementCoverageMode;
+  policyDependency?: string;
+  roadmapAllowedBeforeEffective?: boolean;
+};
 
-const GATE_ORDER: ProviderComplianceGate[] = ['KYB', 'SAFETY', 'OPERATIONS', 'INTEGRATION']
+const GATE_ORDER: ProviderComplianceGate[] = [
+  'KYB',
+  'SAFETY',
+  'OPERATIONS',
+  'INTEGRATION',
+];
 
-function sortRequirements(a: ProviderRequirementDefinition, b: ProviderRequirementDefinition): number {
-  if (a.gate !== b.gate) return GATE_ORDER.indexOf(a.gate) - GATE_ORDER.indexOf(b.gate)
-  if (a.isCritical !== b.isCritical) return a.isCritical ? -1 : 1
-  return a.title.localeCompare(b.title)
+function sortRequirements(
+  a: ProviderRequirementDefinition,
+  b: ProviderRequirementDefinition,
+): number {
+  if (a.gate !== b.gate)
+    return GATE_ORDER.indexOf(a.gate) - GATE_ORDER.indexOf(b.gate);
+  if (a.isCritical !== b.isCritical) return a.isCritical ? -1 : 1;
+  return a.title.localeCompare(b.title);
 }
 
 const PROVIDER_REQUIREMENTS: ProviderRequirementDefinition[] = [
@@ -135,7 +148,8 @@ const PROVIDER_REQUIREMENTS: ProviderRequirementDefinition[] = [
   },
   {
     requirementCode: 'PRV_BATTERY_TECH_FILE',
-    title: 'Battery technical file (datasheet, SDS, ratings, protection, packing)',
+    title:
+      'Battery technical file (datasheet, SDS, ratings, protection, packing)',
     gate: 'SAFETY',
     category: 'SAFETY',
     isCritical: true,
@@ -200,7 +214,10 @@ const PROVIDER_REQUIREMENTS: ProviderRequirementDefinition[] = [
     gate: 'INTEGRATION',
     category: 'INTEROPERABILITY',
     isCritical: true,
-    acceptedDocTypes: ['TECHNICAL_CONFORMANCE', 'SITE_COMPATIBILITY_DECLARATION'],
+    acceptedDocTypes: [
+      'TECHNICAL_CONFORMANCE',
+      'SITE_COMPATIBILITY_DECLARATION',
+    ],
     appliesTo: 'PROVIDER',
     markets: ['GLOBAL'],
   },
@@ -255,7 +272,10 @@ const PROVIDER_REQUIREMENTS: ProviderRequirementDefinition[] = [
     gate: 'INTEGRATION',
     category: 'INTEROPERABILITY',
     isCritical: true,
-    acceptedDocTypes: ['TECHNICAL_CONFORMANCE', 'SITE_COMPATIBILITY_DECLARATION'],
+    acceptedDocTypes: [
+      'TECHNICAL_CONFORMANCE',
+      'SITE_COMPATIBILITY_DECLARATION',
+    ],
     appliesTo: 'PROVIDER',
     markets: ['CN'],
     coverageMode: 'PER_MODEL',
@@ -323,7 +343,7 @@ const PROVIDER_REQUIREMENTS: ProviderRequirementDefinition[] = [
     appliesTo: 'PROVIDER',
     markets: ['FI'],
   },
-]
+];
 
 const STATION_OWNER_REQUIREMENTS: ProviderRequirementDefinition[] = [
   {
@@ -332,7 +352,11 @@ const STATION_OWNER_REQUIREMENTS: ProviderRequirementDefinition[] = [
     gate: 'KYB',
     category: 'CORPORATE',
     isCritical: true,
-    acceptedDocTypes: ['INCORPORATION', 'TAX_COMPLIANCE', 'COMMERCIAL_AGREEMENT'],
+    acceptedDocTypes: [
+      'INCORPORATION',
+      'TAX_COMPLIANCE',
+      'COMMERCIAL_AGREEMENT',
+    ],
     appliesTo: 'STATION_OWNER',
     markets: ['GLOBAL'],
   },
@@ -342,7 +366,10 @@ const STATION_OWNER_REQUIREMENTS: ProviderRequirementDefinition[] = [
     gate: 'SAFETY',
     category: 'SITE_PERMITS',
     isCritical: true,
-    acceptedDocTypes: ['TECHNICAL_CONFORMANCE', 'SITE_COMPATIBILITY_DECLARATION'],
+    acceptedDocTypes: [
+      'TECHNICAL_CONFORMANCE',
+      'SITE_COMPATIBILITY_DECLARATION',
+    ],
     appliesTo: 'STATION_OWNER',
     markets: ['GLOBAL'],
   },
@@ -372,7 +399,10 @@ const STATION_OWNER_REQUIREMENTS: ProviderRequirementDefinition[] = [
     gate: 'INTEGRATION',
     category: 'CYBER',
     isCritical: true,
-    acceptedDocTypes: ['TECHNICAL_CONFORMANCE', 'SITE_COMPATIBILITY_DECLARATION'],
+    acceptedDocTypes: [
+      'TECHNICAL_CONFORMANCE',
+      'SITE_COMPATIBILITY_DECLARATION',
+    ],
     appliesTo: 'STATION_OWNER',
     markets: ['GLOBAL'],
   },
@@ -382,7 +412,10 @@ const STATION_OWNER_REQUIREMENTS: ProviderRequirementDefinition[] = [
     gate: 'INTEGRATION',
     category: 'INTEROPERABILITY',
     isCritical: true,
-    acceptedDocTypes: ['TECHNICAL_CONFORMANCE', 'SITE_COMPATIBILITY_DECLARATION'],
+    acceptedDocTypes: [
+      'TECHNICAL_CONFORMANCE',
+      'SITE_COMPATIBILITY_DECLARATION',
+    ],
     appliesTo: 'STATION_OWNER',
     markets: ['GLOBAL'],
   },
@@ -403,7 +436,10 @@ const STATION_OWNER_REQUIREMENTS: ProviderRequirementDefinition[] = [
     gate: 'SAFETY',
     category: 'SITE_PERMITS',
     isCritical: true,
-    acceptedDocTypes: ['TECHNICAL_CONFORMANCE', 'SITE_COMPATIBILITY_DECLARATION'],
+    acceptedDocTypes: [
+      'TECHNICAL_CONFORMANCE',
+      'SITE_COMPATIBILITY_DECLARATION',
+    ],
     appliesTo: 'STATION_OWNER',
     markets: ['CN'],
     effectiveFrom: '2025-07-01',
@@ -414,7 +450,10 @@ const STATION_OWNER_REQUIREMENTS: ProviderRequirementDefinition[] = [
     gate: 'INTEGRATION',
     category: 'CYBER',
     isCritical: true,
-    acceptedDocTypes: ['TECHNICAL_CONFORMANCE', 'SITE_COMPATIBILITY_DECLARATION'],
+    acceptedDocTypes: [
+      'TECHNICAL_CONFORMANCE',
+      'SITE_COMPATIBILITY_DECLARATION',
+    ],
     appliesTo: 'STATION_OWNER',
     markets: ['CN'],
   },
@@ -425,7 +464,10 @@ const STATION_OWNER_REQUIREMENTS: ProviderRequirementDefinition[] = [
     gate: 'SAFETY',
     category: 'SITE_PERMITS',
     isCritical: true,
-    acceptedDocTypes: ['TECHNICAL_CONFORMANCE', 'SITE_COMPATIBILITY_DECLARATION'],
+    acceptedDocTypes: [
+      'TECHNICAL_CONFORMANCE',
+      'SITE_COMPATIBILITY_DECLARATION',
+    ],
     appliesTo: 'STATION_OWNER',
     markets: ['HK'],
   },
@@ -435,7 +477,10 @@ const STATION_OWNER_REQUIREMENTS: ProviderRequirementDefinition[] = [
     gate: 'SAFETY',
     category: 'SITE_PERMITS',
     isCritical: true,
-    acceptedDocTypes: ['SITE_COMPATIBILITY_DECLARATION', 'TECHNICAL_CONFORMANCE'],
+    acceptedDocTypes: [
+      'SITE_COMPATIBILITY_DECLARATION',
+      'TECHNICAL_CONFORMANCE',
+    ],
     appliesTo: 'STATION_OWNER',
     markets: ['HK'],
   },
@@ -455,7 +500,10 @@ const STATION_OWNER_REQUIREMENTS: ProviderRequirementDefinition[] = [
     gate: 'SAFETY',
     category: 'SITE_PERMITS',
     isCritical: true,
-    acceptedDocTypes: ['SITE_COMPATIBILITY_DECLARATION', 'COMMERCIAL_AGREEMENT'],
+    acceptedDocTypes: [
+      'SITE_COMPATIBILITY_DECLARATION',
+      'COMMERCIAL_AGREEMENT',
+    ],
     appliesTo: 'STATION_OWNER',
     markets: ['HK'],
     policyDependency: 'HK_DG_THRESHOLD',
@@ -467,7 +515,10 @@ const STATION_OWNER_REQUIREMENTS: ProviderRequirementDefinition[] = [
     gate: 'SAFETY',
     category: 'SITE_PERMITS',
     isCritical: true,
-    acceptedDocTypes: ['TECHNICAL_CONFORMANCE', 'SITE_COMPATIBILITY_DECLARATION'],
+    acceptedDocTypes: [
+      'TECHNICAL_CONFORMANCE',
+      'SITE_COMPATIBILITY_DECLARATION',
+    ],
     appliesTo: 'STATION_OWNER',
     markets: ['FI'],
   },
@@ -481,18 +532,23 @@ const STATION_OWNER_REQUIREMENTS: ProviderRequirementDefinition[] = [
     appliesTo: 'STATION_OWNER',
     markets: ['FI'],
   },
-]
+];
 
 @Injectable()
 export class ProviderRequirementsService {
   list(appliesTo?: ProviderRequirementScope): ProviderRequirementDefinition[] {
-    const all = [...PROVIDER_REQUIREMENTS, ...STATION_OWNER_REQUIREMENTS]
-    const filtered = appliesTo ? all.filter((item) => item.appliesTo === appliesTo) : all
-    return [...filtered].sort(sortRequirements)
+    const all = [...PROVIDER_REQUIREMENTS, ...STATION_OWNER_REQUIREMENTS];
+    const filtered = appliesTo
+      ? all.filter((item) => item.appliesTo === appliesTo)
+      : all;
+    return [...filtered].sort(sortRequirements);
   }
 
-  listForScope(scope: ProviderRequirementScope = 'PROVIDER'): ProviderRequirementDefinition[] {
-    const source = scope === 'PROVIDER' ? PROVIDER_REQUIREMENTS : STATION_OWNER_REQUIREMENTS
-    return [...source].sort(sortRequirements)
+  listForScope(
+    scope: ProviderRequirementScope = 'PROVIDER',
+  ): ProviderRequirementDefinition[] {
+    const source =
+      scope === 'PROVIDER' ? PROVIDER_REQUIREMENTS : STATION_OWNER_REQUIREMENTS;
+    return [...source].sort(sortRequirements);
   }
 }
