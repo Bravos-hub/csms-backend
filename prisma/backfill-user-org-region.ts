@@ -8,6 +8,11 @@ const EVZONE_ROLES = new Set<UserRole>([
   UserRole.EVZONE_ADMIN,
   UserRole.EVZONE_OPERATOR,
 ]);
+const EVZONE_WORLD_NAME = 'EVZONE WORLD';
+const LEGACY_EVZONE_NAME = 'EVZONE';
+const EVZONE_WORLD_LOGO_URL = '/assets/EV zone Charging PNG Logo 2.png';
+const EVZONE_WORLD_DESCRIPTION =
+  'Canonical organization for EVZONE WORLD platform ownership and operations.';
 
 function normalizeRegion(region?: string | null): string | null {
   if (!region) return null;
@@ -16,16 +21,45 @@ function normalizeRegion(region?: string | null): string | null {
 }
 
 async function ensureEvzoneOrganization() {
-  const existing = await prisma.organization.findFirst({
-    where: { name: { equals: 'EVZONE', mode: 'insensitive' } },
+  const existingCanonical = await prisma.organization.findFirst({
+    where: { name: { equals: EVZONE_WORLD_NAME, mode: 'insensitive' } },
   });
-  if (existing) return existing;
+  if (existingCanonical) {
+    if (
+      existingCanonical.logoUrl !== EVZONE_WORLD_LOGO_URL ||
+      existingCanonical.description !== EVZONE_WORLD_DESCRIPTION
+    ) {
+      return prisma.organization.update({
+        where: { id: existingCanonical.id },
+        data: {
+          logoUrl: EVZONE_WORLD_LOGO_URL,
+          description: EVZONE_WORLD_DESCRIPTION,
+        },
+      });
+    }
+    return existingCanonical;
+  }
+
+  const legacyOrganization = await prisma.organization.findFirst({
+    where: { name: { equals: LEGACY_EVZONE_NAME, mode: 'insensitive' } },
+  });
+  if (legacyOrganization) {
+    return prisma.organization.update({
+      where: { id: legacyOrganization.id },
+      data: {
+        name: EVZONE_WORLD_NAME,
+        logoUrl: EVZONE_WORLD_LOGO_URL,
+        description: EVZONE_WORLD_DESCRIPTION,
+      },
+    });
+  }
 
   return prisma.organization.create({
     data: {
-      name: 'EVZONE',
+      name: EVZONE_WORLD_NAME,
       type: 'COMPANY',
-      description: 'Default EVZONE platform organization',
+      logoUrl: EVZONE_WORLD_LOGO_URL,
+      description: EVZONE_WORLD_DESCRIPTION,
     },
   });
 }

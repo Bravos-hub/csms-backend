@@ -47,6 +47,12 @@ import {
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly invitationTtlMs = 7 * 24 * 60 * 60 * 1000;
+  private readonly evzoneOrganizationName = 'EVZONE WORLD';
+  private readonly legacyEvzoneOrganizationName = 'EVZONE';
+  private readonly evzoneOrganizationLogoUrl =
+    '/assets/EV zone Charging PNG Logo 2.png';
+  private readonly evzoneOrganizationDescription =
+    'Canonical organization for EVZONE WORLD platform ownership and operations.';
   private readonly consistencyCounters = {
     registerValidationFailures: 0,
     inviteValidationFailures: 0,
@@ -248,16 +254,52 @@ export class AuthService {
   private async ensureEvzoneOrganization(
     client: PrismaService | Prisma.TransactionClient = this.prisma,
   ) {
-    const existing = await client.organization.findFirst({
-      where: { name: { equals: 'EVZONE', mode: 'insensitive' } },
+    const existingCanonical = await client.organization.findFirst({
+      where: {
+        name: { equals: this.evzoneOrganizationName, mode: 'insensitive' },
+      },
     });
-    if (existing) return existing;
+    if (existingCanonical) {
+      if (
+        existingCanonical.logoUrl !== this.evzoneOrganizationLogoUrl ||
+        existingCanonical.description !== this.evzoneOrganizationDescription
+      ) {
+        return client.organization.update({
+          where: { id: existingCanonical.id },
+          data: {
+            logoUrl: this.evzoneOrganizationLogoUrl,
+            description: this.evzoneOrganizationDescription,
+          },
+        });
+      }
+      return existingCanonical;
+    }
+
+    const legacyOrganization = await client.organization.findFirst({
+      where: {
+        name: {
+          equals: this.legacyEvzoneOrganizationName,
+          mode: 'insensitive',
+        },
+      },
+    });
+    if (legacyOrganization) {
+      return client.organization.update({
+        where: { id: legacyOrganization.id },
+        data: {
+          name: this.evzoneOrganizationName,
+          logoUrl: this.evzoneOrganizationLogoUrl,
+          description: this.evzoneOrganizationDescription,
+        },
+      });
+    }
 
     return client.organization.create({
       data: {
-        name: 'EVZONE',
+        name: this.evzoneOrganizationName,
         type: 'COMPANY',
-        description: 'Default EVZONE platform organization',
+        logoUrl: this.evzoneOrganizationLogoUrl,
+        description: this.evzoneOrganizationDescription,
       },
     });
   }
@@ -1556,7 +1598,7 @@ export class AuthService {
       await this.mailService.sendInvitationEmail(
         normalizedEmail,
         this.toRoleLabel(inviteRole),
-        organization?.name || 'EVZONE',
+        organization?.name || this.evzoneOrganizationName,
         inviteDto.frontendUrl,
         inviteToken,
         invitationResult.tempPassword,
@@ -1633,7 +1675,8 @@ export class AuthService {
 
     return {
       email: invitation.email,
-      organizationName: invitation.organization?.name || 'EVZONE',
+      organizationName:
+        invitation.organization?.name || this.evzoneOrganizationName,
       role: invitation.role,
       requiresTempPassword: Boolean(invitation.tempPasswordHash),
       inviteToken,
