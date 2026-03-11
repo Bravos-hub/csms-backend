@@ -22,11 +22,12 @@ async function main() {
     for (const c of continents) {
         const zone = await prisma.geographicZone.upsert({
             where: { code: c.code },
-            update: {},
+            update: { name: c.name, type: ZoneType.CONTINENT, isActive: true },
             create: {
                 name: c.name,
                 code: c.code,
-                type: ZoneType.CONTINENT
+                type: ZoneType.CONTINENT,
+                isActive: true,
             }
         });
         continentMap.set(c.code, zone.id);
@@ -37,12 +38,13 @@ async function main() {
     // Parent: Africa
     const subSaharan = await prisma.geographicZone.upsert({
         where: { code: 'SUB-SAHARAN-AFRICA' },
-        update: {},
+        update: { name: 'Sub-Saharan Africa', type: ZoneType.SUB_REGION, parentId: continentMap.get('AF'), isActive: true },
         create: {
             name: 'Sub-Saharan Africa',
             code: 'SUB-SAHARAN-AFRICA',
             type: ZoneType.SUB_REGION,
-            parentId: continentMap.get('AF')
+            parentId: continentMap.get('AF'),
+            isActive: true,
         }
     });
 
@@ -50,7 +52,15 @@ async function main() {
     // Kenya (in Sub-Saharan Africa)
     const kenya = await prisma.geographicZone.upsert({
         where: { code: 'KE' },
-        update: {},
+        update: {
+            name: 'Kenya',
+            type: ZoneType.COUNTRY,
+            parentId: subSaharan.id,
+            currency: 'KES',
+            timezone: 'Africa/Nairobi',
+            postalCodeRegex: '^\\d{5}$',
+            isActive: true,
+        },
         create: {
             name: 'Kenya',
             code: 'KE',
@@ -58,14 +68,23 @@ async function main() {
             parentId: subSaharan.id,
             currency: 'KES',
             timezone: 'Africa/Nairobi',
-            postalCodeRegex: '^\\d{5}$' // 5 digits
+            postalCodeRegex: '^\\d{5}$', // 5 digits
+            isActive: true,
         }
     });
 
     // USA (in North America)
     const usa = await prisma.geographicZone.upsert({
         where: { code: 'US' },
-        update: {},
+        update: {
+            name: 'United States',
+            type: ZoneType.COUNTRY,
+            parentId: continentMap.get('NA'),
+            currency: 'USD',
+            timezone: 'America/New_York',
+            postalCodeRegex: '^\\d{5}(-\\d{4})?$',
+            isActive: true,
+        },
         create: {
             name: 'United States',
             code: 'US',
@@ -73,7 +92,8 @@ async function main() {
             parentId: continentMap.get('NA'),
             currency: 'USD',
             timezone: 'America/New_York',
-            postalCodeRegex: '^\\d{5}(-\\d{4})?$' // 5 or 9 digits
+            postalCodeRegex: '^\\d{5}(-\\d{4})?$', // 5 or 9 digits
+            isActive: true,
         }
     });
 
@@ -81,24 +101,36 @@ async function main() {
     // Nairobi (County in Kenya)
     await prisma.geographicZone.upsert({
         where: { code: 'KE-30' }, // ISO 3166-2 for Nairobi
-        update: {},
+        update: {
+            name: 'Nairobi City',
+            type: ZoneType.ADM1,
+            parentId: kenya.id,
+            isActive: true,
+        },
         create: {
             name: 'Nairobi City',
             code: 'KE-30',
             type: ZoneType.ADM1, // County
-            parentId: kenya.id
+            parentId: kenya.id,
+            isActive: true,
         }
     });
 
     // California (State in USA)
     await prisma.geographicZone.upsert({
         where: { code: 'US-CA' },
-        update: {},
+        update: {
+            name: 'California',
+            type: ZoneType.ADM1,
+            parentId: usa.id,
+            isActive: true,
+        },
         create: {
             name: 'California',
             code: 'US-CA',
             type: ZoneType.ADM1, // State
-            parentId: usa.id
+            parentId: usa.id,
+            isActive: true,
         }
     });
 

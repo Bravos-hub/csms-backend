@@ -79,49 +79,58 @@ async function main() {
 
     // Continents
     const africa = await prisma.geographicZone.upsert({
-        where: { code: 'AF' }, update: {},
-        create: { name: 'Africa', code: 'AF', type: ZoneType.CONTINENT }
+        where: { code: 'AF' }, update: { name: 'Africa', type: ZoneType.CONTINENT, isActive: true },
+        create: { name: 'Africa', code: 'AF', type: ZoneType.CONTINENT, isActive: true }
     });
     const europe = await prisma.geographicZone.upsert({
-        where: { code: 'EU' }, update: {},
-        create: { name: 'Europe', code: 'EU', type: ZoneType.CONTINENT }
+        where: { code: 'EU' }, update: { name: 'Europe', type: ZoneType.CONTINENT, isActive: true },
+        create: { name: 'Europe', code: 'EU', type: ZoneType.CONTINENT, isActive: true }
     });
 
     // Countries
     const uganda = await prisma.geographicZone.upsert({
-        where: { code: 'UG' }, update: {},
+        where: { code: 'UG' }, update: {
+            name: 'Uganda', type: ZoneType.COUNTRY,
+            parentId: africa.id, currency: 'UGX', timezone: 'Africa/Kampala', isActive: true
+        },
         create: {
             name: 'Uganda', code: 'UG', type: ZoneType.COUNTRY,
-            parentId: africa.id, currency: 'UGX', timezone: 'Africa/Kampala'
+            parentId: africa.id, currency: 'UGX', timezone: 'Africa/Kampala', isActive: true
         }
     });
     const kenya = await prisma.geographicZone.upsert({
-        where: { code: 'KE' }, update: {},
+        where: { code: 'KE' }, update: {
+            name: 'Kenya', code: 'KE', type: ZoneType.COUNTRY,
+            parentId: africa.id, currency: 'KES', timezone: 'Africa/Nairobi', isActive: true
+        },
         create: {
             name: 'Kenya', code: 'KE', type: ZoneType.COUNTRY,
-            parentId: africa.id, currency: 'KES', timezone: 'Africa/Nairobi'
+            parentId: africa.id, currency: 'KES', timezone: 'Africa/Nairobi', isActive: true
         }
     });
     const germany = await prisma.geographicZone.upsert({
-        where: { code: 'DE' }, update: {},
+        where: { code: 'DE' }, update: {
+            name: 'Germany', code: 'DE', type: ZoneType.COUNTRY,
+            parentId: europe.id, currency: 'EUR', timezone: 'Europe/Berlin', isActive: true
+        },
         create: {
             name: 'Germany', code: 'DE', type: ZoneType.COUNTRY,
-            parentId: europe.id, currency: 'EUR', timezone: 'Europe/Berlin'
+            parentId: europe.id, currency: 'EUR', timezone: 'Europe/Berlin', isActive: true
         }
     });
 
     // Cities / Regions
     const kampala = await prisma.geographicZone.upsert({
-        where: { code: 'UG-102' }, update: {},
-        create: { name: 'Kampala', code: 'UG-102', type: ZoneType.ADM1, parentId: uganda.id }
+        where: { code: 'UG-102' }, update: { name: 'Kampala', code: 'UG-102', type: ZoneType.ADM1, parentId: uganda.id, isActive: true },
+        create: { name: 'Kampala', code: 'UG-102', type: ZoneType.ADM1, parentId: uganda.id, isActive: true }
     });
     const nairobi = await prisma.geographicZone.upsert({
-        where: { code: 'KE-30' }, update: {},
-        create: { name: 'Nairobi', code: 'KE-30', type: ZoneType.ADM1, parentId: kenya.id }
+        where: { code: 'KE-30' }, update: { name: 'Nairobi', code: 'KE-30', type: ZoneType.ADM1, parentId: kenya.id, isActive: true },
+        create: { name: 'Nairobi', code: 'KE-30', type: ZoneType.ADM1, parentId: kenya.id, isActive: true }
     });
     const berlin = await prisma.geographicZone.upsert({
-        where: { code: 'DE-BE' }, update: {},
-        create: { name: 'Berlin', code: 'DE-BE', type: ZoneType.ADM1, parentId: germany.id }
+        where: { code: 'DE-BE' }, update: { name: 'Berlin', code: 'DE-BE', type: ZoneType.ADM1, parentId: germany.id, isActive: true },
+        create: { name: 'Berlin', code: 'DE-BE', type: ZoneType.ADM1, parentId: germany.id, isActive: true }
     });
 
     console.log('Geography seeded');

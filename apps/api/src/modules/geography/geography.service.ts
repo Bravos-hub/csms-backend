@@ -1,16 +1,34 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
+  NotFoundException,
   OnModuleInit,
   InternalServerErrorException,
+  ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
-import { ZoneType } from '@prisma/client';
+import { Prisma, ZoneType } from '@prisma/client';
 import * as h3 from 'h3-js';
+import {
+  CreateGeographicZoneDto,
+  GetZonesQueryDto,
+  UpdateGeographicZoneDto,
+} from './dto/geography.dto';
 
 @Injectable()
 export class GeographyService implements OnModuleInit {
   private readonly logger = new Logger(GeographyService.name);
+  private readonly allowedChildrenByType: Record<ZoneType, ZoneType[]> = {
+    CONTINENT: [ZoneType.SUB_REGION, ZoneType.COUNTRY],
+    SUB_REGION: [ZoneType.COUNTRY],
+    COUNTRY: [ZoneType.ADM1, ZoneType.CITY, ZoneType.POSTAL_ZONE],
+    ADM1: [ZoneType.ADM2, ZoneType.CITY, ZoneType.POSTAL_ZONE],
+    ADM2: [ZoneType.ADM3, ZoneType.CITY, ZoneType.POSTAL_ZONE],
+    ADM3: [ZoneType.CITY, ZoneType.POSTAL_ZONE],
+    CITY: [ZoneType.POSTAL_ZONE],
+    POSTAL_ZONE: [],
+  };
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -105,14 +123,18 @@ export class GeographyService implements OnModuleInit {
   /**
    * Get zones, optionally filtering by parent (drill-down).
    */
-  async getZones(parentId?: string | null, type?: ZoneType) {
+  async getZones(query: GetZonesQueryDto = {}) {
     try {
-      const where: any = {};
-      if (parentId !== undefined) {
-        where.parentId = parentId;
+      const where: Prisma.GeographicZoneWhereInput = {};
+      if (query.parentId !== undefined) {
+        where.parentId =
+          query.parentId === 'null' || query.parentId === '' ? null : query.parentId;
       }
-      if (type) {
-        where.type = type;
+      if (query.type) {
+        where.type = query.type;
+      }
+      if (typeof query.active === 'boolean') {
+        where.isActive = query.active;
       }
 
       return await this.prisma.geographicZone.findMany({
@@ -223,10 +245,209 @@ export class GeographyService implements OnModuleInit {
 
     for (const c of continents) {
       await this.prisma.geographicZone.create({
-        data: { ...c },
+        data: { ...c, isActive: true },
       });
     }
 
     this.logger.log('Seeded default continents');
+  }
+
+  async getZoneById(id: string) {
+    const zone = await this.prisma.geographicZone.findUnique({
+      where: { id },
+      include: {
+        parent: true,
+        _count: {
+          select: { children: true, stations: true, sites: true, users: true },
+        },
+      },
+    });
+    if (!zone) throw new NotFoundException('Geographic zone not found');
+    return zone;
+  }
+
+  async createZone(dto: CreateGeographicZoneDto) {
+    const data = await this.buildCreateZoneData(dto);
+    try {
+      return await this.prisma.geographicZone.create({
+        data,
+        include: {
+          parent: true,
+          _count: {
+            select: { children: true, stations: true, sites: true, users: true },
+          },
+        },
+      });
+    } catch (error) {
+      this.handleZoneWriteError(error);
+    }
+  }
+
+  async updateZone(id: string, dto: UpdateGeographicZoneDto) {
+    await this.getZoneById(id);
+    const data = await this.buildUpdateZoneData(id, dto);
+    try {
+      return await this.prisma.geographicZone.update({
+        where: { id },
+        data,
+        include: {
+          parent: true,
+          _count: {
+            select: { children: true, stations: true, sites: true, users: true },
+          },
+        },
+      });
+    } catch (error) {
+      this.handleZoneWriteError(error);
+    }
+  }
+
+  async setZoneStatus(id: string, isActive: boolean) {
+    const zone = await this.getZoneById(id);
+    if (!isActive) {
+      const activeChildren = await this.prisma.geographicZone.count({
+        where: { parentId: id, isActive: true },
+      });
+      if (activeChildren > 0) {
+        throw new BadRequestException(
+          'Cannot deactivate a zone while it still has active child zones',
+        );
+      }
+    }
+
+    return this.prisma.geographicZone.update({
+      where: { id: zone.id },
+      data: { isActive },
+      include: {
+        parent: true,
+        _count: {
+          select: { children: true, stations: true, sites: true, users: true },
+        },
+      },
+    });
+  }
+
+  private async buildCreateZoneData(
+    dto: CreateGeographicZoneDto,
+  ): Promise<Prisma.GeographicZoneUncheckedCreateInput> {
+    const nextParentId = dto.parentId || null;
+    const parent = nextParentId
+      ? await this.prisma.geographicZone.findUnique({
+          where: { id: nextParentId },
+        })
+      : null;
+    if (nextParentId && !parent) {
+      throw new NotFoundException('Parent geographic zone was not found');
+    }
+
+    this.assertValidHierarchy(dto.type, parent?.type ?? null);
+
+    return {
+      code: dto.code,
+      name: dto.name,
+      type: dto.type,
+      parentId: nextParentId,
+      currency: dto.currency ?? null,
+      timezone: dto.timezone ?? null,
+      postalCodeRegex: dto.postalCodeRegex ?? null,
+      isActive: true,
+    };
+  }
+
+  private async buildUpdateZoneData(
+    currentZoneId: string,
+    dto: UpdateGeographicZoneDto,
+  ): Promise<Prisma.GeographicZoneUncheckedUpdateInput> {
+    const currentZone = await this.prisma.geographicZone.findUnique({
+      where: { id: currentZoneId },
+    });
+    if (!currentZone) {
+      throw new NotFoundException('Geographic zone not found');
+    }
+
+    const parentIdProvided =
+      Object.prototype.hasOwnProperty.call(dto, 'parentId') &&
+      dto.parentId !== undefined;
+    const nextParentId = parentIdProvided ? dto.parentId || null : currentZone.parentId;
+    const nextType = dto.type || currentZone.type;
+
+    if (nextParentId === currentZoneId) {
+      throw new BadRequestException('A zone cannot be its own parent');
+    }
+
+    const parent = nextParentId
+      ? await this.prisma.geographicZone.findUnique({
+          where: { id: nextParentId },
+        })
+      : null;
+    if (nextParentId && !parent) {
+      throw new NotFoundException('Parent geographic zone was not found');
+    }
+
+    this.assertValidHierarchy(nextType, parent?.type ?? null);
+
+    if (nextParentId) {
+      await this.assertNoCircularParent(currentZoneId, nextParentId);
+    }
+
+    const data: Prisma.GeographicZoneUncheckedUpdateInput = {};
+    if (dto.code !== undefined) data.code = dto.code;
+    if (dto.name !== undefined) data.name = dto.name;
+    if (dto.type !== undefined) data.type = dto.type;
+    if (parentIdProvided) data.parentId = nextParentId;
+    if (dto.currency !== undefined) data.currency = dto.currency ?? null;
+    if (dto.timezone !== undefined) data.timezone = dto.timezone ?? null;
+    if (dto.postalCodeRegex !== undefined) {
+      data.postalCodeRegex = dto.postalCodeRegex ?? null;
+    }
+    return data;
+  }
+
+  private assertValidHierarchy(type: ZoneType, parentType: ZoneType | null) {
+    if (!parentType) {
+      if (type !== ZoneType.CONTINENT) {
+        throw new BadRequestException(
+          'Only CONTINENT zones can be created without a parent',
+        );
+      }
+      return;
+    }
+
+    const allowedChildren = this.allowedChildrenByType[parentType] || [];
+    if (!allowedChildren.includes(type)) {
+      throw new BadRequestException(
+        `${type} is not a valid child type under ${parentType}`,
+      );
+    }
+  }
+
+  private async assertNoCircularParent(
+    zoneId: string,
+    candidateParentId: string,
+  ) {
+    let currentParentId: string | null = candidateParentId;
+    while (currentParentId) {
+      if (currentParentId === zoneId) {
+        throw new BadRequestException(
+          'Cannot assign a descendant as the parent of this zone',
+        );
+      }
+      const current: { parentId: string | null } | null =
+        await this.prisma.geographicZone.findUnique({
+        where: { id: currentParentId },
+        select: { parentId: true },
+      });
+      currentParentId = current?.parentId ?? null;
+    }
+  }
+
+  private handleZoneWriteError(error: unknown): never {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      throw new ConflictException('A geographic zone with that code already exists');
+    }
+    throw error;
   }
 }

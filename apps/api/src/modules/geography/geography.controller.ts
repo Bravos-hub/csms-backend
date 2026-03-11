@@ -1,8 +1,27 @@
-import { Controller, Get, Query, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { GeographyService } from './geography.service';
 import { Request } from 'express';
-import { ZoneType } from '@prisma/client';
+import { UserRole, ZoneType } from '@prisma/client';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import {
+  CreateGeographicZoneDto,
+  GetZonesQueryDto,
+  UpdateGeographicZoneDto,
+  UpdateGeographicZoneStatusDto,
+} from './dto/geography.dto';
 
 @ApiTags('Geography')
 @Controller('geography')
@@ -28,6 +47,8 @@ export class GeographyController {
   }
 
   @Get('zones')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.EVZONE_ADMIN, UserRole.EVZONE_OPERATOR)
   @ApiOperation({ summary: 'Get geographic zones (hierarchical)' })
   @ApiQuery({
     name: 'parentId',
@@ -35,13 +56,45 @@ export class GeographyController {
     description: 'ID of the parent zone (e.g. Continent ID to get Countries)',
   })
   @ApiQuery({ name: 'type', required: false, enum: ZoneType })
+  @ApiQuery({ name: 'active', required: false, type: Boolean })
   async getZones(
-    @Query('parentId') parentId?: string,
-    @Query('type') type?: ZoneType,
+    @Query() query: GetZonesQueryDto,
   ) {
-    // Treat string 'null' or empty as actual null
-    const parentIdVal =
-      parentId === 'null' || parentId === '' ? null : parentId;
-    return this.geographyService.getZones(parentIdVal, type);
+    return this.geographyService.getZones(query);
+  }
+
+  @Get('zones/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.EVZONE_ADMIN, UserRole.EVZONE_OPERATOR)
+  @ApiOperation({ summary: 'Get a single geographic zone' })
+  getZoneById(@Param('id') id: string) {
+    return this.geographyService.getZoneById(id);
+  }
+
+  @Post('zones')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.EVZONE_ADMIN)
+  @ApiOperation({ summary: 'Create a geographic zone' })
+  createZone(@Body() body: CreateGeographicZoneDto) {
+    return this.geographyService.createZone(body);
+  }
+
+  @Patch('zones/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.EVZONE_ADMIN)
+  @ApiOperation({ summary: 'Update a geographic zone' })
+  updateZone(@Param('id') id: string, @Body() body: UpdateGeographicZoneDto) {
+    return this.geographyService.updateZone(id, body);
+  }
+
+  @Patch('zones/:id/status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.EVZONE_ADMIN)
+  @ApiOperation({ summary: 'Activate or deactivate a geographic zone' })
+  updateZoneStatus(
+    @Param('id') id: string,
+    @Body() body: UpdateGeographicZoneStatusDto,
+  ) {
+    return this.geographyService.setZoneStatus(id, body.isActive);
   }
 }

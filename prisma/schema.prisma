@@ -1607,6 +1607,7 @@ model GeographicZone {
   name      String
   type      ZoneType
   parentId  String?
+  isActive  Boolean  @default(true)
   
   // Hierarchy
   parent    GeographicZone?  @relation("ZoneHierarchy", fields: [parentId], references: [id])
@@ -1628,6 +1629,7 @@ model GeographicZone {
   @@map("geographic_zones")
   @@index([type])
   @@index([parentId])
+  @@index([isActive])
 }
 model ChargePointStatusHistory {
   id             String      @id @default(cuid())
