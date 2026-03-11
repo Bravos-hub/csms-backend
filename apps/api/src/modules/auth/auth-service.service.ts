@@ -57,17 +57,36 @@ export class AuthService {
     UserRole.EVZONE_ADMIN,
     UserRole.EVZONE_OPERATOR,
   ]);
-  private readonly stationAssignmentManagerRoles = new Set<UserRole>([
+  private readonly teamManagerRoles = new Set<UserRole>([
+    UserRole.SUPER_ADMIN,
+    UserRole.EVZONE_ADMIN,
+    UserRole.EVZONE_OPERATOR,
     UserRole.STATION_OWNER,
     UserRole.STATION_ADMIN,
+    UserRole.STATION_OPERATOR,
   ]);
-  private readonly teamAssignableRoles = new Set<UserRole>([
+  private readonly teamManageableRoles = new Set<UserRole>([
+    UserRole.SUPER_ADMIN,
+    UserRole.EVZONE_ADMIN,
+    UserRole.EVZONE_OPERATOR,
+    UserRole.SWAP_PROVIDER_ADMIN,
+    UserRole.SWAP_PROVIDER_OPERATOR,
+    UserRole.SITE_OWNER,
+    UserRole.STATION_OWNER,
+    UserRole.STATION_OPERATOR,
     UserRole.STATION_ADMIN,
     UserRole.MANAGER,
     UserRole.ATTENDANT,
     UserRole.CASHIER,
     UserRole.TECHNICIAN_ORG,
+    UserRole.TECHNICIAN_PUBLIC,
+  ]);
+  private readonly stationScopedTeamRoles = new Set<UserRole>([
     UserRole.STATION_OPERATOR,
+    UserRole.STATION_ADMIN,
+    UserRole.MANAGER,
+    UserRole.ATTENDANT,
+    UserRole.CASHIER,
   ]);
   private readonly defaultAttendantTimezone = 'Africa/Kampala';
   private readonly organizationSafeSelect = {
@@ -102,6 +121,8 @@ export class AuthService {
     id: true,
     organizationId: true,
     role: true,
+    customRoleId: true,
+    customRoleName: true,
     ownerCapability: true,
     status: true,
     organization: {
@@ -409,12 +430,16 @@ export class AuthService {
     return input as UserRole;
   }
 
-  private assertTeamAssignableRole(role: UserRole, context: string) {
-    if (!this.teamAssignableRoles.has(role)) {
+  private assertTeamManageableRole(role: UserRole, context: string) {
+    if (!this.teamManageableRoles.has(role)) {
       throw new BadRequestException(
-        `Role "${role}" is not allowed for station team assignments (${context})`,
+        `Role "${role}" is not allowed for team management (${context})`,
       );
     }
+  }
+
+  private requiresStationAssignments(role: UserRole): boolean {
+    return this.stationScopedTeamRoles.has(role);
   }
 
   private async getTeamManagerScope(
@@ -460,9 +485,9 @@ export class AuthService {
     )?.role;
     const effectiveManagerRole = membershipRoleForOrg || actor.role;
 
-    if (!this.stationAssignmentManagerRoles.has(effectiveManagerRole)) {
+    if (!this.teamManagerRoles.has(effectiveManagerRole)) {
       throw new UnauthorizedException(
-        'Only STATION_OWNER and STATION_ADMIN can manage station teams',
+        'Only approved platform and organization roles can manage team members',
       );
     }
 
@@ -555,7 +580,7 @@ export class AuthService {
 
     const normalized = Array.from(dedupe.values()).map((assignment) => {
       const role = this.parseUserRole(assignment.role as string, context);
-      this.assertTeamAssignableRole(role, context);
+      this.assertTeamManageableRole(role, context);
 
       const isActive = assignment.isActive ?? true;
       const isPrimary = assignment.isPrimary ?? false;
@@ -1003,12 +1028,16 @@ export class AuthService {
           userId: user.id,
           organizationId: invitation.organizationId,
           role: invitation.role,
+          customRoleId: invitation.customRoleId,
+          customRoleName: invitation.customRoleName,
           ownerCapability: invitation.ownerCapability,
           status: MembershipStatus.ACTIVE,
           invitedBy: invitation.invitedBy || undefined,
         },
         update: {
           role: invitation.role,
+          customRoleId: invitation.customRoleId,
+          customRoleName: invitation.customRoleName,
           ownerCapability: invitation.ownerCapability,
           status: MembershipStatus.ACTIVE,
           invitedBy: invitation.invitedBy || undefined,
@@ -1329,11 +1358,11 @@ export class AuthService {
     }
 
     const normalizedEmail = this.normalizeEmail(inviteDto.email);
+    const inviteRole = this.parseUserRole(inviteDto.role as string, 'invite');
+    this.assertTeamManageableRole(inviteRole, 'invite');
     const normalizedInitialAssignments = inviteDto.initialAssignments?.length
       ? this.normalizeTeamAssignments(inviteDto.initialAssignments, 'invite')
       : [];
-
-    const inviteRole = inviteDto.role as unknown as UserRole;
     const organizationId = this.isEvzoneRole(inviteRole)
       ? (await this.ensureEvzoneOrganization()).id
       : inviter.organizationId;
@@ -1466,6 +1495,8 @@ export class AuthService {
           userId,
           organizationId,
           role: inviteRole,
+          customRoleId: inviteDto.customRoleId || null,
+          customRoleName: inviteDto.customRoleName || null,
           ownerCapability:
             inviteDto.ownerCapability as unknown as StationOwnerCapability,
           status: MembershipStatus.INVITED,
@@ -1473,6 +1504,8 @@ export class AuthService {
         },
         update: {
           role: inviteRole,
+          customRoleId: inviteDto.customRoleId || null,
+          customRoleName: inviteDto.customRoleName || null,
           ownerCapability:
             inviteDto.ownerCapability as unknown as StationOwnerCapability,
           status: MembershipStatus.INVITED,
@@ -1486,6 +1519,8 @@ export class AuthService {
           userId,
           organizationId,
           role: inviteRole,
+          customRoleId: inviteDto.customRoleId || null,
+          customRoleName: inviteDto.customRoleName || null,
           ownerCapability:
             inviteDto.ownerCapability as unknown as StationOwnerCapability,
           invitedBy: inviter.id,
@@ -1542,6 +1577,8 @@ export class AuthService {
         email: normalizedEmail,
         organizationId,
         role: inviteRole,
+        customRoleId: inviteDto.customRoleId || null,
+        customRoleName: inviteDto.customRoleName || null,
         isExistingUser: Boolean(existingUser),
       },
     });
@@ -2330,7 +2367,9 @@ export class AuthService {
       const user = membership.user;
       const activeAssignments = assignmentCountByUser.get(user.id) || 0;
       const displayStatus =
-        user.status === 'Active' && activeAssignments === 0
+        user.status === 'Active' &&
+        this.requiresStationAssignments(membership.role) &&
+        activeAssignments === 0
           ? 'Active-Unassigned'
           : user.status;
 
@@ -2340,6 +2379,8 @@ export class AuthService {
         email: user.email,
         phone: user.phone,
         role: membership.role,
+        customRoleId: membership.customRoleId,
+        customRoleName: membership.customRoleName,
         status: user.status,
         displayStatus,
         ownerCapability: membership.ownerCapability || user.ownerCapability,
@@ -2353,27 +2394,47 @@ export class AuthService {
 
   async inviteTeamMember(inviteDto: TeamInviteUserDto, inviterId: string) {
     const scope = await this.getTeamManagerScope(inviterId);
-    const normalizedAssignments = this.normalizeTeamAssignments(
-      inviteDto.initialAssignments,
-      'team invite',
-    );
-
-    await this.validateStationsInOrganizationScope(
-      normalizedAssignments.map((assignment) => assignment.stationId),
-      scope.organizationId,
-    );
-
     const inviteRole = this.parseUserRole(
       inviteDto.role as string,
       'team invite',
     );
-    this.assertTeamAssignableRole(inviteRole, 'team invite');
+    this.assertTeamManageableRole(inviteRole, 'team invite');
+
+    let normalizedAssignments: Array<{
+      stationId: string;
+      role: UserRole;
+      isPrimary: boolean;
+      isActive: boolean;
+      attendantMode: AttendantRoleMode | null;
+      shiftStart: string | null;
+      shiftEnd: string | null;
+      timezone: string | null;
+    }> = [];
+
+    if (this.requiresStationAssignments(inviteRole)) {
+      if (!inviteDto.initialAssignments?.length) {
+        throw new BadRequestException(
+          `At least one station assignment is required for role "${inviteRole}"`,
+        );
+      }
+
+      normalizedAssignments = this.normalizeTeamAssignments(
+        inviteDto.initialAssignments,
+        'team invite',
+      );
+
+      await this.validateStationsInOrganizationScope(
+        normalizedAssignments.map((assignment) => assignment.stationId),
+        scope.organizationId,
+      );
+    }
 
     const invitePayload: InviteUserDto = {
       ...inviteDto,
       role: inviteRole as unknown as InviteUserDto['role'],
-      initialAssignments:
-        normalizedAssignments as unknown as TeamStationAssignmentDto[],
+      initialAssignments: normalizedAssignments.length
+        ? (normalizedAssignments as unknown as TeamStationAssignmentDto[])
+        : undefined,
     };
 
     return this.inviteUser(invitePayload, inviterId);
@@ -2391,6 +2452,7 @@ export class AuthService {
     );
 
     const updateData: Prisma.UserUpdateInput = {};
+    const membershipUpdateData: Prisma.OrganizationMembershipUpdateInput = {};
     if (typeof updateDto.name === 'string') updateData.name = updateDto.name;
     if (typeof updateDto.phone === 'string') updateData.phone = updateDto.phone;
     if (typeof updateDto.status === 'string')
@@ -2398,26 +2460,56 @@ export class AuthService {
     if (typeof updateDto.ownerCapability === 'string') {
       updateData.ownerCapability =
         updateDto.ownerCapability as unknown as StationOwnerCapability;
+      membershipUpdateData.ownerCapability =
+        (updateDto.ownerCapability as StationOwnerCapability | null) || null;
     }
     if (typeof updateDto.role === 'string') {
       const parsedRole = this.parseUserRole(
         updateDto.role,
         'team member update',
       );
-      this.assertTeamAssignableRole(parsedRole, 'team member update');
+      this.assertTeamManageableRole(parsedRole, 'team member update');
       updateData.role = parsedRole;
+      membershipUpdateData.role = parsedRole;
+      if (!updateDto.customRoleId) {
+        membershipUpdateData.customRoleId = null;
+        membershipUpdateData.customRoleName = null;
+      }
+    }
+    if (typeof updateDto.customRoleId === 'string') {
+      membershipUpdateData.customRoleId = updateDto.customRoleId || null;
+    }
+    if (typeof updateDto.customRoleName === 'string') {
+      membershipUpdateData.customRoleName = updateDto.customRoleName || null;
+    }
+    if (updateDto.status) {
+      membershipUpdateData.status =
+        updateDto.status === 'Active'
+          ? MembershipStatus.ACTIVE
+          : updateDto.status === 'Invited' || updateDto.status === 'Pending'
+            ? MembershipStatus.INVITED
+            : MembershipStatus.SUSPENDED;
     }
 
-    if (Object.keys(updateData).length === 0) {
+    if (
+      Object.keys(updateData).length === 0 &&
+      Object.keys(membershipUpdateData).length === 0
+    ) {
       throw new BadRequestException('No supported fields provided for update');
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
-      const updatedUser = await tx.user.update({
-        where: { id: targetUserId },
-        data: updateData,
-        select: this.userSafeSelect,
-      });
+      const updatedUser =
+        Object.keys(updateData).length > 0
+          ? await tx.user.update({
+              where: { id: targetUserId },
+              data: updateData,
+              select: this.userSafeSelect,
+            })
+          : await tx.user.findUniqueOrThrow({
+              where: { id: targetUserId },
+              select: this.userSafeSelect,
+            });
 
       const membership = await tx.organizationMembership.findUnique({
         where: {
@@ -2429,40 +2521,46 @@ export class AuthService {
       });
 
       if (membership) {
-        const membershipUpdateData: Prisma.OrganizationMembershipUpdateInput =
-          {};
-        if (updateData.role) {
-          membershipUpdateData.role = updateData.role as UserRole;
-        }
-        if (updateData.ownerCapability !== undefined) {
-          membershipUpdateData.ownerCapability =
-            (updateData.ownerCapability as StationOwnerCapability | null) ||
-            null;
-        }
-        if (updateDto.status) {
-          membershipUpdateData.status =
-            updateDto.status === 'Active'
-              ? MembershipStatus.ACTIVE
-              : updateDto.status === 'Invited' || updateDto.status === 'Pending'
-                ? MembershipStatus.INVITED
-                : MembershipStatus.SUSPENDED;
-        }
-
         if (Object.keys(membershipUpdateData).length > 0) {
           await tx.organizationMembership.update({
             where: {
               userId_organizationId: {
-                userId: targetUserId,
+                  userId: targetUserId,
                 organizationId: scope.organizationId,
               },
             },
-            data: membershipUpdateData,
+              data: membershipUpdateData,
+            });
+          }
+        }
+
+        if (
+          updateData.role &&
+          !this.requiresStationAssignments(updateData.role as UserRole)
+        ) {
+          await tx.stationTeamAssignment.updateMany({
+            where: {
+              userId: targetUserId,
+              station: {
+                orgId: scope.organizationId,
+              },
+              isActive: true,
+            },
+            data: {
+              isActive: false,
+              isPrimary: false,
+            },
+          });
+          await tx.user.update({
+            where: { id: targetUserId },
+            data: {
+              lastStationAssignmentId: null,
+            },
           });
         }
-      }
 
-      return updatedUser;
-    });
+        return updatedUser;
+      });
 
     await this.recordAuditEvent({
       actor: actorId,

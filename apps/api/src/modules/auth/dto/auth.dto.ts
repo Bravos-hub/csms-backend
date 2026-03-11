@@ -110,6 +110,14 @@ export class UpdateUserDto {
   @IsOptional()
   ownerCapability?: 'CHARGE' | 'SWAP' | 'BOTH';
 
+  @IsString()
+  @IsOptional()
+  customRoleId?: string;
+
+  @IsString()
+  @IsOptional()
+  customRoleName?: string;
+
   @IsEnum(['Active', 'Pending', 'Suspended', 'Inactive', 'Invited'])
   @IsOptional()
   status?: 'Active' | 'Pending' | 'Suspended' | 'Inactive' | 'Invited';
@@ -172,6 +180,14 @@ export class TeamInviteUserDto {
 
   @IsString()
   @IsOptional()
+  customRoleId?: string;
+
+  @IsString()
+  @IsOptional()
+  customRoleName?: string;
+
+  @IsString()
+  @IsOptional()
   frontendUrl?: string;
 
   @IsString()
@@ -183,10 +199,10 @@ export class TeamInviteUserDto {
   zoneId?: string;
 
   @IsArray()
-  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => TeamStationAssignmentDto)
-  initialAssignments: TeamStationAssignmentDto[];
+  @IsOptional()
+  initialAssignments?: TeamStationAssignmentDto[];
 }
 
 export class StaffPayoutProfileDto {
@@ -240,6 +256,14 @@ export class InviteUserDto {
   @IsString()
   @IsOptional()
   ownerCapability?: string;
+
+  @IsString()
+  @IsOptional()
+  customRoleId?: string;
+
+  @IsString()
+  @IsOptional()
+  customRoleName?: string;
 
   @IsString()
   @IsOptional()

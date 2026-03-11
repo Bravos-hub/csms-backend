@@ -232,6 +232,8 @@ model OrganizationMembership {
   userId          String
   organizationId  String
   role            UserRole
+  customRoleId    String?
+  customRoleName  String?
   ownerCapability StationOwnerCapability?
   status          MembershipStatus       @default(INVITED)
   invitedBy       String?
@@ -253,6 +255,8 @@ model UserInvitation {
   userId              String?
   organizationId      String
   role                UserRole
+  customRoleId        String?
+  customRoleName      String?
   ownerCapability     StationOwnerCapability?
   invitedBy           String?
   tokenHash           String                 @unique
