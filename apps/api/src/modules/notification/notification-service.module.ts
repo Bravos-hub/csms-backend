@@ -12,7 +12,12 @@ import { SubmailService } from '../../common/services/submail.service';
 @Module({
   imports: [ConfigModule, DatabaseModule],
   controllers: [NotificationController],
-  providers: [NotificationService, TwilioService, SubmailSmsService, SubmailService],
+  providers: [
+    NotificationService,
+    TwilioService,
+    SubmailSmsService,
+    SubmailService,
+  ],
   exports: [NotificationService],
 })
-export class NotificationServiceModule { }
+export class NotificationServiceModule {}

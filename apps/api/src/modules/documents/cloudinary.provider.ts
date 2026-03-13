@@ -9,7 +9,7 @@ export const CloudinaryProvider: Provider = {
   provide: CLOUDINARY,
   useFactory: (configService: ConfigService) => {
     if (resolvePlatformProfile(process.env).mediaProvider !== 'cloudinary') {
-      return cloudinary
+      return cloudinary;
     }
 
     const cloudName = configService.get('CLOUDINARY_CLOUD_NAME');

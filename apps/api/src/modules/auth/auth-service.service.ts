@@ -2568,42 +2568,42 @@ export class AuthService {
           await tx.organizationMembership.update({
             where: {
               userId_organizationId: {
-                  userId: targetUserId,
+                userId: targetUserId,
                 organizationId: scope.organizationId,
               },
             },
-              data: membershipUpdateData,
-            });
-          }
-        }
-
-        if (
-          updateData.role &&
-          !this.requiresStationAssignments(updateData.role as UserRole)
-        ) {
-          await tx.stationTeamAssignment.updateMany({
-            where: {
-              userId: targetUserId,
-              station: {
-                orgId: scope.organizationId,
-              },
-              isActive: true,
-            },
-            data: {
-              isActive: false,
-              isPrimary: false,
-            },
-          });
-          await tx.user.update({
-            where: { id: targetUserId },
-            data: {
-              lastStationAssignmentId: null,
-            },
+            data: membershipUpdateData,
           });
         }
+      }
 
-        return updatedUser;
-      });
+      if (
+        updateData.role &&
+        !this.requiresStationAssignments(updateData.role as UserRole)
+      ) {
+        await tx.stationTeamAssignment.updateMany({
+          where: {
+            userId: targetUserId,
+            station: {
+              orgId: scope.organizationId,
+            },
+            isActive: true,
+          },
+          data: {
+            isActive: false,
+            isPrimary: false,
+          },
+        });
+        await tx.user.update({
+          where: { id: targetUserId },
+          data: {
+            lastStationAssignmentId: null,
+          },
+        });
+      }
+
+      return updatedUser;
+    });
 
     await this.recordAuditEvent({
       actor: actorId,

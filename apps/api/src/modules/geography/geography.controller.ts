@@ -57,9 +57,7 @@ export class GeographyController {
   })
   @ApiQuery({ name: 'type', required: false, enum: ZoneType })
   @ApiQuery({ name: 'active', required: false, type: Boolean })
-  async getZones(
-    @Query() query: GetZonesQueryDto,
-  ) {
+  async getZones(@Query() query: GetZonesQueryDto) {
     return this.geographyService.getZones(query);
   }
 

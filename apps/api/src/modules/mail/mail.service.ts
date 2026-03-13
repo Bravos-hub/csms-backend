@@ -13,7 +13,10 @@ export class MailService {
     private readonly configService: ConfigService,
     private readonly submailService: SubmailService,
   ) {
-    this.emailProvider = this.configService.get<'smtp' | 'submail'>('EMAIL_PROVIDER', 'smtp');
+    this.emailProvider = this.configService.get<'smtp' | 'submail'>(
+      'EMAIL_PROVIDER',
+      'smtp',
+    );
     this.initializeTransporter();
   }
 
@@ -157,13 +160,14 @@ export class MailService {
           You have been invited to join <strong>${organization}</strong> on the EV Zone portal.
         </p>
 
-        ${role
-        ? `<div style="background-color: #f8f9fa; padding: 15px; border-radius: 6px; margin: 20px 0;">
+        ${
+          role
+            ? `<div style="background-color: #f8f9fa; padding: 15px; border-radius: 6px; margin: 20px 0;">
           <p style="margin: 0; font-size: 14px; color: #666;">Position / Role:</p>
           <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #333;">${role}</p>
         </div>`
-        : ''
-      }
+            : ''
+        }
 
         <p style="font-size: 16px; color: #444; line-height: 1.6;">
           Please click the button below to accept your invitation and continue to sign in:

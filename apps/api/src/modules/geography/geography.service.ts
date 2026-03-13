@@ -128,7 +128,9 @@ export class GeographyService implements OnModuleInit {
       const where: Prisma.GeographicZoneWhereInput = {};
       if (query.parentId !== undefined) {
         where.parentId =
-          query.parentId === 'null' || query.parentId === '' ? null : query.parentId;
+          query.parentId === 'null' || query.parentId === ''
+            ? null
+            : query.parentId;
       }
       if (query.type) {
         where.type = query.type;
@@ -274,7 +276,12 @@ export class GeographyService implements OnModuleInit {
         include: {
           parent: true,
           _count: {
-            select: { children: true, stations: true, sites: true, users: true },
+            select: {
+              children: true,
+              stations: true,
+              sites: true,
+              users: true,
+            },
           },
         },
       });
@@ -293,7 +300,12 @@ export class GeographyService implements OnModuleInit {
         include: {
           parent: true,
           _count: {
-            select: { children: true, stations: true, sites: true, users: true },
+            select: {
+              children: true,
+              stations: true,
+              sites: true,
+              users: true,
+            },
           },
         },
       });
@@ -368,7 +380,9 @@ export class GeographyService implements OnModuleInit {
     const parentIdProvided =
       Object.prototype.hasOwnProperty.call(dto, 'parentId') &&
       dto.parentId !== undefined;
-    const nextParentId = parentIdProvided ? dto.parentId || null : currentZone.parentId;
+    const nextParentId = parentIdProvided
+      ? dto.parentId || null
+      : currentZone.parentId;
     const nextType = dto.type || currentZone.type;
 
     if (nextParentId === currentZoneId) {
@@ -434,9 +448,9 @@ export class GeographyService implements OnModuleInit {
       }
       const current: { parentId: string | null } | null =
         await this.prisma.geographicZone.findUnique({
-        where: { id: currentParentId },
-        select: { parentId: true },
-      });
+          where: { id: currentParentId },
+          select: { parentId: true },
+        });
       currentParentId = current?.parentId ?? null;
     }
   }
@@ -446,7 +460,9 @@ export class GeographyService implements OnModuleInit {
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === 'P2002'
     ) {
-      throw new ConflictException('A geographic zone with that code already exists');
+      throw new ConflictException(
+        'A geographic zone with that code already exists',
+      );
     }
     throw error;
   }

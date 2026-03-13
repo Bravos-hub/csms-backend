@@ -1,19 +1,21 @@
-export type Region = 'china' | 'global'
-export type SmsProvider = 'twilio' | 'submail'
-export type MediaProvider = 'cloudinary' | 'disabled'
+export type Region = 'china' | 'global';
+export type SmsProvider = 'twilio' | 'submail';
+export type MediaProvider = 'cloudinary' | 'disabled';
 
 export interface PlatformProfile {
-  region: Region
-  smsProvider: SmsProvider
-  mediaProvider: MediaProvider
+  region: Region;
+  smsProvider: SmsProvider;
+  mediaProvider: MediaProvider;
 }
 
 export function resolveRegion(value?: string): Region {
-  return value?.trim().toLowerCase() === 'china' ? 'china' : 'global'
+  return value?.trim().toLowerCase() === 'china' ? 'china' : 'global';
 }
 
-export function resolvePlatformProfile(env: NodeJS.ProcessEnv = process.env): PlatformProfile {
-  const region = resolveRegion(env.REGION)
+export function resolvePlatformProfile(
+  env: NodeJS.ProcessEnv = process.env,
+): PlatformProfile {
+  const region = resolveRegion(env.REGION);
 
   return {
     region,
@@ -23,5 +25,5 @@ export function resolvePlatformProfile(env: NodeJS.ProcessEnv = process.env): Pl
     mediaProvider:
       (env.MEDIA_PROVIDER?.trim().toLowerCase() as MediaProvider | undefined) ??
       (region === 'china' ? 'disabled' : 'cloudinary'),
-  }
+  };
 }

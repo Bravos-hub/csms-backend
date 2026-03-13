@@ -253,14 +253,14 @@ export class ProviderDocumentsService {
 
     const folder = scope.relationshipId
       ? `evzone-provider-documents/relationships/${scope.relationshipId}`
-      : `evzone-provider-documents/providers/${scope.providerId || 'unknown'}`
+      : `evzone-provider-documents/providers/${scope.providerId || 'unknown'}`;
 
     const uploadResult = await this.mediaStorage.uploadBuffer({
       buffer: file.buffer,
       folder,
       resourceType: 'auto',
       context: `uploadedBy=${actor.id}|providerId=${scope.providerId || ''}|relationshipId=${scope.relationshipId || ''}`,
-    })
+    });
 
     const created = await this.prisma.providerDocument.create({
       data: {

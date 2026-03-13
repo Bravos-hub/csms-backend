@@ -9,4 +9,4 @@ import { SubmailService } from '../../common/services/submail.service';
   providers: [MailService, SubmailService],
   exports: [MailService, SubmailService],
 })
-export class MailModule { }
+export class MailModule {}
