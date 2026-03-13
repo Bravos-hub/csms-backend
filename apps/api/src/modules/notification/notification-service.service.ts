@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { TwilioService } from './twilio.service';
 import { SubmailSmsService } from './submail-sms.service';
 import { ConfigService } from '@nestjs/config';
+import { resolvePlatformProfile } from '../../common/platform/platform-profile';
 
 @Injectable()
 export class NotificationService {
@@ -12,7 +13,9 @@ export class NotificationService {
     private readonly submailSmsService: SubmailSmsService,
     private readonly configService: ConfigService,
   ) {
-    this.smsProvider = this.configService.get<'twilio' | 'submail'>('SMS_PROVIDER', 'twilio');
+    this.smsProvider =
+      this.configService.get<'twilio' | 'submail'>('SMS_PROVIDER') ??
+      resolvePlatformProfile(process.env).smsProvider;
   }
 
   getHello(): string {

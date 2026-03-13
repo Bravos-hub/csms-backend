@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { ProvidersController } from './providers.controller';
 import { ProviderRelationshipsController } from './provider-relationships.controller';
 import { ProviderDocumentsController } from './provider-documents.controller';
@@ -13,8 +14,10 @@ import { ProviderRequirementsService } from './provider-requirements.service';
 import { ProviderComplianceService } from './provider-compliance.service';
 import { ProviderCompliancePolicyService } from './provider-compliance-policy.service';
 import { PrismaService } from '../../prisma.service';
+import { MediaStorageService } from '../../common/services/media-storage.service';
 
 @Module({
+  imports: [ConfigModule],
   controllers: [
     ProvidersController,
     ProviderRelationshipsController,
@@ -28,6 +31,7 @@ import { PrismaService } from '../../prisma.service';
     ProviderRequirementsService,
     ProviderCompliancePolicyService,
     ProviderComplianceService,
+    MediaStorageService,
     ProvidersService,
     ProviderRelationshipsService,
     ProviderDocumentsService,

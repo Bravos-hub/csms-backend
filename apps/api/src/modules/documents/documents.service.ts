@@ -1,14 +1,16 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
-import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
-import * as streamifier from 'streamifier';
 import { DocumentCategory, DocumentStatus, EntityType } from '@prisma/client';
 import { UploadDocumentDto } from './dto/upload-document.dto';
 import { VerifyDocumentDto } from './dto/verify-document.dto';
+import { MediaStorageService } from '../../common/services/media-storage.service';
 
 @Injectable()
 export class DocumentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly mediaStorage: MediaStorageService,
+  ) {}
 
   async uploadFile(
     file: Express.Multer.File,
@@ -20,23 +22,12 @@ export class DocumentsService {
     }
 
     // Upload to Cloudinary
-    const uploadResult = await new Promise<UploadApiResponse>(
-      (resolve, reject) => {
-        const uploadStream = cloudinary.uploader.upload_stream(
-          {
-            folder: `evzone-documents/${uploadDto.entityType.toLowerCase()}/${uploadDto.entityId}`,
-            resource_type: 'auto',
-            context: `uploadedBy=${userId}|entityType=${uploadDto.entityType}|entityId=${uploadDto.entityId}|category=${uploadDto.category}`,
-          },
-          (error, result) => {
-            if (error) return reject(error);
-            if (!result) return reject(new Error('Cloudinary upload failed'));
-            resolve(result);
-          },
-        );
-        streamifier.createReadStream(file.buffer).pipe(uploadStream);
-      },
-    );
+    const uploadResult = await this.mediaStorage.uploadBuffer({
+      buffer: file.buffer,
+      folder: `evzone-documents/${uploadDto.entityType.toLowerCase()}/${uploadDto.entityId}`,
+      resourceType: 'auto',
+      context: `uploadedBy=${userId}|entityType=${uploadDto.entityType}|entityId=${uploadDto.entityId}|category=${uploadDto.category}`,
+    });
 
     // Create Document record in DB
     return this.prisma.document.create({
@@ -45,10 +36,10 @@ export class DocumentsService {
         entityType: uploadDto.entityType as EntityType,
         entityId: uploadDto.entityId,
         fileName: file.originalname,
-        fileUrl: uploadResult.secure_url,
+        fileUrl: uploadResult.url,
         fileType: uploadResult.format || 'unknown',
         fileSize: uploadResult.bytes,
-        cloudinaryPublicId: uploadResult.public_id,
+        cloudinaryPublicId: uploadResult.publicId,
         uploadedBy: userId,
         isRequired: uploadDto.isRequired || false,
         metadata: uploadDto.metadata
@@ -96,9 +87,7 @@ export class DocumentsService {
 
   async deleteDocument(id: string) {
     const doc = await this.prisma.document.findUnique({ where: { id } });
-    if (doc && doc.cloudinaryPublicId) {
-      await cloudinary.uploader.destroy(doc.cloudinaryPublicId);
-    }
+    await this.mediaStorage.delete(doc?.cloudinaryPublicId);
     return this.prisma.document.delete({ where: { id } });
   }
 }

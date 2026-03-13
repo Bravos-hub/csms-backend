@@ -1,12 +1,17 @@
 import { Provider } from '@nestjs/common';
 import { v2 as cloudinary } from 'cloudinary';
 import { ConfigService } from '@nestjs/config';
+import { resolvePlatformProfile } from '../../common/platform/platform-profile';
 
 export const CLOUDINARY = 'lib:cloudinary';
 
 export const CloudinaryProvider: Provider = {
   provide: CLOUDINARY,
   useFactory: (configService: ConfigService) => {
+    if (resolvePlatformProfile(process.env).mediaProvider !== 'cloudinary') {
+      return cloudinary
+    }
+
     const cloudName = configService.get('CLOUDINARY_CLOUD_NAME');
     const apiKey = configService.get('CLOUDINARY_API_KEY');
     const apiSecret = configService.get('CLOUDINARY_API_SECRET');

@@ -5,8 +5,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, ProviderDocumentStatus } from '@prisma/client';
-import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
-import * as streamifier from 'streamifier';
 import { PrismaService } from '../../prisma.service';
 import { ProviderAuthzService } from './provider-authz.service';
 import {
@@ -15,6 +13,7 @@ import {
   ReviewProviderDocumentDto,
   UploadProviderDocumentDto,
 } from './dto/providers.dto';
+import { MediaStorageService } from '../../common/services/media-storage.service';
 
 type ProviderDocumentWithRelationship = Prisma.ProviderDocumentGetPayload<{
   include: {
@@ -27,6 +26,7 @@ export class ProviderDocumentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authz: ProviderAuthzService,
+    private readonly mediaStorage: MediaStorageService,
   ) {}
 
   private mapDocument(
@@ -251,28 +251,16 @@ export class ProviderDocumentsService {
       relationshipId: data.relationshipId,
     });
 
-    const uploadResult = await new Promise<UploadApiResponse>(
-      (resolve, reject) => {
-        const folder = scope.relationshipId
-          ? `evzone-provider-documents/relationships/${scope.relationshipId}`
-          : `evzone-provider-documents/providers/${scope.providerId || 'unknown'}`;
+    const folder = scope.relationshipId
+      ? `evzone-provider-documents/relationships/${scope.relationshipId}`
+      : `evzone-provider-documents/providers/${scope.providerId || 'unknown'}`
 
-        const uploadStream = cloudinary.uploader.upload_stream(
-          {
-            folder,
-            resource_type: 'auto',
-            context: `uploadedBy=${actor.id}|providerId=${scope.providerId || ''}|relationshipId=${scope.relationshipId || ''}`,
-          },
-          (error, result) => {
-            if (error) return reject(error);
-            if (!result) return reject(new Error('Cloudinary upload failed'));
-            resolve(result);
-          },
-        );
-
-        streamifier.createReadStream(file.buffer).pipe(uploadStream);
-      },
-    );
+    const uploadResult = await this.mediaStorage.uploadBuffer({
+      buffer: file.buffer,
+      folder,
+      resourceType: 'auto',
+      context: `uploadedBy=${actor.id}|providerId=${scope.providerId || ''}|relationshipId=${scope.relationshipId || ''}`,
+    })
 
     const created = await this.prisma.providerDocument.create({
       data: {
@@ -283,8 +271,8 @@ export class ProviderDocumentsService {
         requirementCode: data.requirementCode,
         category: data.category,
         name: data.name || file.originalname,
-        fileUrl: uploadResult.secure_url,
-        cloudinaryPublicId: uploadResult.public_id,
+        fileUrl: uploadResult.url,
+        cloudinaryPublicId: uploadResult.publicId,
         issuer: data.issuer,
         documentNumber: data.documentNumber,
         issueDate: data.issueDate ? new Date(data.issueDate) : undefined,
@@ -345,9 +333,7 @@ export class ProviderDocumentsService {
       }
     }
 
-    if (doc.cloudinaryPublicId) {
-      await cloudinary.uploader.destroy(doc.cloudinaryPublicId);
-    }
+    await this.mediaStorage.delete(doc.cloudinaryPublicId);
 
     await this.prisma.providerDocument.delete({ where: { id } });
   }
