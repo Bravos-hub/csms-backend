@@ -4,16 +4,19 @@ import {
   Post,
   Param,
   Query,
+  Req,
   UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { AnalyticsService } from './analytics-service.service';
 import { ServiceManagerService } from './service-manager.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { UserRole } from '@prisma/client';
+import { OwnerDashboardQueryDto } from './dto/owner-dashboard.dto';
 
 @Controller('analytics')
 @UseGuards(JwtAuthGuard)
@@ -26,6 +29,22 @@ export class AnalyticsController {
   @Get('dashboard')
   getDashboard(@Query('period') period = 'today') {
     return this.analyticsService.getDashboard(period);
+  }
+
+  @Get('owner/dashboard')
+  getOwnerDashboard(
+    @Query() query: OwnerDashboardQueryDto,
+    @Req()
+    req: Request & {
+      user?: {
+        sub?: string;
+        role?: string;
+        organizationId?: string;
+        orgId?: string;
+      };
+    },
+  ) {
+    return this.analyticsService.getOwnerDashboard(query, req.user);
   }
 
   @Get('uptime')

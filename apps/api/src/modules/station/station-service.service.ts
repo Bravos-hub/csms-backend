@@ -299,7 +299,47 @@ export class StationService {
   }
 
   async getStationStats(id: string) {
-    return { totalSessions: 100, energyDelivered: 5000, revenue: 200 };
+    await this.findStationById(id);
+
+    const aggregate = await this.prisma.session.aggregate({
+      where: { stationId: id },
+      _count: { _all: true },
+      _sum: {
+        totalEnergy: true,
+        amount: true,
+      },
+      _avg: {
+        totalEnergy: true,
+      },
+    });
+
+    const completedSessions = await this.prisma.session.findMany({
+      where: {
+        stationId: id,
+        endTime: { not: null },
+      },
+      select: {
+        startTime: true,
+        endTime: true,
+      },
+    });
+
+    const averageSessionDuration =
+      completedSessions.length > 0
+        ? completedSessions.reduce((sum, session) => {
+            return (
+              sum +
+              (session.endTime!.getTime() - session.startTime.getTime()) / 60000
+            );
+          }, 0) / completedSessions.length
+        : 0;
+
+    return {
+      totalRevenue: Number((aggregate._sum.amount || 0).toFixed(2)),
+      totalSessions: aggregate._count._all || 0,
+      totalEnergy: Number((aggregate._sum.totalEnergy || 0).toFixed(2)),
+      averageSessionDuration: Number(averageSessionDuration.toFixed(1)),
+    };
   }
 
   async getSwapsToday(id: string) {
