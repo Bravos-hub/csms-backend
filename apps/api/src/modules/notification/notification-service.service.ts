@@ -4,6 +4,32 @@ import { SubmailSmsService } from './submail-sms.service';
 import { ConfigService } from '@nestjs/config';
 import { resolvePlatformProfile } from '../../common/platform/platform-profile';
 
+type NotificationKind =
+  | 'system'
+  | 'alert'
+  | 'info'
+  | 'warning'
+  | 'notice'
+  | 'message'
+  | 'payment'
+  | 'application';
+
+type NoticeChannel = 'in-app' | 'email' | 'sms';
+
+export interface NotificationItemDto {
+  id: string;
+  kind: NotificationKind;
+  title: string;
+  message: string;
+  source: string;
+  read: boolean;
+  createdAt: string;
+  channels?: NoticeChannel[];
+  status?: string;
+  targetPath?: string;
+  metadata?: Record<string, string>;
+}
+
 @Injectable()
 export class NotificationService {
   private readonly smsProvider: 'twilio' | 'submail';
@@ -18,8 +44,8 @@ export class NotificationService {
       resolvePlatformProfile(process.env).smsProvider;
   }
 
-  getHello(): string {
-    return 'Notification Service Operational';
+  getNotifications(): NotificationItemDto[] {
+    return [];
   }
 
   async sendSms(to: string, message: string) {

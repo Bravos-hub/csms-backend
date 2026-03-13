@@ -11,8 +11,8 @@ export class NotificationController {
   constructor(private readonly notificationService: NotificationService) {}
 
   @Get()
-  getHello() {
-    return this.notificationService.getHello();
+  getNotifications() {
+    return this.notificationService.getNotifications();
   }
 
   @Post('sms')
