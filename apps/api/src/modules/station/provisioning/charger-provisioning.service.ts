@@ -103,13 +103,20 @@ export class ChargerProvisioningService
         throw new Error('REDIS_TLS_REJECT_UNAUTHORIZED=false is not allowed');
       }
       const caPath = this.config.get<string>('REDIS_TLS_CA_PATH');
-      if (caPath && !fs.existsSync(caPath)) {
-        throw new Error(`REDIS_TLS_CA_PATH not found: ${caPath}`);
+      const canUseCustomCa = caPath && fs.existsSync(caPath);
+      if (caPath && !canUseCustomCa) {
+        this.logger.warn(
+          `REDIS_TLS_CA_PATH not found, using system trust store instead: ${caPath}`,
+        );
       }
-      redisOptions.tls = {
-        rejectUnauthorized: true,
-        ca: caPath ? fs.readFileSync(caPath) : undefined,
-      };
+      redisOptions.tls = canUseCustomCa
+        ? {
+            rejectUnauthorized: true,
+            ca: fs.readFileSync(caPath),
+          }
+        : {
+            rejectUnauthorized: true,
+          };
     }
 
     this.redis = new Redis(redisUrl, redisOptions);

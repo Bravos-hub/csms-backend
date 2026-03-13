@@ -9,6 +9,8 @@ import { KafkaService } from '../../platform/kafka.service';
 
 @Controller('health')
 export class HealthController {
+  private warnedAboutMissingRedisCa = false;
+
   constructor(
     private readonly config: ConfigService,
     private readonly httpMetrics: HttpMetricsService,
@@ -244,15 +246,23 @@ export class HealthController {
     }
 
     const caPath = this.config.get<string>('REDIS_TLS_CA_PATH');
-    if (caPath && !fs.existsSync(caPath)) {
-      throw new Error(`REDIS_TLS_CA_PATH not found: ${caPath}`);
+    const canUseCustomCa = caPath && fs.existsSync(caPath);
+    if (caPath && !canUseCustomCa && !this.warnedAboutMissingRedisCa) {
+      this.warnedAboutMissingRedisCa = true;
+      console.warn(
+        `REDIS_TLS_CA_PATH not found, using system trust store instead: ${caPath}`,
+      );
     }
 
     return {
-      tls: {
-        rejectUnauthorized: true,
-        ca: caPath ? fs.readFileSync(caPath, 'utf8') : undefined,
-      },
+      tls: canUseCustomCa
+        ? {
+            rejectUnauthorized: true,
+            ca: fs.readFileSync(caPath, 'utf8'),
+          }
+        : {
+            rejectUnauthorized: true,
+          },
     };
   }
 }
