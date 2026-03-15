@@ -34,6 +34,28 @@ export class RefreshTokenDto {
   refreshToken: string;
 }
 
+export class Generate2faDto {
+  @IsString()
+  @IsNotEmpty()
+  currentPassword: string;
+}
+
+export class Verify2faDto {
+  @IsString()
+  @IsNotEmpty()
+  token: string;
+}
+
+export class Disable2faDto {
+  @IsString()
+  @IsNotEmpty()
+  token: string;
+
+  @IsString()
+  @IsNotEmpty()
+  currentPassword: string;
+}
+
 export class CreateUserDto {
   @IsEmail()
   @IsNotEmpty()

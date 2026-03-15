@@ -118,6 +118,7 @@ export class AuthService {
     subscribedPackage: true,
     organizationId: true,
     ownerCapability: true,
+    twoFactorEnabled: true,
     mustChangePassword: true,
     lastStationAssignmentId: true,
     createdAt: true,
@@ -139,6 +140,14 @@ export class AuthService {
       },
     },
   } as const;
+  private readonly twoFactorSecretPrefix = 'enc:v1';
+  private readonly twoFactorMaxFailures = 5;
+  private readonly twoFactorFailureWindowMs = 10 * 60 * 1000;
+  private readonly twoFactorLockMs = 15 * 60 * 1000;
+  private readonly twoFactorAttempts = new Map<
+    string,
+    { failures: number; lastFailedAt: number; lockedUntil: number }
+  >();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -3273,63 +3282,336 @@ export class AuthService {
 
   // 2FA Methods
 
-  async generate2faSecret(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+  private getTwoFactorAttemptKey(userId: string, action: 'verify' | 'disable') {
+    return `${userId}:${action}`;
+  }
+
+  private assertTwoFactorAttemptAllowed(
+    userId: string,
+    action: 'verify' | 'disable',
+  ) {
+    const key = this.getTwoFactorAttemptKey(userId, action);
+    const state = this.twoFactorAttempts.get(key);
+    if (!state) return;
+
+    const now = Date.now();
+    if (state.lockedUntil > now) {
+      const waitMinutes = Math.max(
+        1,
+        Math.ceil((state.lockedUntil - now) / 60_000),
+      );
+      throw new BadRequestException(
+        `Too many failed 2FA attempts. Try again in ${waitMinutes} minute(s).`,
+      );
+    }
+
+    if (now - state.lastFailedAt > this.twoFactorFailureWindowMs) {
+      this.twoFactorAttempts.delete(key);
+    }
+  }
+
+  private registerTwoFactorFailure(
+    userId: string,
+    action: 'verify' | 'disable',
+  ) {
+    const key = this.getTwoFactorAttemptKey(userId, action);
+    const now = Date.now();
+    const current = this.twoFactorAttempts.get(key);
+    const stale =
+      !current || now - current.lastFailedAt > this.twoFactorFailureWindowMs;
+    const failures = stale ? 1 : current.failures + 1;
+
+    const lockedUntil =
+      failures >= this.twoFactorMaxFailures ? now + this.twoFactorLockMs : 0;
+
+    this.twoFactorAttempts.set(key, {
+      failures,
+      lastFailedAt: now,
+      lockedUntil,
+    });
+  }
+
+  private clearTwoFactorFailures(userId: string, action: 'verify' | 'disable') {
+    this.twoFactorAttempts.delete(this.getTwoFactorAttemptKey(userId, action));
+  }
+
+  private getTwoFactorEncryptionKey(): Buffer {
+    const rawKey =
+      this.config.get<string>('AUTH_2FA_ENCRYPTION_KEY') ||
+      this.config.get<string>('JWT_SECRET') ||
+      '';
+    if (!rawKey) {
+      throw new BadRequestException(
+        '2FA encryption key is not configured on the server.',
+      );
+    }
+
+    return crypto.createHash('sha256').update(rawKey).digest();
+  }
+
+  private encryptTwoFactorSecret(secret: string): string {
+    const key = this.getTwoFactorEncryptionKey();
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    const encrypted = Buffer.concat([
+      cipher.update(secret, 'utf8'),
+      cipher.final(),
+    ]);
+    const tag = cipher.getAuthTag();
+
+    return [
+      this.twoFactorSecretPrefix,
+      iv.toString('base64url'),
+      encrypted.toString('base64url'),
+      tag.toString('base64url'),
+    ].join(':');
+  }
+
+  private decryptTwoFactorSecret(storedSecret: string): string {
+    if (!storedSecret) return '';
+
+    const expectedPrefix = `${this.twoFactorSecretPrefix}:`;
+    if (!storedSecret.startsWith(expectedPrefix)) {
+      return storedSecret;
+    }
+
+    const parts = storedSecret.split(':');
+    if (parts.length !== 5) {
+      throw new BadRequestException(
+        'Stored 2FA secret is invalid. Re-enroll 2FA and try again.',
+      );
+    }
+
+    const iv = Buffer.from(parts[2], 'base64url');
+    const encrypted = Buffer.from(parts[3], 'base64url');
+    const tag = Buffer.from(parts[4], 'base64url');
+    const decipher = crypto.createDecipheriv(
+      'aes-256-gcm',
+      this.getTwoFactorEncryptionKey(),
+      iv,
+    );
+    decipher.setAuthTag(tag);
+
+    try {
+      return Buffer.concat([
+        decipher.update(encrypted),
+        decipher.final(),
+      ]).toString('utf8');
+    } catch {
+      throw new BadRequestException(
+        'Stored 2FA secret is invalid. Re-enroll 2FA and try again.',
+      );
+    }
+  }
+
+  private async assertCurrentPasswordForTwoFactor(
+    user: { passwordHash: string | null },
+    currentPassword: string,
+  ) {
+    if (!currentPassword) {
+      throw new BadRequestException(
+        'Current password is required for this 2FA action.',
+      );
+    }
+    if (!user.passwordHash) {
+      throw new BadRequestException('User does not have a password set');
+    }
+
+    const isPasswordValid = await bcrypt.compare(
+      currentPassword,
+      user.passwordHash,
+    );
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid current password');
+    }
+  }
+
+  private async sendTwoFactorSecurityAlert(
+    user: { email?: string | null; name?: string | null },
+    action: 'enabled' | 'disabled',
+  ) {
+    if (!user.email) return;
+
+    const at = new Date().toISOString();
+    const subject =
+      action === 'enabled'
+        ? 'Two-Factor Authentication Enabled'
+        : 'Two-Factor Authentication Disabled';
+    const actionLabel = action === 'enabled' ? 'enabled' : 'disabled';
+
+    const html = `
+      <p>Hello ${user.name || 'there'},</p>
+      <p>Two-factor authentication was <strong>${actionLabel}</strong> on your account.</p>
+      <p>Time: ${at}</p>
+      <p>If this was not you, reset your password immediately and contact support.</p>
+    `;
+
+    try {
+      await this.mailService.sendMail(user.email, subject, html);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to send 2FA ${action} security alert`,
+        String(error).replace(/[\n\r]/g, ''),
+      );
+    }
+  }
+
+  async generate2faSecret(userId: string, currentPassword: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        passwordHash: true,
+        twoFactorEnabled: true,
+      },
+    });
     if (!user) throw new NotFoundException('User not found');
+    if (user.twoFactorEnabled) {
+      throw new BadRequestException(
+        '2FA is already enabled. Disable it first before reconfiguring.',
+      );
+    }
+
+    await this.assertCurrentPasswordForTwoFactor(user, currentPassword);
 
     const appName = this.config.get<string>('APP_NAME') || 'EVzone';
     const secretObj = speakeasy.generateSecret({ name: appName });
     const secret = secretObj.base32;
     const otpauthUrl = secretObj.otpauth_url || '';
+    const encryptedSecret = this.encryptTwoFactorSecret(secret);
 
     await this.prisma.user.update({
       where: { id: userId },
-      data: { twoFactorSecret: secret },
+      data: { twoFactorSecret: encryptedSecret },
+    });
+
+    await this.recordAuditEvent({
+      actor: userId,
+      action: '2FA_SETUP_INITIATED',
+      resource: 'User',
+      resourceId: userId,
     });
 
     const qrCodeUrl = await qrcode.toDataURL(otpauthUrl);
-    return { qrCodeUrl, secret }; // Usually you don't return the secret, but nice for manual entry
+    return { qrCodeUrl, secret };
   }
 
   async verify2faSetup(userId: string, token: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        twoFactorSecret: true,
+      },
+    });
     if (!user) throw new NotFoundException('User not found');
-    if (!user.twoFactorSecret)
+    if (!user.twoFactorSecret) {
       throw new BadRequestException('2FA secret not generated');
+    }
 
+    this.assertTwoFactorAttemptAllowed(userId, 'verify');
+
+    const resolvedSecret = this.decryptTwoFactorSecret(user.twoFactorSecret);
     const isValid = speakeasy.totp.verify({
-      secret: user.twoFactorSecret,
+      secret: resolvedSecret,
       encoding: 'base32',
       token,
+      window: 1,
     });
-    if (!isValid) throw new BadRequestException('Invalid 2FA token');
+    if (!isValid) {
+      this.registerTwoFactorFailure(userId, 'verify');
+      await this.recordAuditEvent({
+        actor: userId,
+        action: '2FA_VERIFY_FAILED',
+        resource: 'User',
+        resourceId: userId,
+        status: 'FAILED',
+      });
+      throw new BadRequestException('Invalid 2FA token');
+    }
+
+    this.clearTwoFactorFailures(userId, 'verify');
 
     await this.prisma.user.update({
       where: { id: userId },
-      data: { twoFactorEnabled: true },
+      data: {
+        twoFactorEnabled: true,
+        twoFactorSecret: user.twoFactorSecret.startsWith(
+          `${this.twoFactorSecretPrefix}:`,
+        )
+          ? user.twoFactorSecret
+          : this.encryptTwoFactorSecret(resolvedSecret),
+      },
     });
+
+    await this.recordAuditEvent({
+      actor: userId,
+      action: '2FA_ENABLED',
+      resource: 'User',
+      resourceId: userId,
+    });
+    await this.sendTwoFactorSecurityAlert(user, 'enabled');
 
     return { success: true, message: '2FA enabled successfully' };
   }
 
-  async disable2fa(userId: string, token: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+  async disable2fa(userId: string, token: string, currentPassword: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        passwordHash: true,
+        twoFactorEnabled: true,
+        twoFactorSecret: true,
+      },
+    });
     if (!user) throw new NotFoundException('User not found');
     if (!user.twoFactorEnabled || !user.twoFactorSecret) {
       throw new BadRequestException('2FA is not enabled');
     }
 
+    await this.assertCurrentPasswordForTwoFactor(user, currentPassword);
+    this.assertTwoFactorAttemptAllowed(userId, 'disable');
+
+    const resolvedSecret = this.decryptTwoFactorSecret(user.twoFactorSecret);
     const isValid = speakeasy.totp.verify({
-      secret: user.twoFactorSecret,
+      secret: resolvedSecret,
       encoding: 'base32',
       token,
+      window: 1,
     });
-    if (!isValid) throw new BadRequestException('Invalid 2FA token');
+    if (!isValid) {
+      this.registerTwoFactorFailure(userId, 'disable');
+      await this.recordAuditEvent({
+        actor: userId,
+        action: '2FA_DISABLE_FAILED',
+        resource: 'User',
+        resourceId: userId,
+        status: 'FAILED',
+      });
+      throw new BadRequestException('Invalid 2FA token');
+    }
+
+    this.clearTwoFactorFailures(userId, 'disable');
 
     await this.prisma.user.update({
       where: { id: userId },
       data: { twoFactorEnabled: false, twoFactorSecret: null },
     });
+
+    await this.recordAuditEvent({
+      actor: userId,
+      action: '2FA_DISABLED',
+      resource: 'User',
+      resourceId: userId,
+    });
+    await this.sendTwoFactorSecurityAlert(user, 'disabled');
 
     return { success: true, message: '2FA disabled successfully' };
   }

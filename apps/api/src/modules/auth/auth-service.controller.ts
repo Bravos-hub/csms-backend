@@ -28,6 +28,9 @@ import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import {
   LoginDto,
   RefreshTokenDto,
+  Generate2faDto,
+  Verify2faDto,
+  Disable2faDto,
   InviteUserDto,
   UpdateUserDto,
   ServiceTokenRequestDto,
@@ -321,19 +324,21 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Generate 2FA secret and QR code' })
-  generate2faSecret(@Req() req: any) {
+  generate2faSecret(@Req() req: any, @Body() body: Generate2faDto) {
     const userId = req.user?.sub || req.headers['x-user-id'];
-    return this.authService.generate2faSecret(userId);
+    if (!userId)
+      throw new BadRequestException('Authenticated user is required');
+    return this.authService.generate2faSecret(userId, body.currentPassword);
   }
 
   @Post('2fa/verify')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Verify and enable 2FA' })
-  verify2faSetup(@Req() req: any, @Body() body: { token: string }) {
-    if (!body.token)
-      throw new BadRequestException('Verification token is required');
+  verify2faSetup(@Req() req: any, @Body() body: Verify2faDto) {
     const userId = req.user?.sub || req.headers['x-user-id'];
+    if (!userId)
+      throw new BadRequestException('Authenticated user is required');
     return this.authService.verify2faSetup(userId, body.token);
   }
 
@@ -341,11 +346,15 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Disable 2FA' })
-  disable2fa(@Req() req: any, @Body() body: { token: string }) {
-    if (!body.token)
-      throw new BadRequestException('Verification token is required');
+  disable2fa(@Req() req: any, @Body() body: Disable2faDto) {
     const userId = req.user?.sub || req.headers['x-user-id'];
-    return this.authService.disable2fa(userId, body.token);
+    if (!userId)
+      throw new BadRequestException('Authenticated user is required');
+    return this.authService.disable2fa(
+      userId,
+      body.token,
+      body.currentPassword,
+    );
   }
 
   @Post('password/reset')
