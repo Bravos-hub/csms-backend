@@ -615,9 +615,13 @@ export class UsersController {
   }
 
   @Patch('me')
+  @UseGuards(JwtAuthGuard)
   async updateMe(@Req() req: any, @Body() updateDto: UpdateUserDto) {
     try {
-      const userId = req.headers['x-user-id'] || 'mock-id';
+      const userId = req.user?.sub || req.headers['x-user-id'];
+      if (!userId) {
+        throw new BadRequestException('Authenticated user is required');
+      }
       return await this.authService.updateUser(userId, updateDto);
     } catch (error) {
       throw error;

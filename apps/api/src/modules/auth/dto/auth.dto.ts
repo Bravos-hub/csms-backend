@@ -104,6 +104,10 @@ export class UpdateUserDto {
 
   @IsString()
   @IsOptional()
+  country?: string;
+
+  @IsString()
+  @IsOptional()
   role?: Role;
 
   @IsString()
