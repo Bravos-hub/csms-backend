@@ -79,10 +79,8 @@ function normalizeCode(input: string, maxLen = 32): string {
 export class GeographyService implements OnModuleInit {
   private readonly logger = new Logger(GeographyService.name);
   private readonly referenceCacheTtlMs =
-    parsePositiveInt(
-      process.env.GEOGRAPHY_REFERENCE_CACHE_TTL_MINUTES,
-      720,
-    ) * 60_000;
+    parsePositiveInt(process.env.GEOGRAPHY_REFERENCE_CACHE_TTL_MINUTES, 720) *
+    60_000;
   private readonly referenceRequestTimeoutMs = parsePositiveInt(
     process.env.GEOGRAPHY_REFERENCE_REQUEST_TIMEOUT_MS,
     10_000,
@@ -98,8 +96,14 @@ export class GeographyService implements OnModuleInit {
     process.env.GEOGRAPHY_CSC_API_KEY || process.env.CSC_API_KEY || '';
 
   private countriesCache: CacheEntry<GeographyCountryReference[]> | null = null;
-  private readonly statesCache = new Map<string, CacheEntry<GeographyStateReference[]>>();
-  private readonly citiesCache = new Map<string, CacheEntry<GeographyCityReference[]>>();
+  private readonly statesCache = new Map<
+    string,
+    CacheEntry<GeographyStateReference[]>
+  >();
+  private readonly citiesCache = new Map<
+    string,
+    CacheEntry<GeographyCityReference[]>
+  >();
 
   private readonly allowedChildrenByType: Record<ZoneType, ZoneType[]> = {
     CONTINENT: [ZoneType.SUB_REGION, ZoneType.COUNTRY],
@@ -669,10 +673,7 @@ export class GeographyService implements OnModuleInit {
     throw error;
   }
 
-  private async fetchJson<T>(
-    url: string,
-    init?: RequestInit,
-  ): Promise<T> {
+  private async fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(
       () => controller.abort(),
@@ -698,7 +699,10 @@ export class GeographyService implements OnModuleInit {
       ) {
         throw error;
       }
-      this.logger.error(`Geography reference provider request failed: ${url}`, error);
+      this.logger.error(
+        `Geography reference provider request failed: ${url}`,
+        error,
+      );
       throw new ServiceUnavailableException(
         'Failed to fetch geography reference data from provider',
       );
@@ -707,7 +711,9 @@ export class GeographyService implements OnModuleInit {
     }
   }
 
-  private isCacheValid<T>(entry: CacheEntry<T> | null | undefined): entry is CacheEntry<T> {
+  private isCacheValid<T>(
+    entry: CacheEntry<T> | null | undefined,
+  ): entry is CacheEntry<T> {
     return Boolean(entry && entry.expiresAt > Date.now());
   }
 
@@ -768,7 +774,10 @@ export class GeographyService implements OnModuleInit {
       code3,
       name,
       officialName,
-      flagUrl: readString(flagsRecord, 'svg') || readString(flagsRecord, 'png') || null,
+      flagUrl:
+        readString(flagsRecord, 'svg') ||
+        readString(flagsRecord, 'png') ||
+        null,
       currencyCode,
       currencyName,
       currencySymbol,

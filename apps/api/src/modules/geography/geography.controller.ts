@@ -32,8 +32,7 @@ export class GeographyController {
 
   @Get('reference/countries')
   @ApiOperation({
-    summary:
-      'Get countries reference data (codes, flags, languages, currency)',
+    summary: 'Get countries reference data (codes, flags, languages, currency)',
   })
   @ApiQuery({ name: 'refresh', required: false, type: Boolean })
   @ApiQuery({
