@@ -16,8 +16,12 @@ import { AttendantRoleMode, PayoutMethod } from '@prisma/client';
 
 export class LoginDto {
   @IsEmail()
-  @IsNotEmpty()
-  email: string;
+  @IsOptional()
+  email?: string;
+
+  @IsString()
+  @IsOptional()
+  phone?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -26,6 +30,10 @@ export class LoginDto {
   @IsString()
   @IsOptional()
   inviteToken?: string;
+
+  @IsString()
+  @IsOptional()
+  twoFactorToken?: string;
 }
 
 export class RefreshTokenDto {

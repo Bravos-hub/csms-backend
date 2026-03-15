@@ -86,7 +86,7 @@ export class AuthController {
       loginDto,
       this.buildMonitoringContext(req, {
         route: 'login',
-        identifier: loginDto.email,
+        identifier: loginDto.email || loginDto.phone,
       }),
     );
 

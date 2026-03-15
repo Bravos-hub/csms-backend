@@ -951,13 +951,25 @@ export class AuthService {
     const monitoringContext = this.createMonitoringContext(
       context,
       'login',
-      loginDto.email,
+      loginDto.email || loginDto.phone,
     );
     try {
-      const normalizedEmail = this.normalizeEmail(loginDto.email);
-      this.logger.log(`Login attempt for ${normalizedEmail}`);
+      const normalizedEmail = loginDto.email
+        ? this.normalizeEmail(loginDto.email)
+        : undefined;
+      const normalizedPhone = loginDto.phone?.trim();
+
+      if (!normalizedEmail && !normalizedPhone) {
+        throw new BadRequestException('Email or phone is required');
+      }
+
+      this.logger.log(
+        `Login attempt for ${normalizedEmail || normalizedPhone}`,
+      );
       let user = await this.prisma.user.findFirst({
-        where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
+        where: normalizedEmail
+          ? { email: { equals: normalizedEmail, mode: 'insensitive' } }
+          : { phone: normalizedPhone },
       });
       if (!user) {
         throw new UnauthorizedException('Invalid credentials');
@@ -973,6 +985,61 @@ export class AuthService {
       );
       if (!isPasswordValid) {
         throw new UnauthorizedException('Invalid credentials');
+      }
+
+      if (user.twoFactorEnabled) {
+        if (!user.twoFactorSecret) {
+          throw new BadRequestException(
+            'Two-factor authentication is enabled but not configured. Disable and reconfigure 2FA.',
+          );
+        }
+
+        const twoFactorToken = loginDto.twoFactorToken?.trim();
+        if (!twoFactorToken) {
+          await this.recordAuditEvent({
+            actor: user.id,
+            action: '2FA_LOGIN_CHALLENGE_REQUIRED',
+            resource: 'User',
+            resourceId: user.id,
+            status: 'FAILED',
+          });
+          throw new BadRequestException(
+            'Two-factor authentication code required',
+          );
+        }
+
+        this.assertTwoFactorAttemptAllowed(user.id, 'login');
+        const resolvedSecret = this.decryptTwoFactorSecret(
+          user.twoFactorSecret,
+        );
+        const isTwoFactorTokenValid = speakeasy.totp.verify({
+          secret: resolvedSecret,
+          encoding: 'base32',
+          token: twoFactorToken,
+          window: 1,
+        });
+
+        if (!isTwoFactorTokenValid) {
+          this.registerTwoFactorFailure(user.id, 'login');
+          await this.recordAuditEvent({
+            actor: user.id,
+            action: '2FA_LOGIN_FAILED',
+            resource: 'User',
+            resourceId: user.id,
+            status: 'FAILED',
+          });
+          throw new BadRequestException(
+            'Invalid two-factor authentication code',
+          );
+        }
+
+        this.clearTwoFactorFailures(user.id, 'login');
+        await this.recordAuditEvent({
+          actor: user.id,
+          action: '2FA_LOGIN_VERIFIED',
+          resource: 'User',
+          resourceId: user.id,
+        });
       }
 
       let preferredOrganizationId: string | undefined;
@@ -1018,7 +1085,7 @@ export class AuthService {
       return response;
     } catch (error) {
       this.logger.error(
-        `Login error for ${loginDto.email}: ${error.message}`,
+        `Login error for ${loginDto.email || loginDto.phone}: ${error.message}`,
         error.stack,
       );
       this.anomalyMonitor.recordFailure(
@@ -3282,13 +3349,16 @@ export class AuthService {
 
   // 2FA Methods
 
-  private getTwoFactorAttemptKey(userId: string, action: 'verify' | 'disable') {
+  private getTwoFactorAttemptKey(
+    userId: string,
+    action: 'verify' | 'disable' | 'login',
+  ) {
     return `${userId}:${action}`;
   }
 
   private assertTwoFactorAttemptAllowed(
     userId: string,
-    action: 'verify' | 'disable',
+    action: 'verify' | 'disable' | 'login',
   ) {
     const key = this.getTwoFactorAttemptKey(userId, action);
     const state = this.twoFactorAttempts.get(key);
@@ -3312,7 +3382,7 @@ export class AuthService {
 
   private registerTwoFactorFailure(
     userId: string,
-    action: 'verify' | 'disable',
+    action: 'verify' | 'disable' | 'login',
   ) {
     const key = this.getTwoFactorAttemptKey(userId, action);
     const now = Date.now();
@@ -3331,7 +3401,10 @@ export class AuthService {
     });
   }
 
-  private clearTwoFactorFailures(userId: string, action: 'verify' | 'disable') {
+  private clearTwoFactorFailures(
+    userId: string,
+    action: 'verify' | 'disable' | 'login',
+  ) {
     this.twoFactorAttempts.delete(this.getTwoFactorAttemptKey(userId, action));
   }
 
