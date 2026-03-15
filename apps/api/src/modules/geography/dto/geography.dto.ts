@@ -140,3 +140,23 @@ export class UpdateGeographicZoneStatusDto {
   @IsBoolean()
   isActive!: boolean;
 }
+
+export class GeographyReferenceQueryDto {
+  @IsOptional()
+  @Transform(({ value }) => normalizeBoolean(value))
+  @IsBoolean()
+  refresh?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => normalizeOptionalString(value))
+  @IsString()
+  @MaxLength(120)
+  q?: string;
+}
+
+export class GeographyReferenceChildrenQueryDto {
+  @IsOptional()
+  @Transform(({ value }) => normalizeBoolean(value))
+  @IsBoolean()
+  refresh?: boolean;
+}

@@ -6,6 +6,7 @@ import {
   OnModuleInit,
   InternalServerErrorException,
   ConflictException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
 import { Prisma, ZoneType } from '@prisma/client';
@@ -16,9 +17,90 @@ import {
   UpdateGeographicZoneDto,
 } from './dto/geography.dto';
 
+type CacheEntry<T> = {
+  value: T;
+  expiresAt: number;
+};
+
+type GeographyCountryReference = {
+  code2: string;
+  code3: string | null;
+  name: string;
+  officialName: string | null;
+  flagUrl: string | null;
+  currencyCode: string | null;
+  currencyName: string | null;
+  currencySymbol: string | null;
+  languages: string[];
+};
+
+type GeographyStateReference = {
+  countryCode: string;
+  code: string;
+  name: string;
+};
+
+type GeographyCityReference = {
+  countryCode: string;
+  stateCode: string;
+  name: string;
+};
+
+function parsePositiveInt(input: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(input || '', 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function readString(
+  record: Record<string, unknown> | null,
+  key: string,
+): string | undefined {
+  if (!record) return undefined;
+  const value = record[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function normalizeCode(input: string, maxLen = 32): string {
+  return input
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, maxLen);
+}
+
 @Injectable()
 export class GeographyService implements OnModuleInit {
   private readonly logger = new Logger(GeographyService.name);
+  private readonly referenceCacheTtlMs =
+    parsePositiveInt(
+      process.env.GEOGRAPHY_REFERENCE_CACHE_TTL_MINUTES,
+      720,
+    ) * 60_000;
+  private readonly referenceRequestTimeoutMs = parsePositiveInt(
+    process.env.GEOGRAPHY_REFERENCE_REQUEST_TIMEOUT_MS,
+    10_000,
+  );
+  private readonly restCountriesBaseUrl =
+    process.env.GEOGRAPHY_REST_COUNTRIES_BASE_URL ||
+    'https://restcountries.com/v3.1';
+  private readonly cscBaseUrl =
+    process.env.GEOGRAPHY_CSC_BASE_URL ||
+    process.env.CSC_API_BASE_URL ||
+    'https://api.countrystatecity.in/v1';
+  private readonly cscApiKey =
+    process.env.GEOGRAPHY_CSC_API_KEY || process.env.CSC_API_KEY || '';
+
+  private countriesCache: CacheEntry<GeographyCountryReference[]> | null = null;
+  private readonly statesCache = new Map<string, CacheEntry<GeographyStateReference[]>>();
+  private readonly citiesCache = new Map<string, CacheEntry<GeographyCityReference[]>>();
+
   private readonly allowedChildrenByType: Record<ZoneType, ZoneType[]> = {
     CONTINENT: [ZoneType.SUB_REGION, ZoneType.COUNTRY],
     SUB_REGION: [ZoneType.COUNTRY],
@@ -118,6 +200,126 @@ export class GeographyService implements OnModuleInit {
       lng,
       note: 'Location not in mock database',
     };
+  }
+
+  async getReferenceCountries(query: { refresh?: boolean; q?: string } = {}) {
+    const refresh = Boolean(query.refresh);
+    const search = (query.q || '').trim().toLowerCase();
+
+    if (!refresh && this.isCacheValid(this.countriesCache)) {
+      return this.filterCountriesByQuery(this.countriesCache.value, search);
+    }
+
+    const url =
+      `${this.restCountriesBaseUrl}/all` +
+      '?fields=name,cca2,cca3,flags,currencies,languages';
+
+    const payload = await this.fetchJson<unknown>(url);
+    const rows = Array.isArray(payload) ? payload : [];
+
+    const mapped = rows
+      .map((row) => this.mapCountryReference(row))
+      .filter((item): item is GeographyCountryReference => Boolean(item))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    this.countriesCache = {
+      value: mapped,
+      expiresAt: Date.now() + this.referenceCacheTtlMs,
+    };
+
+    return this.filterCountriesByQuery(mapped, search);
+  }
+
+  async getReferenceStates(
+    countryCode: string,
+    query: { refresh?: boolean } = {},
+  ) {
+    const normalizedCountryCode = normalizeCode(countryCode, 3);
+    if (!normalizedCountryCode) {
+      throw new BadRequestException('countryCode is required');
+    }
+
+    if (!this.cscApiKey) {
+      throw new ServiceUnavailableException(
+        'Country State City provider is not configured. Set CSC_API_KEY to enable states and cities lookups.',
+      );
+    }
+
+    const refresh = Boolean(query.refresh);
+    if (!refresh) {
+      const cached = this.statesCache.get(normalizedCountryCode);
+      if (this.isCacheValid(cached)) {
+        return cached.value;
+      }
+    }
+
+    const url = `${this.cscBaseUrl}/countries/${encodeURIComponent(
+      normalizedCountryCode,
+    )}/states`;
+    const rows = await this.fetchJson<unknown[]>(url, {
+      headers: this.buildCscHeaders(),
+    });
+
+    const mapped = (Array.isArray(rows) ? rows : [])
+      .map((row) => this.mapStateReference(row, normalizedCountryCode))
+      .filter((item): item is GeographyStateReference => Boolean(item))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    this.statesCache.set(normalizedCountryCode, {
+      value: mapped,
+      expiresAt: Date.now() + this.referenceCacheTtlMs,
+    });
+    return mapped;
+  }
+
+  async getReferenceCities(
+    countryCode: string,
+    stateCode: string,
+    query: { refresh?: boolean } = {},
+  ) {
+    const normalizedCountryCode = normalizeCode(countryCode, 3);
+    const normalizedStateCode = normalizeCode(stateCode, 32);
+    if (!normalizedCountryCode) {
+      throw new BadRequestException('countryCode is required');
+    }
+    if (!normalizedStateCode) {
+      throw new BadRequestException('stateCode is required');
+    }
+
+    if (!this.cscApiKey) {
+      throw new ServiceUnavailableException(
+        'Country State City provider is not configured. Set CSC_API_KEY to enable states and cities lookups.',
+      );
+    }
+
+    const cacheKey = `${normalizedCountryCode}:${normalizedStateCode}`;
+    const refresh = Boolean(query.refresh);
+    if (!refresh) {
+      const cached = this.citiesCache.get(cacheKey);
+      if (this.isCacheValid(cached)) {
+        return cached.value;
+      }
+    }
+
+    const url = `${this.cscBaseUrl}/countries/${encodeURIComponent(
+      normalizedCountryCode,
+    )}/states/${encodeURIComponent(normalizedStateCode)}/cities`;
+    const rows = await this.fetchJson<unknown[]>(url, {
+      headers: this.buildCscHeaders(),
+    });
+
+    const mapped = (Array.isArray(rows) ? rows : [])
+      .map((row) =>
+        this.mapCityReference(row, normalizedCountryCode, normalizedStateCode),
+      )
+      .filter((item): item is GeographyCityReference => Boolean(item))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    this.citiesCache.set(cacheKey, {
+      value: mapped,
+      expiresAt: Date.now() + this.referenceCacheTtlMs,
+    });
+    return mapped;
   }
 
   /**
@@ -465,5 +667,159 @@ export class GeographyService implements OnModuleInit {
       );
     }
     throw error;
+  }
+
+  private async fetchJson<T>(
+    url: string,
+    init?: RequestInit,
+  ): Promise<T> {
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      this.referenceRequestTimeoutMs,
+    );
+
+    try {
+      const response = await fetch(url, {
+        ...init,
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        const message =
+          body?.trim() || `Provider responded with HTTP ${response.status}`;
+        throw new ServiceUnavailableException(message);
+      }
+      return (await response.json()) as T;
+    } catch (error) {
+      if (
+        error instanceof ServiceUnavailableException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+      this.logger.error(`Geography reference provider request failed: ${url}`, error);
+      throw new ServiceUnavailableException(
+        'Failed to fetch geography reference data from provider',
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private isCacheValid<T>(entry: CacheEntry<T> | null | undefined): entry is CacheEntry<T> {
+    return Boolean(entry && entry.expiresAt > Date.now());
+  }
+
+  private filterCountriesByQuery(
+    countries: GeographyCountryReference[],
+    search: string,
+  ) {
+    if (!search) return countries;
+    return countries.filter((country) => {
+      const languageHit = country.languages.some((language) =>
+        language.toLowerCase().includes(search),
+      );
+      return (
+        country.name.toLowerCase().includes(search) ||
+        country.code2.toLowerCase().includes(search) ||
+        country.code3?.toLowerCase().includes(search) ||
+        country.currencyCode?.toLowerCase().includes(search) ||
+        languageHit
+      );
+    });
+  }
+
+  private mapCountryReference(row: unknown): GeographyCountryReference | null {
+    const record = asRecord(row);
+    const nameRecord = asRecord(record?.['name']);
+    const flagsRecord = asRecord(record?.['flags']);
+    const currenciesRecord = asRecord(record?.['currencies']);
+    const languagesRecord = asRecord(record?.['languages']);
+
+    const code2 = normalizeCode(readString(record, 'cca2') || '', 2);
+    const code3 = normalizeCode(readString(record, 'cca3') || '', 3) || null;
+    const name = readString(nameRecord, 'common')?.trim() || '';
+    const officialName = readString(nameRecord, 'official')?.trim() || null;
+    if (!code2 || !name) return null;
+
+    let currencyCode: string | null = null;
+    let currencyName: string | null = null;
+    let currencySymbol: string | null = null;
+
+    if (currenciesRecord) {
+      const currencyCodes = Object.keys(currenciesRecord);
+      if (currencyCodes.length > 0) {
+        currencyCode = normalizeCode(currencyCodes[0], 8) || null;
+        const currencyMeta = asRecord(currenciesRecord[currencyCodes[0]]);
+        currencyName = readString(currencyMeta, 'name') || null;
+        currencySymbol = readString(currencyMeta, 'symbol') || null;
+      }
+    }
+
+    const languages = languagesRecord
+      ? Object.values(languagesRecord).filter(
+          (language): language is string => typeof language === 'string',
+        )
+      : [];
+
+    return {
+      code2,
+      code3,
+      name,
+      officialName,
+      flagUrl: readString(flagsRecord, 'svg') || readString(flagsRecord, 'png') || null,
+      currencyCode,
+      currencyName,
+      currencySymbol,
+      languages,
+    };
+  }
+
+  private mapStateReference(
+    row: unknown,
+    fallbackCountryCode: string,
+  ): GeographyStateReference | null {
+    const record = asRecord(row);
+    const name = (readString(record, 'name') || '').trim();
+    if (!name) return null;
+
+    const countryCode =
+      normalizeCode(readString(record, 'country_code') || '', 3) ||
+      fallbackCountryCode;
+    const code =
+      normalizeCode(readString(record, 'iso2') || '', 32) ||
+      normalizeCode(readString(record, 'state_code') || '', 32) ||
+      normalizeCode(name, 32);
+    if (!code) return null;
+
+    return {
+      countryCode,
+      code,
+      name,
+    };
+  }
+
+  private mapCityReference(
+    row: unknown,
+    countryCode: string,
+    stateCode: string,
+  ): GeographyCityReference | null {
+    const record = asRecord(row);
+    const name = (readString(record, 'name') || '').trim();
+    if (!name) return null;
+
+    return {
+      countryCode,
+      stateCode,
+      name,
+    };
+  }
+
+  private buildCscHeaders(): HeadersInit {
+    return {
+      Accept: 'application/json',
+      'X-CSCAPI-KEY': this.cscApiKey,
+    };
   }
 }

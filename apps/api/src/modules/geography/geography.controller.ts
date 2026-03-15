@@ -18,6 +18,8 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import {
   CreateGeographicZoneDto,
+  GeographyReferenceChildrenQueryDto,
+  GeographyReferenceQueryDto,
   GetZonesQueryDto,
   UpdateGeographicZoneDto,
   UpdateGeographicZoneStatusDto,
@@ -27,6 +29,50 @@ import {
 @Controller('geography')
 export class GeographyController {
   constructor(private readonly geographyService: GeographyService) {}
+
+  @Get('reference/countries')
+  @ApiOperation({
+    summary:
+      'Get countries reference data (codes, flags, languages, currency)',
+  })
+  @ApiQuery({ name: 'refresh', required: false, type: Boolean })
+  @ApiQuery({
+    name: 'q',
+    required: false,
+    description: 'Optional search term (country, code, language, currency)',
+  })
+  getReferenceCountries(@Query() query: GeographyReferenceQueryDto) {
+    return this.geographyService.getReferenceCountries(query);
+  }
+
+  @Get('reference/countries/:countryCode/states')
+  @ApiOperation({
+    summary: 'Get states/provinces by country code (ISO2/ISO3)',
+  })
+  @ApiQuery({ name: 'refresh', required: false, type: Boolean })
+  getReferenceStates(
+    @Param('countryCode') countryCode: string,
+    @Query() query: GeographyReferenceChildrenQueryDto,
+  ) {
+    return this.geographyService.getReferenceStates(countryCode, query);
+  }
+
+  @Get('reference/countries/:countryCode/states/:stateCode/cities')
+  @ApiOperation({
+    summary: 'Get cities by country and state code',
+  })
+  @ApiQuery({ name: 'refresh', required: false, type: Boolean })
+  getReferenceCities(
+    @Param('countryCode') countryCode: string,
+    @Param('stateCode') stateCode: string,
+    @Query() query: GeographyReferenceChildrenQueryDto,
+  ) {
+    return this.geographyService.getReferenceCities(
+      countryCode,
+      stateCode,
+      query,
+    );
+  }
 
   @Get('detect')
   @ApiOperation({ summary: 'Auto-detect location from IP address' })
