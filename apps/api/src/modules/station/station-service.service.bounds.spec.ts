@@ -19,7 +19,15 @@ describe('StationService bounds filtering', () => {
     provision: jest.fn(),
   };
 
-  const service = new StationService(prisma as any, provisioningService as any);
+  const commands = {
+    enqueueCommand: jest.fn(),
+  };
+
+  const service = new StationService(
+    prisma as any,
+    provisioningService as any,
+    commands as any,
+  );
 
   const stationEntity = {
     id: 'station-1',

@@ -93,37 +93,61 @@ export class SessionService {
 
   // --- OCPP ---
   async handleOcppMessage(message: any) {
-    const chargePointId = message.chargePointId;
-    const eventType = message.eventType;
-    const payload = message.payload;
+    const normalized = this.normalizeSessionEvent(message);
+    if (!normalized.chargePointId) return;
 
-    if (
-      eventType === 'SessionStarted' ||
-      payload?.action === 'StartTransaction'
-    ) {
-      const startPayload =
-        payload?.action === 'StartTransaction'
-          ? { ...payload.payload, transactionId: payload.transactionId }
-          : payload;
-      await this.handleStartTransaction(chargePointId, startPayload);
-    } else if (
-      eventType === 'SessionStopped' ||
-      payload?.action === 'StopTransaction'
-    ) {
-      const stopPayload =
-        payload?.action === 'StopTransaction'
-          ? { ...payload.payload, transactionId: payload.transactionId }
-          : payload;
-      await this.handleStopTransaction(chargePointId, stopPayload);
-    } else if (message.action === 'StartTransaction') {
-      await this.handleStartTransaction(chargePointId, payload);
-    } else if (message.action === 'StopTransaction') {
-      await this.handleStopTransaction(chargePointId, payload);
+    if (normalized.action === 'StartTransaction') {
+      await this.handleStartTransaction(
+        normalized.chargePointId,
+        normalized.payload,
+      );
+      return;
+    }
+
+    if (normalized.action === 'StopTransaction') {
+      await this.handleStopTransaction(
+        normalized.chargePointId,
+        normalized.payload,
+      );
+      return;
+    }
+
+    if (normalized.action === 'TransactionEvent') {
+      await this.handleTransactionEvent(
+        normalized.chargePointId,
+        normalized.payload,
+      );
+      return;
+    }
+
+    if (normalized.eventType === 'SessionStarted') {
+      await this.handleStartTransaction(
+        normalized.chargePointId,
+        normalized.payload,
+      );
+      return;
+    }
+
+    if (normalized.eventType === 'SessionStopped') {
+      await this.handleStopTransaction(
+        normalized.chargePointId,
+        normalized.payload,
+      );
     }
   }
 
   private async handleStartTransaction(ocppId: string, payload: any) {
     this.logger.log(`Starting Transaction for ${ocppId}`);
+    const txId = payload.transactionId?.toString();
+    if (txId) {
+      const existing = await this.prisma.session.findUnique({
+        where: { ocppTxId: txId },
+        select: { id: true },
+      });
+      if (existing) {
+        return;
+      }
+    }
 
     // Look up the charge point to get the stationId
     const chargePoint = await this.prisma.chargePoint.findUnique({
@@ -138,12 +162,15 @@ export class SessionService {
       return;
     }
 
+    const idTag = this.extractIdToken(payload);
+
     await this.prisma.session.create({
       data: {
         ocppId: ocppId,
-        connectorId: Number(payload.connectorId) || 0,
-        idTag: String(payload.idTag || ''),
-        ocppTxId: payload.transactionId?.toString(),
+        connectorId:
+          Number(payload.connectorId || payload.evse?.connectorId) || 0,
+        idTag,
+        ocppTxId: txId,
         startTime: payload.timestamp ? new Date(payload.timestamp) : new Date(),
         meterStart: Number(payload.meterStart) || 0,
         status: 'ACTIVE',
@@ -151,7 +178,7 @@ export class SessionService {
       },
     });
 
-    await this.syncIdTagTokenSafe(payload.idTag);
+    await this.syncIdTagTokenSafe(idTag);
   }
 
   private async handleStopTransaction(ocppId: string, payload: any) {
@@ -185,6 +212,189 @@ export class SessionService {
     } else {
       this.logger.warn(`Session not found for transaction ${txId}`);
     }
+  }
+
+  private async handleTransactionEvent(ocppId: string, payload: any) {
+    const eventType = String(payload?.eventType || '').toLowerCase();
+    const transactionId = payload?.transactionInfo?.transactionId?.toString();
+    if (!transactionId) {
+      this.logger.warn('Missing transaction ID in TransactionEvent payload');
+      return;
+    }
+
+    const timestamp = payload?.timestamp
+      ? new Date(payload.timestamp)
+      : new Date();
+    const extractedMeterWh = this.extractMeterWhFromTransactionEvent(payload);
+    const fallbackMeter = Number(payload?.meterValue);
+    const meterWh =
+      extractedMeterWh !== undefined
+        ? extractedMeterWh
+        : Number.isFinite(fallbackMeter)
+          ? fallbackMeter
+          : undefined;
+    const connectorId =
+      Number(payload?.evse?.connectorId || payload?.connectorId) ||
+      Number(payload?.evse?.id) ||
+      0;
+
+    if (eventType === 'started') {
+      await this.handleStartTransaction(ocppId, {
+        transactionId,
+        connectorId,
+        idTag: this.extractIdToken(payload),
+        timestamp,
+        meterStart: meterWh ?? 0,
+      });
+      return;
+    }
+
+    const session = await this.prisma.session.findUnique({
+      where: { ocppTxId: transactionId },
+    });
+
+    if (!session) {
+      this.logger.warn(
+        `Session not found for transaction event ${transactionId} (${eventType})`,
+      );
+      return;
+    }
+
+    if (eventType === 'updated') {
+      if (meterWh === undefined) return;
+      await this.prisma.session.update({
+        where: { id: session.id },
+        data: {
+          meterStop: meterWh,
+          totalEnergy: Math.max(0, meterWh - session.meterStart),
+        },
+      });
+      return;
+    }
+
+    if (eventType === 'ended') {
+      const meterStop = meterWh ?? session.meterStart;
+      const totalEnergy = Math.max(0, meterStop - session.meterStart);
+      const updated = await this.prisma.session.update({
+        where: { id: session.id },
+        data: {
+          endTime: timestamp,
+          meterStop,
+          totalEnergy,
+          status: 'COMPLETED',
+        },
+      });
+      if (updated.userId) {
+        await this.notifyUserOfStop(updated.userId, updated);
+      }
+    }
+  }
+
+  private normalizeSessionEvent(message: any): {
+    chargePointId?: string;
+    eventType?: string;
+    action?: string;
+    payload: Record<string, any>;
+  } {
+    const input = this.unwrapEnvelope(message);
+    if (!input || typeof input !== 'object') {
+      return { payload: {} };
+    }
+
+    const chargePointId = this.readString(
+      input.chargePointId || input.ocppId || input.chargePoint?.ocppId,
+    );
+    const eventType = this.readString(input.eventType);
+    const topLevelAction = this.readString(input.action);
+    const rawPayload =
+      input.payload && typeof input.payload === 'object' ? input.payload : {};
+    const payloadData =
+      rawPayload.payload &&
+      typeof rawPayload.payload === 'object' &&
+      !Array.isArray(rawPayload.payload)
+        ? rawPayload.payload
+        : rawPayload;
+    const payloadAction = this.readString(rawPayload.action);
+    const action = topLevelAction || payloadAction;
+    const payload: Record<string, any> =
+      action && payloadData && typeof payloadData === 'object'
+        ? {
+            ...payloadData,
+            transactionId:
+              payloadData.transactionId || rawPayload.transactionId,
+          }
+        : payloadData;
+
+    return {
+      chargePointId,
+      eventType,
+      action,
+      payload: payload || {},
+    };
+  }
+
+  private unwrapEnvelope(message: any): any {
+    if (typeof message === 'string') {
+      try {
+        return JSON.parse(message);
+      } catch {
+        return null;
+      }
+    }
+    if (message && typeof message === 'object' && message.value !== undefined) {
+      return this.unwrapEnvelope(message.value);
+    }
+    return message;
+  }
+
+  private readString(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private extractIdToken(payload: any): string {
+    if (typeof payload?.idTag === 'string' && payload.idTag.trim().length > 0) {
+      return payload.idTag.trim();
+    }
+    if (
+      payload?.idToken &&
+      typeof payload.idToken === 'object' &&
+      typeof payload.idToken.idToken === 'string' &&
+      payload.idToken.idToken.trim().length > 0
+    ) {
+      return payload.idToken.idToken.trim();
+    }
+    return '';
+  }
+
+  private extractMeterWhFromTransactionEvent(payload: any): number | undefined {
+    const meterValues = Array.isArray(payload?.meterValue)
+      ? payload.meterValue
+      : [];
+    for (const meterValue of meterValues) {
+      const sampledValues = Array.isArray(meterValue?.sampledValue)
+        ? meterValue.sampledValue
+        : [];
+      for (const sampled of sampledValues) {
+        const value = Number(sampled?.value);
+        if (!Number.isFinite(value)) continue;
+        const measurand = String(sampled?.measurand || '').toLowerCase();
+        if (
+          measurand &&
+          measurand !== 'energy.active.import.register' &&
+          measurand !== 'energy.active.export.register'
+        ) {
+          continue;
+        }
+        const unit = String(sampled?.unitOfMeasure?.unit || sampled?.unit || '')
+          .trim()
+          .toLowerCase();
+        if (unit === 'kwh') return value * 1000;
+        return value;
+      }
+    }
+    return undefined;
   }
 
   private async syncIdTagTokenSafe(idTag?: string) {

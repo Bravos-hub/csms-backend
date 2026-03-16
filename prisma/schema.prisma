@@ -578,11 +578,13 @@ model ChargePoint {
   stationId       String
   ocppId          String  @unique
   status          String  @default("AVAILABLE")
+  ocppVersion     String  @default("1.6")
   model           String?
   vendor          String?
   firmwareVersion String?
   type            String  @default("CCS2")
   power           Float   @default(50.0)
+  lastHeartbeat   DateTime?
 
   // Auth for OCPP Gateway
   clientSecretHash String?

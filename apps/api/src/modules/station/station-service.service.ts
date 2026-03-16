@@ -62,13 +62,54 @@ export class StationService {
   }
 
   async handleOcppMessage(message: any) {
-    const { chargePointId, action, payload } = message;
-    this.logger.log(`Processing OCPP Action: ${action}`);
+    const normalized = this.normalizeStationEvent(message);
+    if (!normalized.chargePointId) return;
 
-    if (action === 'BootNotification') {
-      await this.handleBootNotification(chargePointId, payload);
-    } else if (action === 'Heartbeat') {
-      await this.handleHeartbeat(chargePointId);
+    const action = normalized.action;
+    const eventType = normalized.eventType;
+    const eventPayload = normalized.payload;
+
+    if (action) {
+      this.logger.log(`Processing OCPP Action: ${action}`);
+    } else if (eventType) {
+      this.logger.log(`Processing station event: ${eventType}`);
+    }
+
+    if (action === 'BootNotification' || eventType === 'BootNotification') {
+      await this.handleBootNotification(
+        normalized.chargePointId,
+        eventPayload,
+        normalized.ocppVersion,
+      );
+      return;
+    }
+
+    if (
+      action === 'Heartbeat' ||
+      eventType === 'StationHeartbeat' ||
+      eventType === 'Heartbeat'
+    ) {
+      await this.handleHeartbeat(
+        normalized.chargePointId,
+        normalized.ocppVersion,
+      );
+      return;
+    }
+
+    if (action === 'StatusNotification' || eventType === 'ConnectorStatusChanged') {
+      await this.handleConnectorStatusChanged(
+        normalized.chargePointId,
+        eventPayload,
+        normalized.ocppVersion,
+      );
+      return;
+    }
+
+    if (eventType === 'StationDisconnected') {
+      await this.handleChargePointDisconnected(
+        normalized.chargePointId,
+        normalized.ocppVersion,
+      );
     }
   }
 
@@ -423,6 +464,7 @@ export class StationService {
         ocppId: createDto.ocppId,
         stationId: createDto.stationId,
         status: 'Offline',
+        ocppVersion,
         model: createDto.model,
         vendor: createDto.manufacturer,
         firmwareVersion: createDto.firmwareVersion,
@@ -652,7 +694,22 @@ export class StationService {
   }
 
   // --- OCPP Private Handlers ---
-  private async handleBootNotification(ocppId: string, payload: any) {
+  private async handleBootNotification(
+    ocppId: string,
+    payload: any,
+    ocppVersion?: string,
+  ) {
+    const normalizedVersion = this.normalizeOcppVersion(ocppVersion);
+    const model =
+      payload?.chargingStation?.model || payload?.chargePointModel || undefined;
+    const vendor =
+      payload?.chargingStation?.vendorName ||
+      payload?.chargePointVendor ||
+      undefined;
+    const firmwareVersion =
+      payload?.chargingStation?.firmwareVersion ||
+      payload?.firmwareVersion ||
+      undefined;
     const cp = await this.prisma.chargePoint.findUnique({ where: { ocppId } });
 
     if (!cp) {
@@ -671,9 +728,11 @@ export class StationService {
           ocppId,
           stationId: defaultStation.id,
           status: 'Online',
-          model: payload.chargePointModel,
-          vendor: payload.chargePointVendor,
-          firmwareVersion: payload.firmwareVersion,
+          ocppVersion: normalizedVersion,
+          model,
+          vendor,
+          firmwareVersion,
+          lastHeartbeat: new Date(),
         },
         include: { station: { include: { site: true } } },
       });
@@ -684,8 +743,11 @@ export class StationService {
         where: { id: cp.id },
         data: {
           status: 'Online',
-          firmwareVersion: payload.firmwareVersion || cp.firmwareVersion,
-          // Last heartbeat not in schema currently
+          ocppVersion: normalizedVersion,
+          model: model || cp.model,
+          vendor: vendor || cp.vendor,
+          firmwareVersion: firmwareVersion || cp.firmwareVersion,
+          lastHeartbeat: new Date(),
         },
         include: { station: { include: { site: true } } },
       });
@@ -694,14 +756,61 @@ export class StationService {
     }
   }
 
-  private async handleHeartbeat(ocppId: string) {
+  private async handleHeartbeat(ocppId: string, ocppVersion?: string) {
     const cp = await this.prisma.chargePoint.findUnique({ where: { ocppId } });
     if (cp) {
       await this.prisma.chargePoint.update({
         where: { id: cp.id },
-        data: { status: 'Online' },
+        data: {
+          status: 'Online',
+          lastHeartbeat: new Date(),
+          ocppVersion: this.normalizeOcppVersion(ocppVersion || cp.ocppVersion),
+        },
       });
     }
+  }
+
+  private async handleConnectorStatusChanged(
+    ocppId: string,
+    payload: any,
+    ocppVersion?: string,
+  ) {
+    const cp = await this.prisma.chargePoint.findUnique({ where: { ocppId } });
+    if (!cp) return;
+
+    const connectorStatus =
+      typeof payload?.status === 'string'
+        ? payload.status
+        : typeof payload?.connectorStatus === 'string'
+          ? payload.connectorStatus
+          : undefined;
+
+    await this.prisma.chargePoint.update({
+      where: { id: cp.id },
+      data: {
+        status: this.mapConnectorStatusToChargePointStatus(
+          connectorStatus,
+          payload?.errorCode,
+        ),
+        ocppVersion: this.normalizeOcppVersion(ocppVersion || cp.ocppVersion),
+      },
+    });
+  }
+
+  private async handleChargePointDisconnected(
+    ocppId: string,
+    ocppVersion?: string,
+  ) {
+    const cp = await this.prisma.chargePoint.findUnique({ where: { ocppId } });
+    if (!cp) return;
+
+    await this.prisma.chargePoint.update({
+      where: { id: cp.id },
+      data: {
+        status: 'Offline',
+        ocppVersion: this.normalizeOcppVersion(ocppVersion || cp.ocppVersion),
+      },
+    });
   }
 
   async getStatusHistory(stationId: string) {
@@ -751,10 +860,73 @@ export class StationService {
   }
 
   private normalizeOcppVersion(version?: string): '1.6' | '2.0.1' | '2.1' {
-    if (version === '2.0.1' || version === '2.1') {
-      return version;
-    }
+    const normalized = String(version || '')
+      .trim()
+      .toLowerCase();
+    if (normalized === '2.0.1') return '2.0.1';
+    if (normalized === '2.1') return '2.1';
+    if (normalized === '1.6' || normalized === '1.6j') return '1.6';
     return '1.6';
+  }
+
+  private normalizeStationEvent(message: any): {
+    chargePointId?: string;
+    action?: string;
+    eventType?: string;
+    ocppVersion?: string;
+    payload?: any;
+  } {
+    const input = this.unwrapEnvelope(message);
+    if (!input || typeof input !== 'object') {
+      return {};
+    }
+
+    const chargePointId = this.readString(
+      input.chargePointId || input.ocppId || input.chargePoint?.ocppId,
+    );
+    const eventType = this.readString(input.eventType);
+    const rawPayload = input.payload ?? input.data;
+    const payload =
+      rawPayload &&
+      typeof rawPayload === 'object' &&
+      !Array.isArray(rawPayload) &&
+      rawPayload.payload &&
+      typeof rawPayload.payload === 'object'
+        ? rawPayload.payload
+        : rawPayload;
+    const action =
+      this.readString(input.action) || this.readString(rawPayload?.action);
+    const ocppVersion =
+      this.readString(input.ocppVersion) ||
+      this.readString(rawPayload?.ocppVersion);
+
+    return {
+      chargePointId,
+      action,
+      eventType,
+      ocppVersion,
+      payload,
+    };
+  }
+
+  private unwrapEnvelope(message: any): any {
+    if (typeof message === 'string') {
+      try {
+        return JSON.parse(message);
+      } catch {
+        return null;
+      }
+    }
+    if (message && typeof message === 'object' && message.value !== undefined) {
+      return this.unwrapEnvelope(message.value);
+    }
+    return message;
+  }
+
+  private readString(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
   }
 
   private subprotocolForVersion(version: '1.6' | '2.0.1' | '2.1'): string {
@@ -821,6 +993,43 @@ export class StationService {
 
   private normalizeChargePointStatus(value: string | undefined): string {
     return (value || 'Unknown').trim().toLowerCase();
+  }
+
+  private mapConnectorStatusToChargePointStatus(
+    status?: string,
+    errorCode?: string,
+  ): string {
+    const normalized = this.normalizeChargePointStatus(status);
+    const normalizedError = this.normalizeChargePointStatus(errorCode);
+
+    if (normalizedError && normalizedError !== 'noerror') {
+      return 'Faulted';
+    }
+
+    if (
+      normalized === 'charging' ||
+      normalized === 'occupied' ||
+      normalized === 'suspendedev' ||
+      normalized === 'suspendedevse' ||
+      normalized === 'preparing'
+    ) {
+      return 'Charging';
+    }
+
+    if (
+      normalized === 'faulted' ||
+      normalized === 'unavailable' ||
+      normalized === 'inoperative' ||
+      normalized === 'offline'
+    ) {
+      return 'Offline';
+    }
+
+    if (normalized === 'reserved') {
+      return 'Reserved';
+    }
+
+    return 'Online';
   }
 
   private statusBucket(
