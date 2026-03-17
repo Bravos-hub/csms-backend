@@ -33,6 +33,12 @@ type ChargePointListFilter = {
   status?: string;
 };
 
+type StationOperationalStatus =
+  | 'ONLINE'
+  | 'DEGRADED'
+  | 'OFFLINE'
+  | 'MAINTENANCE';
+
 @Injectable()
 export class StationService {
   private readonly logger = new Logger(StationService.name);
@@ -96,7 +102,10 @@ export class StationService {
       return;
     }
 
-    if (action === 'StatusNotification' || eventType === 'ConnectorStatusChanged') {
+    if (
+      action === 'StatusNotification' ||
+      eventType === 'ConnectorStatusChanged'
+    ) {
       await this.handleConnectorStatusChanged(
         normalized.chargePointId,
         eventPayload,
@@ -293,6 +302,11 @@ export class StationService {
     const offline = chargePoints.filter(
       (cp: any) => this.statusBucket(cp.status) === 'offline',
     ).length;
+    const operationalStatus = this.deriveOperationalStationStatus(
+      s.status,
+      s.type,
+      chargePoints,
+    );
 
     let amenities: string[] = [];
     let images: string[] = [];
@@ -319,6 +333,7 @@ export class StationService {
         busy,
         offline,
       },
+      operationalStatus,
       connectors: chargePoints.map((cp: any) => ({
         id: cp.id,
         type: cp.type || 'CCS2',
@@ -993,6 +1008,78 @@ export class StationService {
 
   private normalizeChargePointStatus(value: string | undefined): string {
     return (value || 'Unknown').trim().toLowerCase();
+  }
+
+  private deriveOperationalStationStatus(
+    stationStatus: string | undefined,
+    stationType: string | undefined,
+    chargePoints: Array<{ status?: string }>,
+  ): StationOperationalStatus {
+    const lifecycleStatus = (stationStatus || '').trim().toUpperCase();
+    if (lifecycleStatus === 'MAINTENANCE') return 'MAINTENANCE';
+    if (lifecycleStatus === 'INACTIVE') return 'OFFLINE';
+
+    const normalizedType = (stationType || '').trim().toUpperCase();
+    const isChargeCapable =
+      normalizedType === 'CHARGING' || normalizedType === 'BOTH';
+
+    if (!isChargeCapable) {
+      if (lifecycleStatus === 'ACTIVE') return 'ONLINE';
+      if (lifecycleStatus === 'INACTIVE') return 'OFFLINE';
+      if (lifecycleStatus === 'MAINTENANCE') return 'MAINTENANCE';
+      return 'DEGRADED';
+    }
+
+    if (!chargePoints.length) return 'DEGRADED';
+
+    let offlineCount = 0;
+    let operationalCount = 0;
+    let unknownCount = 0;
+
+    for (const chargePoint of chargePoints) {
+      const normalizedStatus = this.normalizeChargePointStatus(
+        chargePoint.status,
+      );
+      if (this.isOfflineChargePointStatus(normalizedStatus)) {
+        offlineCount += 1;
+        continue;
+      }
+      if (this.isOperationalChargePointStatus(normalizedStatus)) {
+        operationalCount += 1;
+        continue;
+      }
+      unknownCount += 1;
+    }
+
+    if (offlineCount === chargePoints.length) return 'OFFLINE';
+    if (offlineCount > 0 && operationalCount > 0) return 'DEGRADED';
+    if (offlineCount > 0 && operationalCount === 0) return 'DEGRADED';
+    if (operationalCount > 0 && unknownCount === 0) return 'ONLINE';
+    if (operationalCount > 0 && unknownCount > 0) return 'DEGRADED';
+    return 'DEGRADED';
+  }
+
+  private isOfflineChargePointStatus(normalizedStatus: string): boolean {
+    return (
+      normalizedStatus === 'offline' ||
+      normalizedStatus === 'faulted' ||
+      normalizedStatus === 'unavailable' ||
+      normalizedStatus === 'inoperative'
+    );
+  }
+
+  private isOperationalChargePointStatus(normalizedStatus: string): boolean {
+    return (
+      normalizedStatus === 'online' ||
+      normalizedStatus === 'available' ||
+      normalizedStatus === 'charging' ||
+      normalizedStatus === 'occupied' ||
+      normalizedStatus === 'preparing' ||
+      normalizedStatus === 'reserved' ||
+      normalizedStatus === 'suspendedev' ||
+      normalizedStatus === 'suspendedevse' ||
+      normalizedStatus === 'finishing'
+    );
   }
 
   private mapConnectorStatusToChargePointStatus(
