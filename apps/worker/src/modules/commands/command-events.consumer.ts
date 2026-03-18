@@ -15,6 +15,7 @@ import {
   mapEventTypeToCommandStatus,
   resolveNextStatus,
 } from './command-status';
+import { OcpiCommandCallbackService } from './ocpi-command-callback.service';
 
 @Injectable()
 export class CommandEventsConsumer implements OnModuleInit {
@@ -29,6 +30,7 @@ export class CommandEventsConsumer implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly kafka: KafkaService,
     private readonly metrics: WorkerMetricsService,
+    private readonly ocpiCallbacks: OcpiCommandCallbackService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -69,6 +71,9 @@ export class CommandEventsConsumer implements OnModuleInit {
             const result = await this.reconcileEvent(event);
             if (result.applied) {
               this.metrics.increment('command_events_applied_total');
+              if (result.callback) {
+                await this.ocpiCallbacks.deliver(result.callback);
+              }
               if (result.status) {
                 this.metrics.increment(
                   `command_status_transition_${result.status.toLowerCase()}_total`,
@@ -145,6 +150,15 @@ export class CommandEventsConsumer implements OnModuleInit {
     applied: boolean;
     status?: CommandStatus;
     enqueueToFinalMs?: number;
+    callback?: {
+      commandId: string;
+      requestId: string;
+      command: string;
+      responseUrl: string;
+      partnerId?: string | null;
+      status: string;
+      error?: string | null;
+    };
   }> {
     const commandId = event.correlationId;
     if (!commandId) {
@@ -160,6 +174,17 @@ export class CommandEventsConsumer implements OnModuleInit {
     const occurredAt = this.parseOccurredAt(event.occurredAt);
     let applied = false;
     let enqueueToFinalMs: number | undefined;
+    let callback:
+      | {
+          commandId: string;
+          requestId: string;
+          command: string;
+          responseUrl: string;
+          partnerId?: string | null;
+          status: string;
+          error?: string | null;
+        }
+      | undefined;
 
     await this.prisma.$transaction(async (tx) => {
       const command = await tx.command.findUnique({
@@ -170,6 +195,9 @@ export class CommandEventsConsumer implements OnModuleInit {
           sentAt: true,
           completedAt: true,
           requestedAt: true,
+          payload: true,
+          commandType: true,
+          correlationId: true,
         },
       });
       if (!command) {
@@ -201,11 +229,14 @@ export class CommandEventsConsumer implements OnModuleInit {
       }
 
       const errorMessage = this.extractErrorMessage(event);
+      const payload = this.ensureObject(command.payload);
+      const ocpi = this.ensureObject(payload.ocpi);
       const commandUpdate: {
         status: CommandStatus;
         error?: string | null;
         sentAt?: Date;
         completedAt?: Date;
+        payload?: Prisma.InputJsonValue;
       } = {
         status: nextStatus,
       };
@@ -222,6 +253,33 @@ export class CommandEventsConsumer implements OnModuleInit {
         commandUpdate.error = errorMessage;
       } else if (nextStatus === 'Accepted') {
         commandUpdate.error = null;
+      }
+
+      if (isTerminalStatus(nextStatus)) {
+        commandUpdate.payload = {
+          ...payload,
+          ocpi: {
+            ...ocpi,
+            lastCommandStatus: nextStatus,
+            lastCommandStatusAt: occurredAt.toISOString(),
+          },
+        } as Prisma.InputJsonValue;
+
+        const responseUrl = this.extractString(ocpi, 'responseUrl');
+        if (responseUrl) {
+          callback = {
+            commandId: command.id,
+            requestId:
+              this.extractString(ocpi, 'requestId') ||
+              command.correlationId ||
+              command.id,
+            command: this.extractString(ocpi, 'command') || command.commandType,
+            responseUrl,
+            partnerId: this.extractString(ocpi, 'partnerId'),
+            status: nextStatus,
+            error: errorMessage,
+          };
+        }
       }
 
       await tx.command.update({
@@ -250,6 +308,7 @@ export class CommandEventsConsumer implements OnModuleInit {
       applied,
       status: applied ? mappedStatus : undefined,
       enqueueToFinalMs,
+      callback,
     };
   }
 
@@ -268,5 +327,22 @@ export class CommandEventsConsumer implements OnModuleInit {
       return maybeError;
     }
     return null;
+  }
+
+  private ensureObject(value: unknown): Record<string, unknown> {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+    return {};
+  }
+
+  private extractString(
+    source: Record<string, unknown>,
+    key: string,
+  ): string | null {
+    const value = source[key];
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
   }
 }

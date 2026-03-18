@@ -6,14 +6,23 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as jwt from 'jsonwebtoken';
+import type { Request } from 'express';
+
+type ServiceTokenClaims = jwt.JwtPayload & {
+  type?: string;
+};
 
 @Injectable()
 export class ServiceAuthGuard implements CanActivate {
   constructor(private readonly config: ConfigService) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const request = context.switchToHttp().getRequest();
-    const authHeader = request.headers.authorization;
+    const request = context
+      .switchToHttp()
+      .getRequest<Request & { service?: ServiceTokenClaims }>();
+    const rawAuthorization = request.headers.authorization;
+    const authHeader =
+      typeof rawAuthorization === 'string' ? rawAuthorization : undefined;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       throw new UnauthorizedException(
@@ -35,8 +44,17 @@ export class ServiceAuthGuard implements CanActivate {
     if (audience) verifyOptions.audience = audience;
 
     try {
-      const payload = jwt.verify(token, secret, verifyOptions) as any;
-      if (typeof payload !== 'object' || payload.type !== 'service') {
+      const verified = jwt.verify(token, secret, verifyOptions);
+      if (
+        !verified ||
+        typeof verified !== 'object' ||
+        Array.isArray(verified)
+      ) {
+        throw new UnauthorizedException('Invalid token payload');
+      }
+      const payload = verified as ServiceTokenClaims;
+      const tokenType = String(payload?.type || '').toLowerCase();
+      if (tokenType !== 'service') {
         throw new UnauthorizedException('Invalid token type');
       }
       request.service = payload;

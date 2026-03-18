@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { CommandRequest, CommandResponse } from '../../contracts/commands';
 
@@ -21,7 +22,9 @@ export class CommandsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async enqueueCommand(
-    input: Omit<CommandRequest, 'commandId' | 'requestedAt'>,
+    input: Omit<CommandRequest, 'commandId' | 'requestedAt'> & {
+      correlationId?: string;
+    },
   ): Promise<CommandResponse> {
     const now = new Date();
     const commandId = randomUUID();
@@ -36,13 +39,13 @@ export class CommandsService {
             ? String(input.connectorId)
             : null,
         commandType: input.commandType,
-        payload: (input.payload || {}) as any,
+        payload: (input.payload || {}) as Prisma.InputJsonValue,
         status: 'Queued',
         requestedBy: input.requestedBy?.userId || null,
         requestedAt: now,
         sentAt: null,
         completedAt: null,
-        correlationId: commandId,
+        correlationId: input.correlationId || commandId,
         error: null,
       },
     });
@@ -166,7 +169,9 @@ export class CommandsService {
       status: command.status,
       requestedAt: command.requestedAt.toISOString(),
       sentAt: command.sentAt ? command.sentAt.toISOString() : null,
-      completedAt: command.completedAt ? command.completedAt.toISOString() : null,
+      completedAt: command.completedAt
+        ? command.completedAt.toISOString()
+        : null,
       error: command.error,
     };
   }

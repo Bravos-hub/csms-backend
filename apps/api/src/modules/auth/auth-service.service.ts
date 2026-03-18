@@ -1864,7 +1864,7 @@ export class AuthService {
         sub: serviceAccount.id,
         clientId: serviceAccount.clientId,
         scopes: requestedScopes.length > 0 ? requestedScopes : allowedScopes,
-        type: 'SERVICE',
+        type: 'service',
       };
 
       const token = jwt.sign(

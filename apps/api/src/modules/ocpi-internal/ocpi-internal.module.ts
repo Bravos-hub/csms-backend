@@ -1,12 +1,10 @@
 import { Module } from '@nestjs/common';
 import { OcpiInternalController } from './ocpi-internal.controller';
-import { CommandsService } from '../commands/commands.service';
-import { PrismaService } from '../../prisma.service';
 import { ConfigModule } from '@nestjs/config';
+import { CommandsModule } from '../commands/commands.module';
 
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, CommandsModule],
   controllers: [OcpiInternalController],
-  providers: [PrismaService, CommandsService],
 })
 export class OcpiInternalModule {}
