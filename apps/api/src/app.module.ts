@@ -47,6 +47,7 @@ import { GeographyModule } from './modules/geography/geography.module';
 import { MarketplaceContactsModule } from './modules/marketplace/marketplace-contacts.module';
 import { ObservabilityModule } from './common/observability/observability.module';
 import { AttendantModule } from './modules/attendant/attendant.module';
+import { VehiclesModule } from './modules/vehicles/vehicles.module';
 
 @Module({
   imports: [
@@ -100,6 +101,7 @@ import { AttendantModule } from './modules/attendant/attendant.module';
     GeographyModule,
     MarketplaceContactsModule,
     AttendantModule,
+    VehiclesModule,
   ],
   controllers: [AppController],
   providers: [

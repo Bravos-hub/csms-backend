@@ -192,6 +192,7 @@ model User {
   ownedSites                 Site[]
   reviewedTenantApplications TenantApplication[] @relation("ReviewedApplications")
   emailVerificationTokens    EmailVerificationToken[]
+  vehicles                   Vehicle[]
 
   @@map("users")
   @@index([providerId])
@@ -1642,3 +1643,59 @@ model ChargePointStatusHistory {
 
   @@index([chargePointId, timestamp])
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Vehicles
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum PowertrainType {
+  BEV
+  PHEV
+  HEV
+  ICE
+}
+
+enum ConnectorType {
+  TYPE_1
+  TYPE_2
+  CCS1
+  CCS2
+  CHADEMO
+  GBT_AC
+  GBT_DC
+  TESLA_NACS
+  TESLA_SCS
+}
+
+model Vehicle {
+  id                    String          @id @default(uuid())
+  userId                String
+  vehicleName           String
+  make                  String
+  model                 String
+  yearOfManufacture     Int
+  countryOfRegistration String?
+  powertrain            PowertrainType
+  vin                   String?
+  licensePlate          String
+  photoUrl              String?
+  cloudinaryPublicId    String?
+  bodyType              String?
+  color                 String?
+  batteryKwh            Float?
+  acMaxKw               Float?
+  dcMaxKw               Float?
+  connectors            ConnectorType[]
+  isActive              Boolean         @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("vehicles")
+  @@index([userId])
+  @@index([userId, isActive])
+  @@index([licensePlate])
+}
+
