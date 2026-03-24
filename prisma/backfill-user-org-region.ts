@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { PrismaClient, UserRole } from '@prisma/client';
+import { MembershipStatus, PrismaClient, UserRole } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -16,8 +16,20 @@ const EVZONE_WORLD_DESCRIPTION =
 
 function normalizeRegion(region?: string | null): string | null {
   if (!region) return null;
-  const normalized = region.trim().toUpperCase().replace(/[\s-]+/g, '_');
+  const normalized = region
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_');
   return normalized || null;
+}
+
+function toMembershipStatus(userStatus?: string | null): MembershipStatus {
+  if (!userStatus) return MembershipStatus.ACTIVE;
+  const normalized = userStatus.trim().toLowerCase();
+  if (normalized === 'invited' || normalized === 'pending') {
+    return MembershipStatus.INVITED;
+  }
+  return MembershipStatus.ACTIVE;
 }
 
 async function ensureEvzoneOrganization() {
@@ -87,6 +99,7 @@ async function main() {
       name: true,
       email: true,
       role: true,
+      status: true,
       organizationId: true,
       zoneId: true,
       region: true,
@@ -95,10 +108,15 @@ async function main() {
   });
 
   let updatedCount = 0;
+  let evzoneMembershipsUpserted = 0;
   const unresolved: Array<{ id: string; email: string; reason: string }> = [];
 
   for (const user of users) {
-    const updateData: { organizationId?: string; zoneId?: string; region?: string } = {};
+    const updateData: {
+      organizationId?: string;
+      zoneId?: string;
+      region?: string;
+    } = {};
 
     if (EVZONE_ROLES.has(user.role) && user.organizationId !== evzoneOrg.id) {
       updateData.organizationId = evzoneOrg.id;
@@ -143,11 +161,37 @@ async function main() {
       });
       updatedCount += 1;
     }
+
+    if (EVZONE_ROLES.has(user.role)) {
+      const membershipStatus = toMembershipStatus(user.status);
+      await prisma.organizationMembership.upsert({
+        where: {
+          userId_organizationId: {
+            userId: user.id,
+            organizationId: evzoneOrg.id,
+          },
+        },
+        create: {
+          userId: user.id,
+          organizationId: evzoneOrg.id,
+          role: user.role,
+          status: membershipStatus,
+        },
+        update: {
+          role: user.role,
+          status: membershipStatus,
+        },
+      });
+      evzoneMembershipsUpserted += 1;
+    }
   }
 
   console.log('[backfill] done');
   console.log(`[backfill] users scanned: ${users.length}`);
   console.log(`[backfill] users updated: ${updatedCount}`);
+  console.log(
+    `[backfill] EVZONE memberships upserted: ${evzoneMembershipsUpserted}`,
+  );
   console.log(`[backfill] unresolved users: ${unresolved.length}`);
 
   if (unresolved.length > 0) {

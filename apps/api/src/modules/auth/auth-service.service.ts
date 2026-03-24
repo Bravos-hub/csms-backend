@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
@@ -331,6 +332,19 @@ export class AuthService {
     return this.evzoneRoles.has(role as UserRole);
   }
 
+  private assertCanAssignEvzoneRole(
+    assignerRole: UserRole,
+    targetRole: UserRole,
+    context: string,
+  ) {
+    if (!this.isEvzoneRole(targetRole)) return;
+    if (this.isEvzoneRole(assignerRole)) return;
+
+    throw new ForbiddenException(
+      `Only platform roles can assign role "${targetRole}" (${context})`,
+    );
+  }
+
   private normalizeRegionValue(region?: string | null): string | null {
     if (!region) return null;
     const normalized = region
@@ -402,6 +416,68 @@ export class AuthService {
         description: this.evzoneOrganizationDescription,
       },
     });
+  }
+
+  private async enforceEvzoneOrganizationAssignment(
+    params: {
+      userId: string;
+      role: UserRole;
+      ownerCapability?: StationOwnerCapability | null;
+      membershipStatus?: MembershipStatus;
+      invitedBy?: string | null;
+      customRoleId?: string | null;
+      customRoleName?: string | null;
+    },
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ): Promise<{ organizationId: string } | null> {
+    if (!this.isEvzoneRole(params.role)) {
+      return null;
+    }
+
+    const organization = await this.ensureEvzoneOrganization(client);
+    const membershipStatus = params.membershipStatus || MembershipStatus.ACTIVE;
+
+    await client.user.update({
+      where: { id: params.userId },
+      data: { organizationId: organization.id },
+    });
+
+    const membershipUpdateData: Prisma.OrganizationMembershipUpdateInput = {
+      role: params.role,
+      ownerCapability: params.ownerCapability || null,
+      status: membershipStatus,
+    };
+    if (typeof params.invitedBy === 'string') {
+      membershipUpdateData.invitedBy = params.invitedBy;
+    }
+    if (typeof params.customRoleId === 'string') {
+      membershipUpdateData.customRoleId = params.customRoleId || null;
+    }
+    if (typeof params.customRoleName === 'string') {
+      membershipUpdateData.customRoleName = params.customRoleName || null;
+    }
+
+    await client.organizationMembership.upsert({
+      where: {
+        userId_organizationId: {
+          userId: params.userId,
+          organizationId: organization.id,
+        },
+      },
+      create: {
+        userId: params.userId,
+        organizationId: organization.id,
+        role: params.role,
+        ownerCapability: params.ownerCapability || null,
+        status: membershipStatus,
+        invitedBy: params.invitedBy || null,
+        customRoleId: params.customRoleId || null,
+        customRoleName: params.customRoleName || null,
+      },
+      update: membershipUpdateData,
+    });
+
+    return { organizationId: organization.id };
   }
 
   private async resolveGeography(
@@ -1505,6 +1581,18 @@ export class AuthService {
         },
       });
 
+      await this.enforceEvzoneOrganizationAssignment(
+        {
+          userId: user.id,
+          role: requestedRole,
+          ownerCapability:
+            (createUserDto.ownerCapability as unknown as StationOwnerCapability) ||
+            null,
+          membershipStatus: MembershipStatus.ACTIVE,
+        },
+        tx,
+      );
+
       // 3. Create User Application for Admin Approval
       await tx.userApplication.create({
         data: {
@@ -1569,6 +1657,7 @@ export class AuthService {
       where: { id: inviterId },
       select: {
         id: true,
+        role: true,
         organizationId: true,
         zoneId: true,
         region: true,
@@ -1582,6 +1671,7 @@ export class AuthService {
     const normalizedEmail = this.normalizeEmail(inviteDto.email);
     const inviteRole = this.parseUserRole(inviteDto.role as string, 'invite');
     this.assertTeamManageableRole(inviteRole, 'invite');
+    this.assertCanAssignEvzoneRole(inviter.role, inviteRole, 'invite');
     const normalizedInitialAssignments = inviteDto.initialAssignments?.length
       ? this.normalizeTeamAssignments(inviteDto.initialAssignments, 'invite')
       : [];
@@ -1734,6 +1824,21 @@ export class AuthService {
           invitedBy: inviter.id,
         },
       });
+
+      await this.enforceEvzoneOrganizationAssignment(
+        {
+          userId,
+          role: inviteRole,
+          ownerCapability:
+            (inviteDto.ownerCapability as unknown as StationOwnerCapability) ||
+            null,
+          membershipStatus: MembershipStatus.INVITED,
+          invitedBy: inviter.id,
+          customRoleId: inviteDto.customRoleId || null,
+          customRoleName: inviteDto.customRoleName || null,
+        },
+        tx,
+      );
 
       const invitation = await tx.userInvitation.create({
         data: {
@@ -2640,6 +2745,11 @@ export class AuthService {
       'team invite',
     );
     this.assertTeamManageableRole(inviteRole, 'team invite');
+    this.assertCanAssignEvzoneRole(
+      scope.managerRole,
+      inviteRole,
+      'team invite',
+    );
 
     let normalizedAssignments: Array<{
       stationId: string;
@@ -2710,6 +2820,11 @@ export class AuthService {
         'team member update',
       );
       this.assertTeamManageableRole(parsedRole, 'team member update');
+      this.assertCanAssignEvzoneRole(
+        scope.managerRole,
+        parsedRole,
+        'team member update',
+      );
       updateData.role = parsedRole;
       membershipUpdateData.role = parsedRole;
       if (!updateDto.customRoleId) {
@@ -2740,6 +2855,19 @@ export class AuthService {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
+      const mappedMembershipStatus =
+        updateDto.status === 'Active'
+          ? MembershipStatus.ACTIVE
+          : updateDto.status === 'Invited' || updateDto.status === 'Pending'
+            ? MembershipStatus.INVITED
+            : updateDto.status
+              ? MembershipStatus.SUSPENDED
+              : undefined;
+      const resolvedOwnerCapability =
+        typeof updateDto.ownerCapability === 'string'
+          ? (updateDto.ownerCapability as unknown as StationOwnerCapability)
+          : target.ownerCapability || null;
+
       const updatedUser =
         Object.keys(updateData).length > 0
           ? await tx.user.update({
@@ -2773,6 +2901,29 @@ export class AuthService {
             data: membershipUpdateData,
           });
         }
+      }
+
+      if (updateData.role) {
+        await this.enforceEvzoneOrganizationAssignment(
+          {
+            userId: targetUserId,
+            role: updateData.role as UserRole,
+            ownerCapability: resolvedOwnerCapability,
+            membershipStatus:
+              mappedMembershipStatus ||
+              membership?.status ||
+              MembershipStatus.ACTIVE,
+            customRoleId:
+              typeof updateDto.customRoleId === 'string'
+                ? updateDto.customRoleId
+                : null,
+            customRoleName:
+              typeof updateDto.customRoleName === 'string'
+                ? updateDto.customRoleName
+                : null,
+          },
+          tx,
+        );
       }
 
       if (
@@ -3218,6 +3369,12 @@ export class AuthService {
 
   async updateUser(id: string, updateDto: UpdateUserDto) {
     try {
+      if (typeof updateDto.role === 'string') {
+        throw new BadRequestException(
+          'Role changes are not allowed via this endpoint; use team management invite/update flows',
+        );
+      }
+
       const updated = await this.prisma.user.update({
         where: { id },
         data: updateDto,
