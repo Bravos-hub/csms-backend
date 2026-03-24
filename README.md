@@ -99,7 +99,49 @@ REDIS_PORT=6379
 REDIS_TLS=false
 # REDIS_TLS_CA_PATH=/app/certs/redis-ca.pem
 OCPP_PUBLIC_WS_BASE_URL=wss://ocpp.evzonecharging.com
+
+# Messaging Providers (Geo-Routed)
+# Twilio SendGrid (email primary outside China)
+TWILIO_SENDGRID_API_KEY=
+TWILIO_SENDGRID_FROM=EVzone Charging <noreply@evzonecharging.com>
+
+# Twilio SMS (SMS primary outside Africa/China)
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_PHONE_NUMBER=
+
+# Africa's Talking (SMS primary for Africa)
+AFRICASTALKING_USERNAME=
+AFRICASTALKING_API_KEY=
+AFRICASTALKING_FROM=
+
+# Submail (China primary for email + SMS, non-China fallback)
+SUBMAIL_MAIL_APPID=
+SUBMAIL_MAIL_APPKEY=
+SUBMAIL_MAIL_FROM="EVzone Charging <noreply@evzonecharging.com>"
+SUBMAIL_SMS_APPID=
+SUBMAIL_SMS_APPKEY=
 ```
+
+### Geo-Routed Messaging (Email + SMS)
+
+Provider selection is now **per recipient**, not global.
+
+Routing matrix:
+- China: `Submail` for SMS and email, no fallback.
+- Africa: SMS `Africa's Talking -> Twilio`; email `Twilio SendGrid -> Submail`.
+- Other regions: SMS `Twilio -> Submail`; email `Twilio SendGrid -> Submail`.
+- Unknown geography: defaults to Twilio-first routing.
+
+Geography resolution order:
+1. Delivery context (`zoneId`, `country`, `region`, `userId`) when provided by caller.
+2. User lookup by recipient email (email flows).
+3. SMS-only heuristic for China when phone starts with `+86` or `0086`.
+4. Unknown -> Twilio-first fallback chain.
+
+Implementation notes:
+- SMTP/Gmail test routing is removed from active delivery logic.
+- `POST /api/v1/notifications/sms` accepts optional context fields: `userId`, `zoneId`, `country`, `region`.
 
 ### Prisma Client Drift Recovery
 
@@ -219,7 +261,7 @@ What they verify:
 *   **Framework**: [NestJS](https://nestjs.com/) (Monorepo Mode)
 *   **Language**: TypeScript
 *   **Authentication**: JWT in httpOnly Cookies + Refresh Token Revocation
-*   **Database**: PostgreSQL + TypeORM
+*   **Database**: PostgreSQL + Prisma
 *   **Message Broker**: Apache Kafka
 *   **Cache**: Redis
 *   **Validation**: class-validator
