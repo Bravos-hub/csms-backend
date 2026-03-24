@@ -213,30 +213,46 @@ export class AuthService {
     });
 
     if (!user && email) {
-      const emailFallback = await this.prisma.$queryRaw<{ id: string }[]>`
-        SELECT "id"
-        FROM "User"
-        WHERE LOWER(TRIM("email")) = LOWER(${email})
-        LIMIT 1
-      `;
-      if (emailFallback[0]?.id) {
-        user = await this.prisma.user.findUnique({
-          where: { id: emailFallback[0].id },
-        });
+      try {
+        const emailFallback = await this.prisma.$queryRaw<{ id: string }[]>`
+          SELECT "id"
+          FROM "users"
+          WHERE LOWER(TRIM("email")) = LOWER(${email})
+          LIMIT 1
+        `;
+        if (emailFallback[0]?.id) {
+          user = await this.prisma.user.findUnique({
+            where: { id: emailFallback[0].id },
+          });
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Login email fallback query failed: ${
+            (error as Error).message || String(error)
+          }`,
+        );
       }
     }
 
     if (!user && phone) {
-      const phoneFallback = await this.prisma.$queryRaw<{ id: string }[]>`
-        SELECT "id"
-        FROM "User"
-        WHERE TRIM("phone") = ${phone}
-        LIMIT 1
-      `;
-      if (phoneFallback[0]?.id) {
-        user = await this.prisma.user.findUnique({
-          where: { id: phoneFallback[0].id },
-        });
+      try {
+        const phoneFallback = await this.prisma.$queryRaw<{ id: string }[]>`
+          SELECT "id"
+          FROM "users"
+          WHERE TRIM("phone") = ${phone}
+          LIMIT 1
+        `;
+        if (phoneFallback[0]?.id) {
+          user = await this.prisma.user.findUnique({
+            where: { id: phoneFallback[0].id },
+          });
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Login phone fallback query failed: ${
+            (error as Error).message || String(error)
+          }`,
+        );
       }
     }
 
