@@ -4,6 +4,10 @@ import { NotificationService } from './notification-service.service';
 class SendSmsDto {
   to: string;
   message: string;
+  userId?: string;
+  zoneId?: string;
+  country?: string;
+  region?: string;
 }
 
 @Controller('notifications')
@@ -17,6 +21,11 @@ export class NotificationController {
 
   @Post('sms')
   sendSms(@Body() dto: SendSmsDto) {
-    return this.notificationService.sendSms(dto.to, dto.message);
+    return this.notificationService.sendSms(dto.to, dto.message, {
+      userId: dto.userId,
+      zoneId: dto.zoneId,
+      country: dto.country,
+      region: dto.region,
+    });
   }
 }

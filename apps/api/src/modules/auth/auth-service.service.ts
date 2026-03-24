@@ -1416,6 +1416,12 @@ export class AuthService {
             createUserDto.email,
             verificationToken,
             createUserDto.frontendUrl,
+            {
+              userId: exists.id,
+              zoneId: exists.zoneId,
+              country: exists.country,
+              region: exists.region,
+            },
           );
         } catch (error) {
           this.logger.error(
@@ -1527,6 +1533,12 @@ export class AuthService {
         createUserDto.email,
         verificationToken,
         createUserDto.frontendUrl,
+        {
+          userId: result.user.id,
+          zoneId: result.user.zoneId,
+          country: result.user.country,
+          region: result.user.region,
+        },
       );
     } catch (error) {
       this.logger.error(
@@ -1770,6 +1782,12 @@ export class AuthService {
         inviteDto.frontendUrl,
         inviteToken,
         invitationResult.tempPassword,
+        {
+          userId: existingUser?.id,
+          zoneId: inviteDto.zoneId || existingUser?.zoneId || inviter.zoneId,
+          country: existingUser?.country || inviter.country,
+          region: inviteDto.region || existingUser?.region || inviter.region,
+        },
       );
     } catch (error) {
       this.logger.error(
@@ -2025,11 +2043,23 @@ export class AuthService {
           user.email!,
           'Verification OTP',
           `<p>Your OTP is <b>${code}</b></p>`,
+          {
+            userId: user.id,
+            zoneId: user.zoneId,
+            country: user.country,
+            region: user.region,
+          },
         );
       } else {
         await this.notificationService.sendSms(
           identifier,
           `EvZone: Your verification code is ${code}`,
+          {
+            userId: user.id,
+            zoneId: user.zoneId,
+            country: user.country,
+            region: user.region,
+          },
         );
       }
 
@@ -3335,6 +3365,12 @@ export class AuthService {
         await this.mailService.sendApplicationReceivedEmail(
           user.email,
           user.name,
+          {
+            userId: user.id,
+            zoneId: user.zoneId,
+            country: user.country,
+            region: user.region,
+          },
         );
       }
     } catch (error) {
@@ -3374,7 +3410,12 @@ export class AuthService {
 
     // Send email
     try {
-      await this.mailService.sendVerificationEmail(email, token);
+      await this.mailService.sendVerificationEmail(email, token, undefined, {
+        userId: user.id,
+        zoneId: user.zoneId,
+        country: user.country,
+        region: user.region,
+      });
     } catch (error) {
       this.logger.error(
         `Failed to send verification email to ${email}`,
@@ -3408,6 +3449,12 @@ export class AuthService {
         `<p>A password reset was requested for your account.</p>
          <p>Your reset code is: <b>${code}</b></p>
          <p>This code will expire in 15 minutes.</p>`,
+        {
+          userId: user.id,
+          zoneId: user.zoneId,
+          country: user.country,
+          region: user.region,
+        },
       );
     } catch (error) {
       this.logger.error(
@@ -3702,7 +3749,14 @@ export class AuthService {
   }
 
   private async sendTwoFactorSecurityAlert(
-    user: { email?: string | null; name?: string | null },
+    user: {
+      id?: string;
+      email?: string | null;
+      name?: string | null;
+      zoneId?: string | null;
+      country?: string | null;
+      region?: string | null;
+    },
     action: 'enabled' | 'disabled',
   ) {
     if (!user.email) return;
@@ -3722,7 +3776,12 @@ export class AuthService {
     `;
 
     try {
-      await this.mailService.sendMail(user.email, subject, html);
+      await this.mailService.sendMail(user.email, subject, html, {
+        userId: user.id,
+        zoneId: user.zoneId,
+        country: user.country,
+        region: user.region,
+      });
     } catch (error) {
       this.logger.warn(
         `Failed to send 2FA ${action} security alert`,
@@ -3738,6 +3797,9 @@ export class AuthService {
         id: true,
         name: true,
         email: true,
+        zoneId: true,
+        country: true,
+        region: true,
         passwordHash: true,
         twoFactorEnabled: true,
       },
@@ -3780,6 +3842,9 @@ export class AuthService {
         id: true,
         name: true,
         email: true,
+        zoneId: true,
+        country: true,
+        region: true,
         twoFactorSecret: true,
       },
     });
@@ -3841,6 +3906,9 @@ export class AuthService {
         id: true,
         name: true,
         email: true,
+        zoneId: true,
+        country: true,
+        region: true,
         passwordHash: true,
         twoFactorEnabled: true,
         twoFactorSecret: true,
@@ -3920,6 +3988,12 @@ export class AuthService {
           user.email,
           'Your Password Has Been Changed',
           `<p>Hello ${user.name},</p><p>Your password was successfully changed. If you did not make this change, please contact support immediately.</p>`,
+          {
+            userId: user.id,
+            zoneId: user.zoneId,
+            country: user.country,
+            region: user.region,
+          },
         );
       }
     } catch (e) {

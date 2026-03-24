@@ -1,8 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { TwilioService } from './twilio.service';
 import { SubmailSmsService } from './submail-sms.service';
-import { ConfigService } from '@nestjs/config';
-import { resolvePlatformProfile } from '../../common/platform/platform-profile';
+import {
+  DeliveryContext,
+  MessagingRoutingService,
+} from '../../common/services/messaging-routing.service';
+import { AfricasTalkingService } from './africas-talking.service';
+
+type SmsProvider = 'submail' | 'africas_talking' | 'twilio';
 
 type NotificationKind =
   | 'system'
@@ -32,38 +37,65 @@ export interface NotificationItemDto {
 
 @Injectable()
 export class NotificationService {
-  private readonly smsProvider: 'twilio' | 'submail';
+  private readonly logger = new Logger(NotificationService.name);
 
   constructor(
     private readonly twilioService: TwilioService,
     private readonly submailSmsService: SubmailSmsService,
-    private readonly configService: ConfigService,
-  ) {
-    this.smsProvider =
-      this.configService.get<'twilio' | 'submail'>('SMS_PROVIDER') ??
-      resolvePlatformProfile(process.env).smsProvider;
-  }
+    private readonly africasTalkingService: AfricasTalkingService,
+    private readonly routingService: MessagingRoutingService,
+  ) {}
 
   getNotifications(): NotificationItemDto[] {
     return [];
   }
 
-  async sendSms(to: string, message: string) {
-    if (this.smsProvider === 'submail') {
-      return this.submailSmsService.sendSms(to, message);
+  async sendSms(to: string, message: string, context?: DeliveryContext) {
+    const route = await this.routingService.resolveSmsRoute({ to, context });
+    try {
+      return await this.sendSmsWithProvider(route.primary, to, message);
+    } catch (primaryError) {
+      if (!route.fallback) {
+        this.logger.error(
+          `Primary SMS provider ${route.primary} failed for ${to}`,
+          primaryError,
+        );
+        throw primaryError;
+      }
+
+      this.logger.warn(
+        `Primary SMS provider ${route.primary} failed for ${to}. Falling back to ${route.fallback}.`,
+      );
+      return this.sendSmsWithProvider(route.fallback, to, message);
     }
-    return this.twilioService.sendSms(to, message);
   }
 
   async sendNotification(userId: string, type: string, payload: any) {
     // Logic to resolve userId to phone number (e.g. from User Service)
     // For now, assume payload has phone
     if (type === 'SMS' && payload.phone) {
-      if (this.smsProvider === 'submail') {
-        return this.submailSmsService.sendSms(payload.phone, payload.message);
-      }
-      return this.twilioService.sendSms(payload.phone, payload.message);
+      const context: DeliveryContext = {
+        userId: payload.userId || userId,
+        zoneId: payload.zoneId,
+        country: payload.country,
+        region: payload.region,
+      };
+      return this.sendSms(payload.phone, payload.message, context);
     }
     return { status: 'skipped', reason: 'Not SMS or no phone' };
+  }
+
+  private async sendSmsWithProvider(
+    provider: SmsProvider,
+    to: string,
+    message: string,
+  ) {
+    if (provider === 'submail') {
+      return this.submailSmsService.sendSms(to, message);
+    }
+    if (provider === 'africas_talking') {
+      return this.africasTalkingService.sendSms(to, message);
+    }
+    return this.twilioService.sendSms(to, message);
   }
 }

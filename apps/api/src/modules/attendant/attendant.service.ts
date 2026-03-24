@@ -267,12 +267,24 @@ export class AttendantService {
             user.email,
             'EVzone Attendant Password Reset',
             `<p>Your verification code is <b>${code}</b>. It expires in 10 minutes.</p>`,
+            {
+              userId: user.id,
+              zoneId: user.zoneId,
+              country: user.country,
+              region: user.region,
+            },
           );
         }
         if (channel === 'sms' && user.phone) {
           await this.notificationService.sendSms(
             user.phone,
             `EVzone: your password reset code is ${code}`,
+            {
+              userId: user.id,
+              zoneId: user.zoneId,
+              country: user.country,
+              region: user.region,
+            },
           );
         }
       } catch (error) {

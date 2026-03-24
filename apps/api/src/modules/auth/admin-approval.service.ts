@@ -100,6 +100,13 @@ export class AdminApprovalService {
         await this.mailService.sendApplicationApprovedEmail(
           application.user.email,
           application.user.name,
+          undefined,
+          {
+            userId: application.user.id,
+            zoneId: application.user.zoneId,
+            country: application.user.country,
+            region: application.user.region,
+          },
         );
       }
     } catch (error) {
@@ -156,6 +163,12 @@ export class AdminApprovalService {
           application.user.email,
           application.user.name,
           reason,
+          {
+            userId: application.user.id,
+            zoneId: application.user.zoneId,
+            country: application.user.country,
+            region: application.user.region,
+          },
         );
       }
     } catch (error) {

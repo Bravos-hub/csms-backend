@@ -65,7 +65,7 @@ describe('AttendantService', () => {
   it('logs invalid password attempts with hashed identifier metadata', async () => {
     service.findUserByIdentifier = jest.fn().mockResolvedValue({
       id: 'user-1',
-      passwordHash: 'stored-hash',
+      passwordHash: '$2b$10$stored-hash',
     });
     (bcrypt.compare as jest.Mock).mockResolvedValue(false as never);
 
@@ -86,7 +86,7 @@ describe('AttendantService', () => {
   it('returns unassigned result and logs assignment missing event', async () => {
     service.findUserByIdentifier = jest.fn().mockResolvedValue({
       id: 'user-1',
-      passwordHash: 'stored-hash',
+      passwordHash: '$2b$10$stored-hash',
     });
     service.findActiveAssignment = jest.fn().mockResolvedValue(null);
     (bcrypt.compare as jest.Mock).mockResolvedValue(true as never);

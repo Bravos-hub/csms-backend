@@ -131,4 +131,28 @@ describe('SessionService OCPP TransactionEvent handling', () => {
       }),
     });
   });
+
+  it('passes geo context when sending stop-session SMS notifications', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      phone: '+256700000001',
+      zoneId: 'zone-af-1',
+      country: 'Uganda',
+      region: 'AFRICA',
+    });
+    notificationService.sendSms.mockResolvedValue({ sid: 'sms-1' });
+
+    await (service as any).notifyUserOfStop('user-1', { totalEnergy: 2500 });
+
+    expect(notificationService.sendSms).toHaveBeenCalledWith(
+      '+256700000001',
+      'EvZone: Charging Stopped. Energy: 2500Wh. Est Cost: $1250.00',
+      {
+        userId: 'user-1',
+        zoneId: 'zone-af-1',
+        country: 'Uganda',
+        region: 'AFRICA',
+      },
+    );
+  });
 });

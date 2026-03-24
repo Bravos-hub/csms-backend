@@ -1,105 +1,85 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
 import { SubmailService } from '../../common/services/submail.service';
+import {
+  DeliveryContext,
+  MessagingRoutingService,
+} from '../../common/services/messaging-routing.service';
+import { TwilioSendgridService } from './twilio-sendgrid.service';
+
+type EmailProvider = 'twilio_sendgrid' | 'submail';
 
 @Injectable()
 export class MailService {
-  private transporter: nodemailer.Transporter;
   private readonly logger = new Logger(MailService.name);
-  private readonly emailProvider: 'smtp' | 'submail';
 
   constructor(
     private readonly configService: ConfigService,
     private readonly submailService: SubmailService,
-  ) {
-    this.emailProvider = this.configService.get<'smtp' | 'submail'>(
-      'EMAIL_PROVIDER',
-      'smtp',
+    private readonly twilioSendgridService: TwilioSendgridService,
+    private readonly routingService: MessagingRoutingService,
+  ) {}
+
+  private getSenderAddress() {
+    return (
+      this.configService.get<string>('TWILIO_SENDGRID_FROM') ||
+      this.configService.get<string>('SUBMAIL_MAIL_FROM') ||
+      '"EV Zone" <noreply@evzone.com>'
     );
-    this.initializeTransporter();
   }
 
-  private initializeTransporter() {
-    const host = this.configService.get<string>('SMTP_HOST');
-    const port = this.configService.get<number>('SMTP_PORT');
-    const user = this.configService.get<string>('SMTP_USER');
-    const pass = this.configService.get<string>('SMTP_PASS');
-
-    if (!host || !user || !pass) {
-      this.logger.warn(
-        'SMTP configuration missing. Email sending will be disabled.',
-      );
-      return;
-    }
-
-    this.transporter = nodemailer.createTransport({
-      host,
-      port: port || 587,
-      secure: false,
-      auth: {
-        user,
-        pass,
-      },
-      requireTLS: true,
-      tls: {
-        minVersion: 'TLSv1.2',
-        ciphers: 'HIGH:!aNULL:!MD5',
-        rejectUnauthorized: true,
-      },
-    });
-
-    this.verifyConnection();
-  }
-
-  private async verifyConnection() {
-    if (!this.transporter) return;
-    try {
-      await this.transporter.verify();
-      this.logger.log('SMTP connection established successfully');
-    } catch (error) {
-      this.logger.error('SMTP connection failed', error);
-    }
-  }
-
-  async sendMail(to: string, subject: string, html: string) {
-    const from =
-      this.configService.get<string>('SMTP_FROM') ||
-      '"EV Zone" <noreply@evzone.com>';
-
-    if (this.emailProvider === 'submail') {
-      try {
-        await this.submailService.sendEmail({ to, subject, html, from });
-      } catch (error) {
-        this.logger.error(`Failed to send Submail email to ${to}`, error);
-        throw error;
-      }
-      return;
-    }
-
-    if (!this.transporter) {
-      this.logger.warn(`Email to ${to} skipped (no transporter)`);
-      return;
-    }
+  async sendMail(
+    to: string,
+    subject: string,
+    html: string,
+    context?: DeliveryContext,
+  ) {
+    const from = this.getSenderAddress();
+    const route = await this.routingService.resolveEmailRoute({ to, context });
 
     try {
-      await this.transporter.sendMail({
-        from,
+      return await this.sendEmailWithProvider(route.primary, {
         to,
         subject,
         html,
+        from,
       });
-      this.logger.log(`Email sent to ${to}`);
-    } catch (error) {
-      this.logger.error(`Failed to send email to ${to}`, error);
-      throw error;
+    } catch (primaryError) {
+      if (!route.fallback) {
+        this.logger.error(
+          `Primary email provider ${route.primary} failed for ${to}`,
+          primaryError,
+        );
+        throw primaryError;
+      }
+
+      this.logger.warn(
+        `Primary email provider ${route.primary} failed for ${to}. Falling back to ${route.fallback}.`,
+      );
+      return this.sendEmailWithProvider(route.fallback, {
+        to,
+        subject,
+        html,
+        from,
+      });
     }
+  }
+
+  private async sendEmailWithProvider(
+    provider: EmailProvider,
+    params: { to: string; subject: string; html: string; from: string },
+  ) {
+    if (provider === 'submail') {
+      return this.submailService.sendEmail(params);
+    }
+    return this.twilioSendgridService.sendEmail(params);
   }
 
   async sendVerificationEmail(
     email: string,
     token: string,
     frontendUrl?: string,
+    context?: DeliveryContext,
   ) {
     const baseUrl =
       frontendUrl ||
@@ -115,7 +95,7 @@ export class MailService {
       <p>If you did not request this verification, please ignore this email.</p>
     `;
 
-    await this.sendMail(email, 'Verify your email', html);
+    await this.sendMail(email, 'Verify your email', html, context);
   }
 
   async sendInvitationEmail(
@@ -125,6 +105,7 @@ export class MailService {
     frontendUrl?: string,
     inviteToken?: string,
     tempPassword?: string,
+    context?: DeliveryContext,
   ) {
     const baseUrl =
       frontendUrl ||
@@ -195,10 +176,15 @@ export class MailService {
       email,
       `Invitation to join ${organization} on EV Zone`,
       html,
+      context,
     );
   }
 
-  async sendApplicationReceivedEmail(email: string, name: string) {
+  async sendApplicationReceivedEmail(
+    email: string,
+    name: string,
+    context?: DeliveryContext,
+  ) {
     const html = `
       <h1>Application Received!</h1>
       <p>Dear ${name},</p>
@@ -208,13 +194,14 @@ export class MailService {
       <p>Best regards,<br>EV Zone Team</p>
     `;
 
-    await this.sendMail(email, 'Application Received - EV Zone', html);
+    await this.sendMail(email, 'Application Received - EV Zone', html, context);
   }
 
   async sendApplicationApprovedEmail(
     email: string,
     name: string,
     frontendUrl?: string,
+    context?: DeliveryContext,
   ) {
     const baseUrl =
       frontendUrl ||
@@ -232,13 +219,14 @@ export class MailService {
       <p>Welcome aboard!<br>EV Zone Team</p>
     `;
 
-    await this.sendMail(email, 'Application Approved - EV Zone', html);
+    await this.sendMail(email, 'Application Approved - EV Zone', html, context);
   }
 
   async sendApplicationRejectedEmail(
     email: string,
     name: string,
     reason: string,
+    context?: DeliveryContext,
   ) {
     const html = `
       <h1>Application Update</h1>
@@ -249,6 +237,6 @@ export class MailService {
       <p>Best regards,<br>EV Zone Team</p>
     `;
 
-    await this.sendMail(email, 'Application Update - EV Zone', html);
+    await this.sendMail(email, 'Application Update - EV Zone', html, context);
   }
 }

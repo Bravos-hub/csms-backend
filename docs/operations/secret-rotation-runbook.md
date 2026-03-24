@@ -7,8 +7,8 @@ This runbook covers operational rotation for runtime secrets used by EVZone back
 - PostgreSQL credentials and connection URL
 - Kafka SASL credentials and TLS CA
 - JWT signing secrets (`JWT_SECRET`, `JWT_SERVICE_SECRET`)
-- SMTP credentials
-- SMS provider credentials (Twilio)
+- Email provider credentials (Twilio SendGrid, Submail)
+- SMS provider credentials (Africa's Talking, Twilio, Submail)
 - Redis credentials and TLS CA
 
 ## Rotation Principles

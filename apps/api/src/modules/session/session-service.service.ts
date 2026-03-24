@@ -77,7 +77,12 @@ export class SessionService {
     if (user && user.phone) {
       const cost = (session.totalEnergy || 0) * 0.5; // Mock Rate
       const msg = `EvZone: Charging Stopped. Energy: ${session.totalEnergy}Wh. Est Cost: $${cost.toFixed(2)}`;
-      await this.notificationService.sendSms(user.phone, msg);
+      await this.notificationService.sendSms(user.phone, msg, {
+        userId: user.id,
+        zoneId: user.zoneId,
+        country: user.country,
+        region: user.region,
+      });
     }
   }
 
