@@ -11,7 +11,10 @@ import { OcpiTokenSyncService } from '../../common/services/ocpi-token-sync.serv
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: process.env.ENV_FILE || '.env',
+    }),
     // DatabaseModule removed
     NotificationServiceModule,
     ClientsModule.register([

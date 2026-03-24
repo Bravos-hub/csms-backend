@@ -1,8 +1,8 @@
-import 'dotenv/config';
+import * as dotenv from 'dotenv';
 import { setDefaultResultOrder } from 'node:dns';
 setDefaultResultOrder('ipv4first');
 import * as fs from 'fs';
-import { NestFactory } from '@nestjs/core';
+import { HttpAdapterHost, NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import type { SASLOptions } from 'kafkajs';
 import { json, urlencoded } from 'express';
@@ -12,13 +12,21 @@ import {
   requestContextMiddleware,
   requestLoggingMiddleware,
 } from './common/observability/request-logging.middleware';
+import { DatabaseConnectivityExceptionFilter } from './common/filters/database-connectivity-exception.filter';
 import { validateKafkaTopicsOrThrow } from './contracts/kafka-topics';
 import cookieParser from 'cookie-parser';
+
+dotenv.config({ path: process.env.ENV_FILE || '.env' });
 
 async function bootstrap() {
   try {
     validateKafkaTopicsOrThrow();
     const app = await NestFactory.create(AppModule);
+    const httpAdapterHost = app.get(HttpAdapterHost);
+    app.useGlobalFilters(
+      new DatabaseConnectivityExceptionFilter(httpAdapterHost),
+    );
+
     const kafkaEventsEnabled =
       (process.env.KAFKA_EVENTS_ENABLED ?? 'true') === 'true';
     if (kafkaEventsEnabled) {
@@ -154,7 +162,9 @@ function buildCorsOrigins(): string[] {
     'https://portal.evzonecharging.com',
   ];
   const configured = parseList(process.env.CORS_ORIGINS);
-  const origins = normalizeCorsOrigins(configured.length > 0 ? configured : defaults);
+  const origins = normalizeCorsOrigins(
+    configured.length > 0 ? configured : defaults,
+  );
   validateCorsOriginsOrThrow(origins);
   console.log(`CORS allowlist: ${origins.join(', ')}`);
   return origins;

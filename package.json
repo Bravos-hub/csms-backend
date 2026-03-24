@@ -36,6 +36,8 @@
     "ops:backfill-station-team-assignments": "tsx ./scripts/ops/backfill-station-team-assignments.ts",
     "ops:check-station-team-consistency": "tsx ./scripts/ops/check-station-team-consistency.ts",
     "ops:check-team-user-assignment": "tsx ./scripts/ops/check-team-user-assignment.ts",
+    "ops:check-platform-user-org-consistency": "tsx ./scripts/ops/check-platform-user-org-consistency.ts",
+    "ops:repair-platform-user-org-consistency": "npm run backfill:user-org-region && npm run ops:check-platform-user-org-consistency",
     "prisma:refresh": "node scripts/prisma-refresh.js",
     "prisma:check": "node scripts/prisma-check.js",
     "backfill:user-org-region": "tsx ./prisma/backfill-user-org-region.ts",

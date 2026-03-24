@@ -39,45 +39,47 @@ graph TD
     App -->|HTTP/REST| BillingAPI
     App -->|HTTP/REST| BookingAPI
     App -->|HTTP/REST| MaintAPI
-    
+
     Charger -->|WebSocket| Gateway
 
     Gateway -->|Produces 'ocpp.message'| Kafka
-    
+
     Kafka -->|Consumes| StationSvc
     Kafka -->|Consumes| SessionSvc
     Kafka -->|Consumes| BillingAPI
-    
+
     StationSvc -->|Read/Write| DB
     SessionSvc -->|Read/Write| DB
     AuthAPI -->|Read/Write| DB
-    
+
     AuthAPI -.->|Auth Token| App
 ```
 
 ## 📦 Microservices
 
-| Service | Port | Description |
-| :--- | :--- | :--- |
-| **Auth Service** | `3000` | User management, **Cookie-based Authentication (httpOnly)**, RBAC. |
-| **Station Service** | `3001` | Charger registry, status tracking, auto-provisioning. |
-| **Session Service** | `3002` | Charging session tracking (Start/Stop transactions). |
-| **OCPP Gateway** | `3003` | WebSocket handling for OCPP 1.6/2.0 chargers. |
-| **Billing Service** | `3004` | Wallets, Tariffs, Invoicing, Payments. |
-| **Booking Service** | `3005` | Charging slot reservations. |
-| **Maintenance** | `3006` | Incident reporting, ticketing, technician dispatch. |
-| **Notification** | `3007` | Centralized alerts (Push, Email, SMS). |
-| **Analytics** | `3008` | Reporting and data aggregation. |
+| Service             | Port   | Description                                                        |
+| :------------------ | :----- | :----------------------------------------------------------------- |
+| **Auth Service**    | `3000` | User management, **Cookie-based Authentication (httpOnly)**, RBAC. |
+| **Station Service** | `3001` | Charger registry, status tracking, auto-provisioning.              |
+| **Session Service** | `3002` | Charging session tracking (Start/Stop transactions).               |
+| **OCPP Gateway**    | `3003` | WebSocket handling for OCPP 1.6/2.0 chargers.                      |
+| **Billing Service** | `3004` | Wallets, Tariffs, Invoicing, Payments.                             |
+| **Booking Service** | `3005` | Charging slot reservations.                                        |
+| **Maintenance**     | `3006` | Incident reporting, ticketing, technician dispatch.                |
+| **Notification**    | `3007` | Centralized alerts (Push, Email, SMS).                             |
+| **Analytics**       | `3008` | Reporting and data aggregation.                                    |
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-*   [Docker Desktop](https://www.docker.com/products/docker-desktop) (Running)
-*   [Node.js](https://nodejs.org/) (v16+)
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop) (Running)
+- [Node.js](https://nodejs.org/) (v16+)
 
 ### Environment Variables
 
 Ensure `.env` contains:
+
 ```env
 # Authentication
 JWT_SECRET=your-secure-secret
@@ -123,29 +125,50 @@ SUBMAIL_SMS_APPID=
 SUBMAIL_SMS_APPKEY=
 ```
 
+### Environment Profiles (Local + Remote)
+
+- `.env.local`: local infrastructure profile for day-to-day development.
+- `.env.remote`: production-backed development profile when intentionally using managed services.
+- `.env`: optional selected runtime copy for compatibility scripts.
+
+Profile launch examples:
+
+```powershell
+$env:ENV_FILE=".env.local"; npm run start:dev
+$env:ENV_FILE=".env.remote"; npm run start:dev
+```
+
+```bash
+ENV_FILE=.env.local npm run start:dev
+ENV_FILE=.env.remote npm run start:dev
+```
+
 ### Geo-Routed Messaging (Email + SMS)
 
 Provider selection is now **per recipient**, not global.
 
 Routing matrix:
+
 - China: `Submail` for SMS and email, no fallback.
 - Africa: SMS `Africa's Talking -> Twilio`; email `Twilio SendGrid -> Submail`.
 - Other regions: SMS `Twilio -> Submail`; email `Twilio SendGrid -> Submail`.
 - Unknown geography: defaults to Twilio-first routing.
 
 Geography resolution order:
+
 1. Delivery context (`zoneId`, `country`, `region`, `userId`) when provided by caller.
 2. User lookup by recipient email (email flows).
 3. SMS-only heuristic for China when phone starts with `+86` or `0086`.
 4. Unknown -> Twilio-first fallback chain.
 
 Implementation notes:
+
 - SMTP/Gmail test routing is removed from active delivery logic.
 - `POST /api/v1/notifications/sms` accepts optional context fields: `userId`, `zoneId`, `country`, `region`.
 
 ### Prisma Client Drift Recovery
 
-Use root `.env` as the single source of truth for backend environment variables.
+Use `ENV_FILE` (or synced `.env`) as the active backend environment source.
 
 - Keep `prisma/.env` empty (no active `KEY=value` entries).
 - If `prisma/.env` has active values, Prisma guardrails will fail fast.
@@ -169,17 +192,17 @@ Automatic guardrails:
 
 ### Quick Start (Windows)
 
-We provide a **Master Startup Script** that launches:
-1.  Docker Infrastructure (Postgres, Kafka, Zookeeper, Redis).
-2.  All 9 Microservices in separate terminal windows.
+Use the startup script with explicit mode:
 
 ```powershell
-./startup.ps1
+./startup.ps1 -Mode local
+./startup.ps1 -Mode remote
 ```
 
 ### Manual Start
 
 1.  **Start Infrastructure:**
+
     ```bash
     docker-compose up -d
     ```
@@ -192,26 +215,29 @@ We provide a **Master Startup Script** that launches:
 ## 🧪 Verification & Documentation
 
 ### API Documentation (Swagger)
-*   URL: [`http://localhost:3000/api/docs`](http://localhost:3000/api/docs)
-*   Features: Full API reference with cookie-based auth support.
+
+- URL: [`http://localhost:3000/api/docs`](http://localhost:3000/api/docs)
+- Features: Full API reference with cookie-based auth support.
 
 ### Auth Metrics
-*   URL: [`http://localhost:3000/api/v1/auth/metrics`](http://localhost:3000/api/v1/auth/metrics)
-*   Provides: Login/Logout/Refresh success rates and latency.
+
+- URL: [`http://localhost:3000/api/v1/auth/metrics`](http://localhost:3000/api/v1/auth/metrics)
+- Provides: Login/Logout/Refresh success rates and latency.
 
 ### Manual Verification
+
 1.  **Auth API**:
-    *   POST `http://localhost:3000/api/v1/auth/login`
-    *   Body: `{"email": "admin@test.com", "password": "pass"}`
-    *   **Result**: 200 OK + `evzone_access_token` and `evzone_refresh_token` cookies (httpOnly).
+    - POST `http://localhost:3000/api/v1/auth/login`
+    - Body: `{"email": "admin@test.com", "password": "pass"}`
+    - **Result**: 200 OK + `evzone_access_token` and `evzone_refresh_token` cookies (httpOnly).
 
 2.  **OCPP Connection**:
-    *   Connect WebSocket Client to `ws://localhost:3003/ocpp/TEST_CP_001`
-    *   Protocol: `ocpp1.6`
-    *   Send `BootNotification` payload.
+    - Connect WebSocket Client to `ws://localhost:3003/ocpp/TEST_CP_001`
+    - Protocol: `ocpp1.6`
+    - Send `BootNotification` payload.
 
 3.  **Check Logs**:
-    *   Observe `station-service` logs to see the new charger being auto-provisioned upon connection.
+    - Observe `station-service` logs to see the new charger being auto-provisioned upon connection.
 
 ### Attendant Login State Check (Read-only)
 
@@ -222,6 +248,7 @@ npx tsx ./scripts/ops/check-attendant-login-state.ts --identifier test1@evzonech
 ```
 
 What it verifies:
+
 - user existence by email/phone
 - role, status, and password-hash presence
 - attendant assignment existence
@@ -237,6 +264,7 @@ npm run ops:check-station-team-consistency
 ```
 
 What they verify:
+
 - member existence, role/status, and organization membership
 - station-team assignments vs attendant projection (`attendant_assignments`)
 - active users without active station-team assignments (`Active-Unassigned` risk)
@@ -244,28 +272,47 @@ What they verify:
 ### Team Assignment Runbook
 
 1. Invite with station-role seed:
+
 - Call `POST /api/v1/users/team/invite` with at least one `initialAssignments` row.
 
 2. Legacy invite activation:
+
 - If `initialAssignmentsJson` is missing on invitation, activation keeps the user active but unassigned.
 
 3. Resolve `Active-Unassigned`:
+
 - Use `PUT /api/v1/users/team/:id/assignments` to replace assignments with at least one active row.
 - For attendant rows, projection sync updates `attendant_assignments` automatically.
 
 4. Verify projection:
+
 - Run `npm run ops:check-station-team-consistency` and confirm mismatch counts are zero.
+
+### EVZONE WORLD Consistency Recovery
+
+Use these when invite fails because inviter lacks organization scope:
+
+```bash
+npm run backfill:user-org-region
+npm run ops:check-platform-user-org-consistency
+```
+
+One-shot repair + verification:
+
+```bash
+npm run ops:repair-platform-user-org-consistency
+```
 
 ## 🛠️ Tech Stack
 
-*   **Framework**: [NestJS](https://nestjs.com/) (Monorepo Mode)
-*   **Language**: TypeScript
-*   **Authentication**: JWT in httpOnly Cookies + Refresh Token Revocation
-*   **Database**: PostgreSQL + Prisma
-*   **Message Broker**: Apache Kafka
-*   **Cache**: Redis
-*   **Validation**: class-validator
-*   **Documentation**: Swagger, Mermaid, Markdown
+- **Framework**: [NestJS](https://nestjs.com/) (Monorepo Mode)
+- **Language**: TypeScript
+- **Authentication**: JWT in httpOnly Cookies + Refresh Token Revocation
+- **Database**: PostgreSQL + Prisma
+- **Message Broker**: Apache Kafka
+- **Cache**: Redis
+- **Validation**: class-validator
+- **Documentation**: Swagger, Mermaid, Markdown
 
 ## Production Deploy (Docker Compose)
 

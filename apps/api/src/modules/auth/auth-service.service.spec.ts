@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { MembershipStatus, UserRole } from '@prisma/client';
 import { AuthService } from './auth-service.service';
 
@@ -6,12 +10,16 @@ function createService() {
   const prisma = {
     user: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       update: jest.fn(),
     },
     organizationMembership: {
       upsert: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
+    },
+    userInvitation: {
+      updateMany: jest.fn(),
     },
   } as any;
 
@@ -132,6 +140,64 @@ describe('AuthService EVZONE guardrails', () => {
         'inviter-1',
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('rejects non-EVZONE invites when inviter has no organization', async () => {
+    const { service, prisma } = createService();
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'inviter-1',
+      role: UserRole.STATION_OWNER,
+      organizationId: null,
+      zoneId: null,
+      region: null,
+      country: null,
+    });
+
+    await expect(
+      service.inviteUser(
+        {
+          email: 'invitee@evzone.app',
+          role: UserRole.STATION_OWNER,
+        } as any,
+        'inviter-1',
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('passes inviter organization guard when inviter has an organization', async () => {
+    const { service, prisma } = createService();
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'inviter-1',
+      role: UserRole.STATION_OWNER,
+      organizationId: 'org-1',
+      zoneId: null,
+      region: null,
+      country: null,
+    });
+    prisma.user.findFirst.mockResolvedValue({
+      id: 'existing-user',
+      email: 'existing@evzone.app',
+      name: 'Existing User',
+      country: null,
+      region: null,
+      zoneId: null,
+      organizationId: 'org-1',
+      status: 'Active',
+    });
+    prisma.organizationMembership.findUnique.mockResolvedValue({
+      id: 'membership-1',
+      status: MembershipStatus.ACTIVE,
+    });
+
+    await expect(
+      service.inviteUser(
+        {
+          email: 'existing@evzone.app',
+          role: UserRole.STATION_OWNER,
+        } as any,
+        'inviter-1',
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('rejects generic user role updates', async () => {
