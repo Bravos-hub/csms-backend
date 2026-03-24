@@ -21,6 +21,8 @@ jobs:
       DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
       DROPLET_USER: ${{ secrets.DROPLET_USER }}
       DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
+      API_PUBLIC_DOMAIN: ${{ secrets.API_PUBLIC_DOMAIN }}
+      PORTAL_ORIGIN: ${{ secrets.PORTAL_ORIGIN }}
 
     steps:
       - name: Validate required secrets
@@ -46,6 +48,7 @@ jobs:
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
           port: ${{ secrets.DROPLET_SSH_PORT || '22' }}
+          envs: API_PUBLIC_DOMAIN,PORTAL_ORIGIN
           script_stop: true
           command_timeout: 45m
           script: |
@@ -124,5 +127,45 @@ jobs:
               docker compose ps || true
               docker compose logs --tail=200 api || true
               docker compose logs --tail=200 worker || true
+              exit 1
+            fi
+
+            PUBLIC_DOMAIN="${API_PUBLIC_DOMAIN:-api.evzonecharging.com}"
+            PUBLIC_ORIGIN="${PORTAL_ORIGIN:-https://portal.evzonecharging.com}"
+
+            HTTPS_READY=0
+            HTTPS_ATTEMPT=1
+            MAX_HTTPS_ATTEMPTS=12
+            while [ "$HTTPS_ATTEMPT" -le "$MAX_HTTPS_ATTEMPTS" ]; do
+              if curl -kfsS --resolve "$PUBLIC_DOMAIN:443:127.0.0.1" "https://$PUBLIC_DOMAIN/health/ready" >/dev/null; then
+                HTTPS_READY=1
+                echo "Public HTTPS health check passed on attempt $HTTPS_ATTEMPT."
+                break
+              fi
+              echo "Public HTTPS health check $HTTPS_ATTEMPT/$MAX_HTTPS_ATTEMPTS failed."
+              HTTPS_ATTEMPT=$((HTTPS_ATTEMPT + 1))
+              sleep 5
+            done
+
+            if [ "$HTTPS_READY" -ne 1 ]; then
+              echo "Public HTTPS endpoint did not become ready for $PUBLIC_DOMAIN."
+              if command -v systemctl >/dev/null 2>&1; then
+                systemctl status nginx --no-pager || true
+              fi
+              exit 1
+            fi
+
+            PREFLIGHT_RESPONSE="$(curl -kfsS -i -X OPTIONS \
+              --resolve "$PUBLIC_DOMAIN:443:127.0.0.1" \
+              "https://$PUBLIC_DOMAIN/api/v1/auth/login" \
+              -H "Origin: $PUBLIC_ORIGIN" \
+              -H "Access-Control-Request-Method: POST" \
+              -H "Access-Control-Request-Headers: content-type" || true)"
+
+            PREFLIGHT_HEADERS="$(printf '%s' "$PREFLIGHT_RESPONSE" | tr -d '\r')"
+            if ! printf '%s' "$PREFLIGHT_HEADERS" | grep -Fqi "Access-Control-Allow-Origin: $PUBLIC_ORIGIN"; then
+              echo "CORS preflight failed for origin $PUBLIC_ORIGIN on $PUBLIC_DOMAIN."
+              echo "Preflight response:"
+              printf '%s\n' "$PREFLIGHT_RESPONSE"
               exit 1
             fi

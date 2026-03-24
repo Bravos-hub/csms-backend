@@ -154,9 +154,18 @@ function buildCorsOrigins(): string[] {
     'https://portal.evzonecharging.com',
   ];
   const configured = parseList(process.env.CORS_ORIGINS);
-  const origins = configured.length > 0 ? configured : defaults;
+  const origins = normalizeCorsOrigins(configured.length > 0 ? configured : defaults);
   validateCorsOriginsOrThrow(origins);
+  console.log(`CORS allowlist: ${origins.join(', ')}`);
   return origins;
+}
+
+function normalizeCorsOrigins(origins: string[]): string[] {
+  const normalized = origins.map((origin) => {
+    const parsed = new URL(origin);
+    return parsed.origin;
+  });
+  return Array.from(new Set(normalized));
 }
 
 function validateCorsOriginsOrThrow(origins: string[]): void {
