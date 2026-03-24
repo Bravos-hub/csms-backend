@@ -148,10 +148,21 @@ jobs:
             done
 
             if [ "$HTTPS_READY" -ne 1 ]; then
-              echo "Public HTTPS endpoint did not become ready for $PUBLIC_DOMAIN."
+              echo "Public HTTPS endpoint did not become ready for $PUBLIC_DOMAIN. Attempting nginx restart..."
               if command -v systemctl >/dev/null 2>&1; then
-                systemctl status nginx --no-pager || true
+                systemctl restart nginx || true
+                sleep 5
+                if curl -kfsS --resolve "$PUBLIC_DOMAIN:443:127.0.0.1" "https://$PUBLIC_DOMAIN/health/ready" >/dev/null; then
+                  HTTPS_READY=1
+                  echo "Public HTTPS health check passed after nginx restart."
+                else
+                  systemctl status nginx --no-pager || true
+                fi
               fi
+            fi
+
+            if [ "$HTTPS_READY" -ne 1 ]; then
+              echo "Public HTTPS endpoint is still not ready for $PUBLIC_DOMAIN."
               exit 1
             fi
 
