@@ -78,69 +78,24 @@ graph TD
 
 ### Environment Variables
 
-Ensure `.env` contains:
+Use [`.env.example`](/d:/Dev/EVZONE/evzone-backend/.env.example) as the full safe template, and keep real secrets only in `.env`.
+
+The runtime contract is now:
+
+- `.env`: the only active runtime file for API, worker, and ops scripts
+- `.env.example`: the only committable env template
+
+Key values to set in `.env` before running:
 
 ```env
-# Authentication
-JWT_SECRET=your-secure-secret
-JWT_ACCESS_EXPIRY=15m
-JWT_REFRESH_EXPIRY=7d
-CORS_ORIGINS=http://localhost:5173,https://portal.evzonecharging.com
-
-# Database & Infrastructure
-DATABASE_URL="postgresql://user:pass@localhost:5432/evzone"
-DATABASE_TLS=true
-# DATABASE_TLS_CA_PATH=/app/certs/db-ca.pem
+NODE_ENV=development
+PORT=3000
+JWT_SECRET=TODO_SET_JWT_SECRET
+DATABASE_URL=postgresql://user:password@localhost:5432/evzone
+REDIS_URL=redis://localhost:6379
 KAFKA_BROKERS=localhost:9092
-KAFKA_EVENTS_ENABLED=true
-KAFKA_EVENT_GROUP_ID=evzone-backend-api-events
-KAFKA_SSL=false
-# KAFKA_SSL_CA_PATH=/app/certs/kafka-ca.pem
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_TLS=false
-# REDIS_TLS_CA_PATH=/app/certs/redis-ca.pem
+FRONTEND_URL=http://localhost:5173
 OCPP_PUBLIC_WS_BASE_URL=wss://ocpp.evzonecharging.com
-
-# Messaging Providers (Geo-Routed)
-# Twilio SendGrid (email primary outside China)
-TWILIO_SENDGRID_API_KEY=
-TWILIO_SENDGRID_FROM=EVzone Charging <noreply@evzonecharging.com>
-
-# Twilio SMS (SMS primary outside Africa/China)
-TWILIO_ACCOUNT_SID=
-TWILIO_AUTH_TOKEN=
-TWILIO_PHONE_NUMBER=
-
-# Africa's Talking (SMS primary for Africa)
-AFRICASTALKING_USERNAME=
-AFRICASTALKING_API_KEY=
-AFRICASTALKING_FROM=
-
-# Submail (China primary for email + SMS, non-China fallback)
-SUBMAIL_MAIL_APPID=
-SUBMAIL_MAIL_APPKEY=
-SUBMAIL_MAIL_FROM="EVzone Charging <noreply@evzonecharging.com>"
-SUBMAIL_SMS_APPID=
-SUBMAIL_SMS_APPKEY=
-```
-
-### Environment Profiles (Local + Remote)
-
-- `.env.local`: local infrastructure profile for day-to-day development.
-- `.env.remote`: production-backed development profile when intentionally using managed services.
-- `.env`: optional selected runtime copy for compatibility scripts.
-
-Profile launch examples:
-
-```powershell
-$env:ENV_FILE=".env.local"; npm run start:dev
-$env:ENV_FILE=".env.remote"; npm run start:dev
-```
-
-```bash
-ENV_FILE=.env.local npm run start:dev
-ENV_FILE=.env.remote npm run start:dev
 ```
 
 ### Geo-Routed Messaging (Email + SMS)
@@ -168,7 +123,7 @@ Implementation notes:
 
 ### Prisma Client Drift Recovery
 
-Use `ENV_FILE` (or synced `.env`) as the active backend environment source.
+Use `.env` as the active backend environment source.
 
 - Keep `prisma/.env` empty (no active `KEY=value` entries).
 - If `prisma/.env` has active values, Prisma guardrails will fail fast.
@@ -192,11 +147,11 @@ Automatic guardrails:
 
 ### Quick Start (Windows)
 
-Use the startup script with explicit mode:
+Use the startup script with `.env`:
 
 ```powershell
-./startup.ps1 -Mode local
-./startup.ps1 -Mode remote
+./startup.ps1
+./startup.ps1 -SkipDocker
 ```
 
 ### Manual Start

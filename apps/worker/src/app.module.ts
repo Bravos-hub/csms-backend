@@ -8,10 +8,7 @@ import { PrismaModule } from './prisma.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: process.env.ENV_FILE || '.env',
-    }),
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
     PrismaModule,
     KafkaModule,
     ObservabilityModule,

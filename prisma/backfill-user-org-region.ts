@@ -1,7 +1,5 @@
-import * as dotenv from 'dotenv';
+import 'dotenv/config';
 import { MembershipStatus, PrismaClient, UserRole } from '@prisma/client';
-
-dotenv.config({ path: process.env.ENV_FILE || '.env' });
 
 const prisma = new PrismaClient();
 

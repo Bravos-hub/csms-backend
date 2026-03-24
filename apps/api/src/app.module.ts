@@ -51,10 +51,7 @@ import { VehiclesModule } from './modules/vehicles/vehicles.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: process.env.ENV_FILE || '.env',
-    }),
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
     ThrottlerModule.forRoot([
       {
         ttl: parseInt(process.env.API_RATE_LIMIT_TTL_MS || '60000', 10),

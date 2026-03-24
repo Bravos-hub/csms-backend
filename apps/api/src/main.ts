@@ -1,4 +1,4 @@
-import * as dotenv from 'dotenv';
+import 'dotenv/config';
 import { setDefaultResultOrder } from 'node:dns';
 setDefaultResultOrder('ipv4first');
 import * as fs from 'fs';
@@ -15,8 +15,6 @@ import {
 import { DatabaseConnectivityExceptionFilter } from './common/filters/database-connectivity-exception.filter';
 import { validateKafkaTopicsOrThrow } from './contracts/kafka-topics';
 import cookieParser from 'cookie-parser';
-
-dotenv.config({ path: process.env.ENV_FILE || '.env' });
 
 async function bootstrap() {
   try {

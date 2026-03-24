@@ -10,10 +10,7 @@ import { PrismaService } from '../../prisma.service';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: process.env.ENV_FILE || '.env',
-    }),
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
     // DatabaseModule removed
     // TypeOrmModule removed
   ],

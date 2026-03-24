@@ -1,11 +1,9 @@
-import * as dotenv from 'dotenv';
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { validateKafkaTopicsOrThrow } from './contracts/kafka-topics';
 import { readWorkerSettingsOrThrow } from './config/worker-settings';
-
-dotenv.config({ path: process.env.ENV_FILE || '.env' });
 
 async function bootstrap() {
   const logger = new Logger('WorkerBootstrap');
