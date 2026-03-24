@@ -979,7 +979,8 @@ export class AuthService {
         throw new UnauthorizedException('Invalid credentials');
       }
 
-      const isPasswordValid = await bcrypt.compare(
+      const isPasswordValid = await this.verifyAndUpgradeUserPassword(
+        user.id,
         loginDto.password,
         user.passwordHash,
       );
@@ -1129,7 +1130,7 @@ export class AuthService {
 
       let usedTempPassword = false;
       if (invitation.tempPasswordHash) {
-        usedTempPassword = await bcrypt.compare(
+        usedTempPassword = await this.comparePasswordWithLegacySupport(
           input.loginPassword,
           invitation.tempPasswordHash,
         );
@@ -3477,6 +3478,71 @@ export class AuthService {
     }
   }
 
+  private normalizeLegacyBcryptPrefix(hash: string): string {
+    if (hash.startsWith('$2y$') || hash.startsWith('$2x$')) {
+      return `$2b$${hash.slice(4)}`;
+    }
+    return hash;
+  }
+
+  private isLikelyBcryptHash(hash: string): boolean {
+    return (
+      hash.startsWith('$2a$') ||
+      hash.startsWith('$2b$') ||
+      hash.startsWith('$2y$') ||
+      hash.startsWith('$2x$')
+    );
+  }
+
+  private async comparePasswordWithLegacySupport(
+    candidatePassword: string,
+    storedHash: string,
+  ): Promise<boolean> {
+    if (!storedHash) return false;
+
+    if (this.isLikelyBcryptHash(storedHash)) {
+      const normalizedHash = this.normalizeLegacyBcryptPrefix(storedHash);
+      return bcrypt.compare(candidatePassword, normalizedHash);
+    }
+
+    if (storedHash.startsWith('$argon2')) {
+      this.logger.error(
+        'Unsupported password hash format detected ($argon2). Migrate affected users to bcrypt hashes.',
+      );
+      return false;
+    }
+
+    // Legacy compatibility: some old records may still store raw passwords.
+    return this.constantTimeCompare(candidatePassword, storedHash);
+  }
+
+  private async verifyAndUpgradeUserPassword(
+    userId: string,
+    candidatePassword: string,
+    storedHash: string,
+  ): Promise<boolean> {
+    const passwordMatches = await this.comparePasswordWithLegacySupport(
+      candidatePassword,
+      storedHash,
+    );
+    if (!passwordMatches) {
+      return false;
+    }
+
+    if (!this.isLikelyBcryptHash(storedHash)) {
+      const upgradedHash = await bcrypt.hash(candidatePassword, 10);
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { passwordHash: upgradedHash },
+      });
+      this.logger.warn(
+        `Upgraded legacy plaintext password storage to bcrypt for user ${userId}`,
+      );
+    }
+
+    return true;
+  }
+
   private async assertCurrentPasswordForTwoFactor(
     user: { passwordHash: string | null },
     currentPassword: string,
@@ -3490,7 +3556,7 @@ export class AuthService {
       throw new BadRequestException('User does not have a password set');
     }
 
-    const isPasswordValid = await bcrypt.compare(
+    const isPasswordValid = await this.comparePasswordWithLegacySupport(
       currentPassword,
       user.passwordHash,
     );
@@ -3699,7 +3765,7 @@ export class AuthService {
     if (!user.passwordHash)
       throw new BadRequestException('User does not have a password set');
 
-    const isPasswordValid = await bcrypt.compare(
+    const isPasswordValid = await this.comparePasswordWithLegacySupport(
       currentPassword,
       user.passwordHash,
     );

@@ -90,7 +90,10 @@ export class AttendantService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const validPassword = await bcrypt.compare(dto.password, user.passwordHash);
+    const validPassword = await this.comparePasswordWithLegacySupport(
+      dto.password,
+      user.passwordHash,
+    );
     if (!validPassword) {
       this.logger.warn(
         JSON.stringify({
@@ -1028,6 +1031,48 @@ export class AttendantService {
 
   private normalizeIdentifier(value: string): string {
     return value.trim().toLowerCase();
+  }
+
+  private normalizeLegacyBcryptPrefix(hash: string): string {
+    if (hash.startsWith('$2y$') || hash.startsWith('$2x$')) {
+      return `$2b$${hash.slice(4)}`;
+    }
+    return hash;
+  }
+
+  private isLikelyBcryptHash(hash: string): boolean {
+    return (
+      hash.startsWith('$2a$') ||
+      hash.startsWith('$2b$') ||
+      hash.startsWith('$2y$') ||
+      hash.startsWith('$2x$')
+    );
+  }
+
+  private constantTimeCompare(a: string, b: string): boolean {
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  }
+
+  private async comparePasswordWithLegacySupport(
+    candidatePassword: string,
+    storedHash: string,
+  ): Promise<boolean> {
+    if (!storedHash) return false;
+
+    if (this.isLikelyBcryptHash(storedHash)) {
+      const normalizedHash = this.normalizeLegacyBcryptPrefix(storedHash);
+      return bcrypt.compare(candidatePassword, normalizedHash);
+    }
+
+    if (storedHash.startsWith('$argon2')) {
+      this.logger.error(
+        'Unsupported attendant password hash format detected ($argon2). Migrate affected users to bcrypt hashes.',
+      );
+      return false;
+    }
+
+    return this.constantTimeCompare(candidatePassword, storedHash);
   }
 
   private hashIdentifierForLog(value: string): string {
