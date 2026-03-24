@@ -14,6 +14,7 @@ import {
   PayoutMethod,
   StationOwnerCapability,
   AttendantRoleMode,
+  User,
   UserRole,
 } from '@prisma/client';
 import {
@@ -166,6 +167,80 @@ export class AuthService {
 
   private normalizeEmail(email: string): string {
     return email.trim().toLowerCase();
+  }
+
+  private resolveLoginIdentifiers(loginDto: LoginDto): {
+    email?: string;
+    phone?: string;
+  } {
+    const rawEmail = loginDto.email?.trim();
+    const rawPhone = loginDto.phone?.trim();
+
+    // Accept identifier payload mismatches from older/frontline clients.
+    const inferredEmail =
+      !rawEmail && rawPhone && rawPhone.includes('@') ? rawPhone : undefined;
+    const inferredPhone =
+      !rawPhone && rawEmail && !rawEmail.includes('@') ? rawEmail : undefined;
+
+    const emailCandidate = rawEmail || inferredEmail;
+    const phoneCandidate =
+      rawPhone && !rawPhone.includes('@') ? rawPhone : inferredPhone;
+
+    return {
+      email: emailCandidate ? this.normalizeEmail(emailCandidate) : undefined,
+      phone: phoneCandidate || undefined,
+    };
+  }
+
+  private async findUserForLogin(
+    email?: string,
+    phone?: string,
+  ): Promise<User | null> {
+    let user = await this.prisma.user.findFirst({
+      where:
+        email && phone
+          ? {
+              OR: [
+                { email: { equals: email, mode: 'insensitive' } },
+                { phone },
+              ],
+            }
+          : email
+            ? { email: { equals: email, mode: 'insensitive' } }
+            : phone
+              ? { phone }
+              : undefined,
+    });
+
+    if (!user && email) {
+      const emailFallback = await this.prisma.$queryRaw<{ id: string }[]>`
+        SELECT "id"
+        FROM "User"
+        WHERE LOWER(TRIM("email")) = LOWER(${email})
+        LIMIT 1
+      `;
+      if (emailFallback[0]?.id) {
+        user = await this.prisma.user.findUnique({
+          where: { id: emailFallback[0].id },
+        });
+      }
+    }
+
+    if (!user && phone) {
+      const phoneFallback = await this.prisma.$queryRaw<{ id: string }[]>`
+        SELECT "id"
+        FROM "User"
+        WHERE TRIM("phone") = ${phone}
+        LIMIT 1
+      `;
+      if (phoneFallback[0]?.id) {
+        user = await this.prisma.user.findUnique({
+          where: { id: phoneFallback[0].id },
+        });
+      }
+    }
+
+    return user;
   }
 
   private generateOpaqueToken(bytes: number = 32): string {
@@ -948,17 +1023,14 @@ export class AuthService {
 
   async login(loginDto: LoginDto, context?: AuthMonitoringContext) {
     const startTime = Date.now();
+    const { email: normalizedEmail, phone: normalizedPhone } =
+      this.resolveLoginIdentifiers(loginDto);
     const monitoringContext = this.createMonitoringContext(
       context,
       'login',
-      loginDto.email || loginDto.phone,
+      normalizedEmail || normalizedPhone,
     );
     try {
-      const normalizedEmail = loginDto.email
-        ? this.normalizeEmail(loginDto.email)
-        : undefined;
-      const normalizedPhone = loginDto.phone?.trim();
-
       if (!normalizedEmail && !normalizedPhone) {
         throw new BadRequestException('Email or phone is required');
       }
@@ -966,16 +1038,18 @@ export class AuthService {
       this.logger.log(
         `Login attempt for ${normalizedEmail || normalizedPhone}`,
       );
-      let user = await this.prisma.user.findFirst({
-        where: normalizedEmail
-          ? { email: { equals: normalizedEmail, mode: 'insensitive' } }
-          : { phone: normalizedPhone },
-      });
+      let user = await this.findUserForLogin(normalizedEmail, normalizedPhone);
       if (!user) {
+        this.logger.warn(
+          `Login denied: account not found for ${normalizedEmail || normalizedPhone}`,
+        );
         throw new UnauthorizedException('Invalid credentials');
       }
 
       if (!user.passwordHash) {
+        this.logger.warn(
+          `Login denied: user ${user.id} has no password hash configured`,
+        );
         throw new UnauthorizedException('Invalid credentials');
       }
 
@@ -985,6 +1059,7 @@ export class AuthService {
         user.passwordHash,
       );
       if (!isPasswordValid) {
+        this.logger.warn(`Login denied: password mismatch for user ${user.id}`);
         throw new UnauthorizedException('Invalid credentials');
       }
 
@@ -3479,33 +3554,77 @@ export class AuthService {
   }
 
   private normalizeLegacyBcryptPrefix(hash: string): string {
-    if (hash.startsWith('$2y$') || hash.startsWith('$2x$')) {
-      return `$2b$${hash.slice(4)}`;
+    const normalizedHash = hash.trim();
+    if (
+      normalizedHash.startsWith('$2y$') ||
+      normalizedHash.startsWith('$2x$')
+    ) {
+      return `$2b$${normalizedHash.slice(4)}`;
     }
-    return hash;
+    return normalizedHash;
   }
 
   private isLikelyBcryptHash(hash: string): boolean {
+    const normalizedHash = hash.trim();
     return (
-      hash.startsWith('$2a$') ||
-      hash.startsWith('$2b$') ||
-      hash.startsWith('$2y$') ||
-      hash.startsWith('$2x$')
+      normalizedHash.startsWith('$2a$') ||
+      normalizedHash.startsWith('$2b$') ||
+      normalizedHash.startsWith('$2y$') ||
+      normalizedHash.startsWith('$2x$')
     );
+  }
+
+  private isBcryptLikeHash(hash: string): boolean {
+    const normalizedHash = hash.trim();
+    return (
+      this.isLikelyBcryptHash(normalizedHash) ||
+      normalizedHash.startsWith('$2$')
+    );
+  }
+
+  private getBcryptHashCandidates(hash: string): string[] {
+    const normalizedHash = hash.trim();
+    const candidates = new Set<string>([
+      normalizedHash,
+      this.normalizeLegacyBcryptPrefix(normalizedHash),
+    ]);
+
+    // Legacy `$2$` variant compatibility.
+    if (normalizedHash.startsWith('$2$')) {
+      candidates.add(`$2a$${normalizedHash.slice(3)}`);
+      candidates.add(`$2b$${normalizedHash.slice(3)}`);
+    }
+
+    return Array.from(candidates).filter(Boolean);
   }
 
   private async comparePasswordWithLegacySupport(
     candidatePassword: string,
     storedHash: string,
   ): Promise<boolean> {
-    if (!storedHash) return false;
+    const normalizedStoredHash = storedHash?.trim();
+    if (!normalizedStoredHash) return false;
 
-    if (this.isLikelyBcryptHash(storedHash)) {
-      const normalizedHash = this.normalizeLegacyBcryptPrefix(storedHash);
-      return bcrypt.compare(candidatePassword, normalizedHash);
+    if (this.isBcryptLikeHash(normalizedStoredHash)) {
+      for (const hashCandidate of this.getBcryptHashCandidates(
+        normalizedStoredHash,
+      )) {
+        try {
+          if (await bcrypt.compare(candidatePassword, hashCandidate)) {
+            return true;
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Skipping invalid bcrypt hash candidate during login: ${
+              (error as Error).message
+            }`,
+          );
+        }
+      }
+      return false;
     }
 
-    if (storedHash.startsWith('$argon2')) {
+    if (normalizedStoredHash.startsWith('$argon2')) {
       this.logger.error(
         'Unsupported password hash format detected ($argon2). Migrate affected users to bcrypt hashes.',
       );
@@ -3513,7 +3632,7 @@ export class AuthService {
     }
 
     // Legacy compatibility: some old records may still store raw passwords.
-    return this.constantTimeCompare(candidatePassword, storedHash);
+    return this.constantTimeCompare(candidatePassword, normalizedStoredHash);
   }
 
   private async verifyAndUpgradeUserPassword(
@@ -3521,15 +3640,16 @@ export class AuthService {
     candidatePassword: string,
     storedHash: string,
   ): Promise<boolean> {
+    const normalizedStoredHash = storedHash?.trim() || '';
     const passwordMatches = await this.comparePasswordWithLegacySupport(
       candidatePassword,
-      storedHash,
+      normalizedStoredHash,
     );
     if (!passwordMatches) {
       return false;
     }
 
-    if (!this.isLikelyBcryptHash(storedHash)) {
+    if (!this.isBcryptLikeHash(normalizedStoredHash)) {
       const upgradedHash = await bcrypt.hash(candidatePassword, 10);
       await this.prisma.user.update({
         where: { id: userId },
