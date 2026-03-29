@@ -566,13 +566,6 @@ export class OcpiInternalController {
   async createCommandRequest(@Body() payload: OcpiInternalCommandRequestDto) {
     const command = payload.command.toUpperCase();
 
-    if (command === 'RESERVE_NOW' || command === 'CANCEL_RESERVATION') {
-      return {
-        result: 'NOT_SUPPORTED',
-        requestId: payload.requestId,
-      };
-    }
-
     const mappedCommandType = this.mapOcpiCommandToCpmsCommand(command);
     if (!mappedCommandType) {
       return {
@@ -596,6 +589,18 @@ export class OcpiInternalController {
     }
 
     const requestBody = this.ensureObject(payload.request);
+    const validationMessage = this.validateOcpiCommandRequest(
+      command,
+      requestBody,
+    );
+    if (validationMessage) {
+      return {
+        result: 'REJECTED',
+        requestId: payload.requestId,
+        message: validationMessage,
+      };
+    }
+
     const chargePoint =
       await this.resolveChargePointForOcpiCommand(requestBody);
 
@@ -1043,10 +1048,18 @@ export class OcpiInternalController {
 
   private mapOcpiCommandToCpmsCommand(
     command: string,
-  ): 'RemoteStart' | 'RemoteStop' | 'UnlockConnector' | null {
+  ):
+    | 'RemoteStart'
+    | 'RemoteStop'
+    | 'UnlockConnector'
+    | 'ReserveNow'
+    | 'CancelReservation'
+    | null {
     if (command === 'START_SESSION') return 'RemoteStart';
     if (command === 'STOP_SESSION') return 'RemoteStop';
     if (command === 'UNLOCK_CONNECTOR') return 'UnlockConnector';
+    if (command === 'RESERVE_NOW') return 'ReserveNow';
+    if (command === 'CANCEL_RESERVATION') return 'CancelReservation';
     return null;
   }
 
@@ -1055,13 +1068,16 @@ export class OcpiInternalController {
     request: Record<string, unknown>,
     connectorId?: number,
   ): Record<string, unknown> {
+    const authorizationReference =
+      this.extractString(request, 'authorization_reference') ||
+      this.extractString(request, 'authorizationReference');
+
     if (command === 'START_SESSION') {
       const token = this.ensureObject(request.token);
       const idTag =
         this.extractString(token, 'uid') ||
         this.extractString(token, 'contract_id') ||
-        this.extractString(request, 'authorization_reference') ||
-        this.extractString(request, 'authorizationReference') ||
+        authorizationReference ||
         'EVZONE_REMOTE';
       const remoteStartId =
         this.extractNumber(request, 'remote_start_id') ||
@@ -1099,7 +1115,89 @@ export class OcpiInternalController {
       };
     }
 
+    if (command === 'RESERVE_NOW') {
+      const reservationId = this.extractReservationId(request);
+      const expiryDateTime = this.extractIsoDateTime(request, [
+        'expiry_date',
+        'expiryDate',
+        'expiry_date_time',
+        'expiryDateTime',
+      ]);
+      const token = this.ensureObject(request.token);
+      const idTag =
+        this.extractString(token, 'uid') ||
+        this.extractString(token, 'contract_id') ||
+        this.extractString(token, 'contractId') ||
+        authorizationReference ||
+        'EVZONE_REMOTE';
+
+      return {
+        ...(connectorId ? { connectorId, evseId: connectorId } : {}),
+        ...(reservationId ? { reservationId, id: reservationId } : {}),
+        ...(expiryDateTime
+          ? {
+              expiryDate: expiryDateTime,
+              expiryDateTime,
+            }
+          : {}),
+        idTag,
+        idToken: {
+          idToken: idTag,
+          type: 'Central',
+        },
+        ...(authorizationReference
+          ? {
+              parentIdTag: authorizationReference,
+              groupIdToken: {
+                idToken: authorizationReference,
+                type: 'Central',
+              },
+            }
+          : {}),
+      };
+    }
+
+    if (command === 'CANCEL_RESERVATION') {
+      const reservationId = this.extractReservationId(request);
+      return reservationId
+        ? {
+            reservationId,
+            id: reservationId,
+          }
+        : {};
+    }
+
     return {};
+  }
+
+  private validateOcpiCommandRequest(
+    command: string,
+    request: Record<string, unknown>,
+  ): string | null {
+    if (command === 'RESERVE_NOW') {
+      if (!this.extractReservationId(request)) {
+        return 'reservation_id is required for RESERVE_NOW';
+      }
+      if (
+        !this.extractIsoDateTime(request, [
+          'expiry_date',
+          'expiryDate',
+          'expiry_date_time',
+          'expiryDateTime',
+        ])
+      ) {
+        return 'expiry_date is required for RESERVE_NOW';
+      }
+    }
+
+    if (
+      command === 'CANCEL_RESERVATION' &&
+      !this.extractReservationId(request)
+    ) {
+      return 'reservation_id is required for CANCEL_RESERVATION';
+    }
+
+    return null;
   }
 
   private mapOcpiResultToCommandStatus(
@@ -1247,5 +1345,31 @@ export class OcpiInternalController {
     if (!Number.isFinite(parsed)) return null;
     const normalized = Math.floor(parsed);
     return normalized > 0 ? normalized : null;
+  }
+
+  private extractReservationId(
+    source: Record<string, unknown> | undefined,
+  ): number | null {
+    return (
+      this.extractNumber(source, 'reservation_id') ||
+      this.extractNumber(source, 'reservationId') ||
+      this.extractNumber(source, 'id')
+    );
+  }
+
+  private extractIsoDateTime(
+    source: Record<string, unknown> | undefined,
+    keys: string[],
+  ): string | null {
+    if (!source) return null;
+    for (const key of keys) {
+      const value = this.extractString(source, key);
+      if (!value) continue;
+      const parsed = new Date(value);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toISOString();
+      }
+    }
+    return null;
   }
 }
