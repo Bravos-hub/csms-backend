@@ -40,9 +40,12 @@ export class VehiclesService {
 
   /** Fetch and assert the caller owns the vehicle. */
   private async findOwned(vehicleId: string, userId: string) {
-    const vehicle = await this.prisma.vehicle.findUnique({ where: { id: vehicleId } });
+    const vehicle = await this.prisma.vehicle.findUnique({
+      where: { id: vehicleId },
+    });
     if (!vehicle) throw new NotFoundException('Vehicle not found');
-    if (vehicle.userId !== userId) throw new ForbiddenException('Not your vehicle');
+    if (vehicle.userId !== userId)
+      throw new ForbiddenException('Not your vehicle');
     return vehicle;
   }
 
@@ -63,7 +66,9 @@ export class VehiclesService {
 
     // Clean up Cloudinary photo if present
     if (vehicle.cloudinaryPublicId) {
-      await this.mediaStorage.delete(vehicle.cloudinaryPublicId).catch(() => null);
+      await this.mediaStorage
+        .delete(vehicle.cloudinaryPublicId)
+        .catch(() => null);
     }
 
     await this.prisma.vehicle.delete({ where: { id: vehicleId } });
@@ -86,9 +91,12 @@ export class VehiclesService {
     });
 
     if (vehicleId) {
-      const vehicle = await this.prisma.vehicle.findUnique({ where: { id: vehicleId } });
+      const vehicle = await this.prisma.vehicle.findUnique({
+        where: { id: vehicleId },
+      });
       if (!vehicle) throw new NotFoundException('Vehicle not found');
-      if (vehicle.userId !== userId) throw new ForbiddenException('Not your vehicle');
+      if (vehicle.userId !== userId)
+        throw new ForbiddenException('Not your vehicle');
 
       await this.prisma.vehicle.update({
         where: { id: vehicleId },
@@ -101,13 +109,19 @@ export class VehiclesService {
 
   // ─── Photo upload ──────────────────────────────────────────────────────────
 
-  async uploadPhoto(vehicleId: string, userId: string, file: Express.Multer.File) {
+  async uploadPhoto(
+    vehicleId: string,
+    userId: string,
+    file: Express.Multer.File,
+  ) {
     const vehicle = await this.findOwned(vehicleId, userId);
     if (!file) throw new BadRequestException('File is required');
 
     // Delete old photo from Cloudinary if it exists
     if (vehicle.cloudinaryPublicId) {
-      await this.mediaStorage.delete(vehicle.cloudinaryPublicId).catch(() => null);
+      await this.mediaStorage
+        .delete(vehicle.cloudinaryPublicId)
+        .catch(() => null);
     }
 
     // Upload new photo
