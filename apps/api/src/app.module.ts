@@ -48,6 +48,7 @@ import { MarketplaceContactsModule } from './modules/marketplace/marketplace-con
 import { ObservabilityModule } from './common/observability/observability.module';
 import { AttendantModule } from './modules/attendant/attendant.module';
 import { VehiclesModule } from './modules/vehicles/vehicles.module';
+import { BmsModule } from './modules/bms/bms.module';
 
 @Module({
   imports: [
@@ -102,6 +103,7 @@ import { VehiclesModule } from './modules/vehicles/vehicles.module';
     MarketplaceContactsModule,
     AttendantModule,
     VehiclesModule,
+    BmsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -194,6 +194,7 @@ model User {
   emailVerificationTokens    EmailVerificationToken[]
   vehicles                   Vehicle[]
 
+  sessions                   Session[]
   @@map("users")
   @@index([providerId])
 }
@@ -567,6 +568,7 @@ model Station {
   attendantAssignments        AttendantAssignment[]
   attendantAssignmentRequests AttendantAssignmentRequest[]
   stationTeamAssignments      StationTeamAssignment[]
+  batteryPacks                BatteryPack[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -610,6 +612,7 @@ model Session {
   ocppId      String
   idTag       String?
   userId      String?
+  vehicleId   String?
 
   startTime   DateTime
   endTime     DateTime?
@@ -620,6 +623,8 @@ model Session {
   status      String    @default("ACTIVE")
 
   chargePoint ChargePoint @relation(fields: [ocppId], references: [ocppId])
+  user        User?       @relation(fields: [userId], references: [id])
+  vehicle     Vehicle?    @relation(fields: [vehicleId], references: [id])
   receiptTransactions ChargingReceiptTransaction[]
 
   createdAt DateTime @default(now())
@@ -1687,8 +1692,12 @@ model Vehicle {
   dcMaxKw               Float?
   connectors            ConnectorType[]
   isActive              Boolean         @default(false)
+  isSwappable           Boolean         @default(false)
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Relations
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions     Session[]
+  batteryPacks BatteryPack[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1699,3 +1708,61 @@ model Vehicle {
   @@index([licensePlate])
 }
 
+model BatteryPack {
+  id                String            @id @default(uuid())
+  serialNumber      String            @unique
+  bmsType           String            // e.g., "DALY_16S", "JBD_14S"
+  status            BatteryStatus     @default(READY)
+  soc               Float             @default(0)
+  soh               Float             @default(0)
+  cycleCount        Int               @default(0)
+  voltage           Float             @default(0)
+  current           Float             @default(0)
+  capacityAh        Float             @default(0)
+  
+  stationId         String?
+  lockerBayId       String?
+  vehicleId         String?
+
+  // Relations
+  telemetry         BatteryTelemetry[]
+  vehicle           Vehicle?          @relation(fields: [vehicleId], references: [id])
+  station           Station?          @relation(fields: [stationId], references: [id])
+  
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@map("battery_packs")
+  @@index([stationId])
+  @@index([vehicleId])
+  @@index([status])
+}
+
+model BatteryTelemetry {
+  id              String      @id @default(uuid())
+  packId          String
+  pack            BatteryPack @relation(fields: [packId], references: [id], onDelete: Cascade)
+  
+  voltage         Float       // Pack voltage
+  current         Float       // Charge/Discharge current
+  soc             Float
+  soh             Float?
+  temps           Json        // Array/Object of temperature readings [temp1, temp2]
+  cells           Json        // Array of individual cell voltages [3.21, 3.22, ...]
+  alerts          Json?       // Active BMS alerts/faults
+  
+  timestamp       DateTime    @default(now())
+
+  @@index([packId, timestamp])
+  @@map("battery_telemetry")
+}
+
+enum BatteryStatus {
+  READY
+  CHARGING
+  LOCKED_REMOTE    // The "Remote Kill" state
+  FAULTED
+  RETIRED
+  IN_TRANSIT
+  UNKNOWN
+}
