@@ -16,6 +16,7 @@ import { ServiceAuthGuard } from './service-auth.guard';
 import { ServiceScopeGuard } from './service-scope.guard';
 import { MailModule } from '../mail/mail.module';
 import { AuthAnomalyMonitorService } from './auth-anomaly-monitor.service';
+import { AccessProfileService } from './access-profile.service';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { AuthAnomalyMonitorService } from './auth-anomaly-monitor.service';
     ServiceScopeGuard,
     AdminApprovalService,
     AuthAnomalyMonitorService,
+    AccessProfileService,
   ],
   exports: [JwtAuthGuard, ServiceAuthGuard, ServiceScopeGuard, MetricsService],
 })

@@ -44,6 +44,11 @@ import {
   AuthAnomalyMonitorService,
   AuthMonitoringContext,
 } from './auth-anomaly-monitor.service';
+import {
+  AccessMembershipSummary,
+  AccessProfileService,
+  AccessStationContextSummary,
+} from './access-profile.service';
 
 @Injectable()
 export class AuthService {
@@ -160,6 +165,7 @@ export class AuthService {
     private readonly anomalyMonitor: AuthAnomalyMonitorService,
     private readonly ocpiTokenSync: OcpiTokenSyncService,
     private readonly approvalService: AdminApprovalService,
+    private readonly accessProfileService: AccessProfileService,
   ) {}
 
   getHello(): string {
@@ -2366,6 +2372,59 @@ export class AuthService {
     };
   }
 
+  private buildAuthenticatedUserPayload(
+    user: {
+      id: string;
+      email?: string | null;
+      phone?: string | null;
+      providerId?: string | null;
+      name: string;
+      status: string;
+      region?: string | null;
+      zoneId?: string | null;
+      ownerCapability?: StationOwnerCapability | null;
+      mustChangePassword?: boolean | null;
+      organizationId?: string | null;
+    },
+    context: {
+      activeOrganizationId: string | null;
+      effectiveRole: UserRole;
+      memberships: AccessMembershipSummary[];
+      stationContexts: AccessStationContextSummary[];
+      activeStationContext: AccessStationContextSummary | null;
+    },
+  ) {
+    const accessProfile = this.accessProfileService.buildProfile({
+      activeOrganizationId: context.activeOrganizationId,
+      effectiveRole: context.effectiveRole,
+      memberships: context.memberships,
+      stationContexts: context.stationContexts,
+      activeStationContext: context.activeStationContext,
+      providerId: user.providerId || null,
+    });
+
+    return {
+      id: user.id,
+      email: user.email,
+      phone: user.phone,
+      role: context.effectiveRole,
+      providerId: user.providerId,
+      name: user.name,
+      status: user.status,
+      region: user.region,
+      zoneId: user.zoneId,
+      ownerCapability: user.ownerCapability,
+      organizationId: context.activeOrganizationId || user.organizationId,
+      orgId: context.activeOrganizationId || user.organizationId,
+      activeOrganizationId: context.activeOrganizationId,
+      memberships: context.memberships,
+      stationContexts: context.stationContexts,
+      activeStationContext: context.activeStationContext,
+      accessProfile,
+      mustChangePassword: Boolean(user.mustChangePassword),
+    };
+  }
+
   private async issueTokens(
     user: any,
     options?: { preferredOrganizationId?: string },
@@ -2414,25 +2473,7 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        phone: user.phone,
-        role: context.effectiveRole,
-        providerId: user.providerId,
-        name: user.name,
-        status: user.status,
-        region: user.region,
-        zoneId: user.zoneId,
-        ownerCapability: user.ownerCapability,
-        organizationId: context.activeOrganizationId || user.organizationId,
-        orgId: context.activeOrganizationId || user.organizationId,
-        activeOrganizationId: context.activeOrganizationId,
-        memberships: context.memberships,
-        stationContexts: context.stationContexts,
-        activeStationContext: context.activeStationContext,
-        mustChangePassword: Boolean(user.mustChangePassword),
-      },
+      user: this.buildAuthenticatedUserPayload(user, context),
     };
   }
 
@@ -3347,12 +3388,26 @@ export class AuthService {
     const effectiveRole =
       stationContextBundle.activeStationContext?.role || membershipRole;
 
+    const memberships = user.memberships.map((membership) => ({
+      id: membership.id,
+      organizationId: membership.organizationId,
+      role: membership.role,
+      ownerCapability: membership.ownerCapability,
+      status: membership.status,
+      organizationName: membership.organization?.name,
+      organizationType: membership.organization?.type,
+    }));
+
     return {
       ...user,
-      role: effectiveRole,
-      organizationId: activeOrganizationId || user.organizationId,
-      orgId: activeOrganizationId || user.organizationId,
-      activeOrganizationId,
+      ...this.buildAuthenticatedUserPayload(user, {
+        activeOrganizationId,
+        effectiveRole,
+        memberships,
+        stationContexts: stationContextBundle.stationContexts,
+        activeStationContext: stationContextBundle.activeStationContext,
+      }),
+      organization: user.organization,
       memberships: user.memberships.map((membership) => ({
         id: membership.id,
         organizationId: membership.organizationId,
@@ -3365,6 +3420,11 @@ export class AuthService {
       stationContexts: stationContextBundle.stationContexts,
       activeStationContext: stationContextBundle.activeStationContext,
     };
+  }
+
+  async getCurrentAccessProfile(id: string) {
+    const user = await this.getCurrentUser(id);
+    return user?.accessProfile || null;
   }
 
   async updateUser(id: string, updateDto: UpdateUserDto) {
