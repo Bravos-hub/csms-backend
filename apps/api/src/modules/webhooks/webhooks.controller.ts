@@ -21,12 +21,12 @@ export class WebhooksController {
   }
 
   @Post()
-  create(@Body() payload: any) {
-    return payload;
+  create(@Body() payload: Record<string, unknown>) {
+    return { ...payload };
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() payload: any) {
+  update(@Param('id') id: string, @Body() payload: Record<string, unknown>) {
     return { id, ...payload };
   }
 

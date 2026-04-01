@@ -13,8 +13,8 @@ export class WalletController {
   }
 
   @Post('topup')
-  topUp(@Body() payload: any) {
-    return payload;
+  topUp(@Body() payload: Record<string, unknown>) {
+    return { ...payload };
   }
 
   @Post('lock')
@@ -28,7 +28,7 @@ export class WalletController {
   }
 
   @Post('transfer')
-  transfer(@Body() payload: any) {
-    return payload;
+  transfer(@Body() payload: Record<string, unknown>) {
+    return { ...payload };
   }
 }

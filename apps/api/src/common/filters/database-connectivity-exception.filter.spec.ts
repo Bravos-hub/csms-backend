@@ -1,7 +1,23 @@
-import { HttpStatus } from '@nestjs/common';
+import { ArgumentsHost, HttpStatus } from '@nestjs/common';
 import { BaseExceptionFilter } from '@nestjs/core';
+import { HttpAdapterHost } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
 import { DatabaseConnectivityExceptionFilter } from './database-connectivity-exception.filter';
+
+interface MockRequest {
+  method: string;
+  originalUrl: string;
+  url: string;
+  header: jest.MockedFunction<(name: string) => string | undefined>;
+}
+
+interface MockResponse {
+  locals: {
+    requestId?: string;
+  };
+  status: jest.MockedFunction<(statusCode: number) => MockResponse>;
+  json: jest.MockedFunction<(body: unknown) => void>;
+}
 
 function buildKnownRequestError(code: string, message: string) {
   const error = Object.assign(new Error(message), {
@@ -12,32 +28,54 @@ function buildKnownRequestError(code: string, message: string) {
   return error as Prisma.PrismaClientKnownRequestError;
 }
 
+function createAdapterHost(): HttpAdapterHost {
+  return { httpAdapter: {} } as unknown as HttpAdapterHost;
+}
+
+function createResponse(requestId: string): MockResponse {
+  const response: MockResponse = {
+    locals: { requestId },
+    status: jest.fn<(statusCode: number) => MockResponse>(),
+    json: jest.fn<(body: unknown) => void>(),
+  };
+  response.status.mockImplementation(() => response);
+  return response;
+}
+
+function createRequest(method: string, url: string): MockRequest {
+  return {
+    method,
+    originalUrl: url,
+    url,
+    header: jest
+      .fn<(name: string) => string | undefined>()
+      .mockReturnValue(undefined),
+  };
+}
+
+function createHost(
+  request: MockRequest,
+  response: MockResponse,
+): ArgumentsHost {
+  return {
+    switchToHttp: () => ({
+      getResponse: () => response,
+      getRequest: () => request,
+      getNext: () => undefined,
+    }),
+  } as unknown as ArgumentsHost;
+}
+
 describe('DatabaseConnectivityExceptionFilter', () => {
   afterEach(() => {
     jest.restoreAllMocks();
   });
 
   it('returns 503 for connectivity-class Prisma errors', () => {
-    const filter = new DatabaseConnectivityExceptionFilter({
-      httpAdapter: {} as any,
-    } as any);
-    const response = {
-      locals: { requestId: 'req-1' },
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn(),
-    };
-    const request = {
-      method: 'POST',
-      originalUrl: '/api/v1/auth/register',
-      url: '/api/v1/auth/register',
-      header: jest.fn().mockReturnValue(undefined),
-    };
-    const host = {
-      switchToHttp: () => ({
-        getResponse: () => response,
-        getRequest: () => request,
-      }),
-    } as any;
+    const filter = new DatabaseConnectivityExceptionFilter(createAdapterHost());
+    const response = createResponse('req-1');
+    const request = createRequest('POST', '/api/v1/auth/register');
+    const host = createHost(request, response);
     const error = buildKnownRequestError(
       'ENOTFOUND',
       'getaddrinfo ENOTFOUND cpms-db-do-user',
@@ -57,20 +95,10 @@ describe('DatabaseConnectivityExceptionFilter', () => {
   });
 
   it('delegates non-connectivity Prisma errors to base filter', () => {
-    const filter = new DatabaseConnectivityExceptionFilter({
-      httpAdapter: {} as any,
-    } as any);
-    const response = {
-      locals: { requestId: 'req-2' },
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn(),
-    };
-    const host = {
-      switchToHttp: () => ({
-        getResponse: () => response,
-        getRequest: () => ({ header: jest.fn(), method: 'GET', url: '/u' }),
-      }),
-    } as any;
+    const filter = new DatabaseConnectivityExceptionFilter(createAdapterHost());
+    const response = createResponse('req-2');
+    const request = createRequest('GET', '/u');
+    const host = createHost(request, response);
     const baseCatchSpy = jest
       .spyOn(BaseExceptionFilter.prototype, 'catch')
       .mockImplementation(() => undefined);
