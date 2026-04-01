@@ -1,4 +1,6 @@
 import { CommandsService } from './commands.service';
+import { PrismaService } from '../../prisma.service';
+import { TenantContextService } from '@app/db';
 
 describe('CommandsService', () => {
   const prisma = {
@@ -19,7 +21,10 @@ describe('CommandsService', () => {
     get: jest.fn(),
   };
 
-  const service = new CommandsService(prisma as any, tenantContext as any);
+  const service = new CommandsService(
+    prisma as unknown as PrismaService,
+    tenantContext as unknown as TenantContextService,
+  );
 
   beforeEach(() => {
     prisma.command.create.mockReset();

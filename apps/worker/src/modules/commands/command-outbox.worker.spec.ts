@@ -1,4 +1,9 @@
 import { CommandOutboxWorker } from './command-outbox.worker';
+import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../../prisma.service';
+import { KafkaService } from '../../platform/kafka.service';
+import { WorkerMetricsService } from '../observability/worker-metrics.service';
+import { WorkerTenantRoutingService } from './worker-tenant-routing.service';
 
 describe('CommandOutboxWorker tenant routing', () => {
   const config = {
@@ -23,11 +28,11 @@ describe('CommandOutboxWorker tenant routing', () => {
   };
 
   const worker = new CommandOutboxWorker(
-    config as any,
-    prisma as any,
-    kafka as any,
-    metrics as any,
-    tenantRouting as any,
+    config as unknown as ConfigService<Record<string | symbol, unknown>>,
+    prisma as unknown as PrismaService,
+    kafka as unknown as KafkaService,
+    metrics as unknown as WorkerMetricsService,
+    tenantRouting as unknown as WorkerTenantRoutingService,
   );
 
   beforeEach(() => {

@@ -1,6 +1,10 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
+import {
+  v2 as cloudinary,
+  UploadApiErrorResponse,
+  UploadApiResponse,
+} from 'cloudinary';
 import * as streamifier from 'streamifier';
 import {
   resolvePlatformProfile,
@@ -56,15 +60,18 @@ export class MediaStorageService {
     }
 
     const uploadResult = await new Promise<UploadApiResponse>(
-      (resolve, reject) => {
+      (resolve, reject: (reason: Error) => void) => {
         const uploadStream = cloudinary.uploader.upload_stream(
           {
             folder: input.folder,
             resource_type: input.resourceType ?? 'auto',
             context: input.context,
           },
-          (error, result) => {
-            if (error) return reject(error);
+          (error: UploadApiErrorResponse | undefined, result) => {
+            if (error) {
+              const message = error.message || 'Cloudinary upload failed';
+              return reject(new Error(message));
+            }
             if (!result) return reject(new Error('Cloudinary upload failed'));
             resolve(result);
           },

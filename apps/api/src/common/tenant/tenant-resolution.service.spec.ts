@@ -1,12 +1,15 @@
 import { TenantResolutionService } from './tenant-resolution.service';
+import type { Request } from 'express';
+import { TenantRoutingConfigService } from '@app/db';
+import { TenantDirectoryService } from './tenant-directory.service';
 
 describe('TenantResolutionService', () => {
   const createRequest = (
     headers: Partial<Record<'host' | 'x-tenant-id', string>>,
-  ) =>
+  ): Request =>
     ({
       header: (name: string) => headers[name as 'host' | 'x-tenant-id'],
-    }) as { header: (name: string) => string | undefined };
+    }) as unknown as Request;
 
   const config = {
     getPlatformHosts: jest.fn(),
@@ -18,7 +21,10 @@ describe('TenantResolutionService', () => {
     findByHeaderTenant: jest.fn(),
   };
 
-  const service = new TenantResolutionService(config as any, directory as any);
+  const service = new TenantResolutionService(
+    config as unknown as TenantRoutingConfigService,
+    directory as unknown as TenantDirectoryService,
+  );
 
   beforeEach(() => {
     config.getPlatformHosts.mockReset();
@@ -45,7 +51,7 @@ describe('TenantResolutionService', () => {
       host: 'acme.portal.evzonecharging.com',
     });
 
-    const result = await service.resolveRequest(request as any);
+    const result = await service.resolveRequest(request);
 
     expect(directory.findBySubdomain).toHaveBeenCalledWith('acme');
     expect(result.resolutionSource).toBe('host_subdomain');
@@ -68,7 +74,7 @@ describe('TenantResolutionService', () => {
       'x-tenant-id': 'org-header',
     });
 
-    const result = await service.resolveRequest(request as any);
+    const result = await service.resolveRequest(request);
 
     expect(config.isHeaderFallbackEnabledForLocalhost).toHaveBeenCalledWith(
       true,
@@ -84,7 +90,7 @@ describe('TenantResolutionService', () => {
 
     const request = createRequest({});
 
-    const result = await service.resolveRequest(request as any);
+    const result = await service.resolveRequest(request);
 
     expect(result.resolutionSource).toBe('none');
     expect(result.provisionalOrganization).toBeNull();
@@ -99,7 +105,7 @@ describe('TenantResolutionService', () => {
       'x-tenant-id': 'org-header',
     });
 
-    const result = await service.resolveRequest(request as any);
+    const result = await service.resolveRequest(request);
 
     expect(config.isHeaderFallbackEnabledForLocalhost).toHaveBeenCalledWith(
       false,

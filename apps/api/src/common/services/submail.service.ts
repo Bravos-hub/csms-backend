@@ -20,6 +20,12 @@ export interface SubmailSmsTemplateParams {
   vars: Record<string, string>; // JSON object for variables
 }
 
+type SubmailApiResponse = {
+  status?: string;
+  msg?: string;
+  [key: string]: unknown;
+};
+
 @Injectable()
 export class SubmailService {
   private readonly logger = new Logger(SubmailService.name);
@@ -43,13 +49,30 @@ export class SubmailService {
     this.smsAppKey = this.configService.get<string>('SUBMAIL_SMS_APPKEY', '');
   }
 
-  async sendEmail(params: SubmailEmailParams): Promise<any> {
+  private toApiResponse(raw: unknown): SubmailApiResponse {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return {};
+    }
+    return raw as SubmailApiResponse;
+  }
+
+  private assertSuccess(data: SubmailApiResponse): void {
+    if (data.status === 'success') {
+      return;
+    }
+    const message = typeof data.msg === 'string' ? data.msg : 'unknown error';
+    throw new Error(`Submail API Error: ${message}`);
+  }
+
+  async sendEmail(
+    params: SubmailEmailParams,
+  ): Promise<SubmailApiResponse | void> {
     if (!this.mailAppId || !this.mailAppKey) {
       this.logger.warn('Submail Mail credentials missing. Email skipped.');
       return;
     }
 
-    const payload: Record<string, any> = {
+    const payload: Record<string, unknown> = {
       appid: this.mailAppId,
       signature: this.mailAppKey,
       to: params.to,
@@ -69,10 +92,8 @@ export class SubmailService {
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
-      if (data.status !== 'success') {
-        throw new Error(`Submail API Error: ${data.msg}`);
-      }
+      const data = this.toApiResponse(await response.json());
+      this.assertSuccess(data);
       this.logger.log(`Submail email sent successfully to ${params.to}`);
       return data;
     } catch (error) {
@@ -81,7 +102,7 @@ export class SubmailService {
     }
   }
 
-  async sendSms(params: SubmailSmsParams): Promise<any> {
+  async sendSms(params: SubmailSmsParams): Promise<SubmailApiResponse | void> {
     if (!this.smsAppId || !this.smsAppKey) {
       this.logger.warn('Submail SMS credentials missing. SMS skipped.');
       return;
@@ -103,10 +124,8 @@ export class SubmailService {
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
-      if (data.status !== 'success') {
-        throw new Error(`Submail API Error: ${data.msg}`);
-      }
+      const data = this.toApiResponse(await response.json());
+      this.assertSuccess(data);
       this.logger.log(`Submail SMS sent successfully to ${params.to}`);
       return data;
     } catch (error) {
@@ -115,7 +134,9 @@ export class SubmailService {
     }
   }
 
-  async sendSmsByTemplate(params: SubmailSmsTemplateParams): Promise<any> {
+  async sendSmsByTemplate(
+    params: SubmailSmsTemplateParams,
+  ): Promise<SubmailApiResponse | void> {
     if (!this.smsAppId || !this.smsAppKey) {
       this.logger.warn('Submail SMS credentials missing. SMS skipped.');
       return;
@@ -138,10 +159,8 @@ export class SubmailService {
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
-      if (data.status !== 'success') {
-        throw new Error(`Submail API Error: ${data.msg}`);
-      }
+      const data = this.toApiResponse(await response.json());
+      this.assertSuccess(data);
       this.logger.log(
         `Submail SMS (template) sent successfully to ${params.to}`,
       );
