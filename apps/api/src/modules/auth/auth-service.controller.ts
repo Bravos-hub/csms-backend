@@ -211,6 +211,18 @@ export class AuthController {
     };
   }
 
+  @Get('access-profile')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get effective canonical access profile' })
+  async getAccessProfile(@Req() req: Request & { user?: { sub?: string } }) {
+    const userId = req.user?.sub;
+    if (!userId) {
+      throw new BadRequestException('Authenticated user is required');
+    }
+
+    return this.authService.getCurrentAccessProfile(userId);
+  }
+
   @Post('register')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Register new user' })

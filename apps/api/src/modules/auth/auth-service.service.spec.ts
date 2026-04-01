@@ -4,6 +4,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { MembershipStatus, UserRole } from '@prisma/client';
+import { AccessProfileService } from './access-profile.service';
 import { AuthService } from './auth-service.service';
 
 function createService() {
@@ -32,6 +33,7 @@ function createService() {
     { recordFailure: jest.fn(), recordSuccess: jest.fn() } as any,
     { syncUserToken: jest.fn() } as any,
     {} as any,
+    new AccessProfileService(),
   );
 
   return { service, prisma };
