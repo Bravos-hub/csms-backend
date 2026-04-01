@@ -1,21 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-// import { TypeOrmModule } from '@nestjs/typeorm'; (Removed)
-import { DatabaseModule } from '@app/database';
 import {
   MaintenanceController,
   WebhookController,
 } from './maintenance-service.controller';
 import { MaintenanceService } from './maintenance-service.service';
-import { PrismaService } from '../../prisma.service';
 
 @Module({
-  imports: [
-    ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
-    // DatabaseModule removed
-    // TypeOrmModule removed
-  ],
+  imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' })],
   controllers: [MaintenanceController, WebhookController],
-  providers: [MaintenanceService, PrismaService],
+  providers: [MaintenanceService],
 })
 export class MaintenanceServiceModule {}

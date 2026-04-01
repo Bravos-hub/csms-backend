@@ -18,6 +18,8 @@ export class HttpMetricsService {
 
   private readonly statusClasses = new Map<string, number>();
   private readonly routes = new Map<string, RouteMetric>();
+  private readonly tenantRoutingSelections = new Map<string, number>();
+  private tenantMismatchRejects = 0;
   private readonly maxRoutes = 1000;
   private readonly maxSamplesPerRoute = 1024;
 
@@ -76,6 +78,19 @@ export class HttpMetricsService {
     }
   }
 
+  recordTenantRoutingSelection(selection: string): void {
+    const normalized = (selection || 'shared').trim().toLowerCase();
+    const key = normalized.length > 0 ? normalized : 'shared';
+    this.tenantRoutingSelections.set(
+      key,
+      (this.tenantRoutingSelections.get(key) || 0) + 1,
+    );
+  }
+
+  recordTenantMismatchReject(): void {
+    this.tenantMismatchRejects += 1;
+  }
+
   snapshot() {
     const perRoute: Record<
       string,
@@ -121,6 +136,10 @@ export class HttpMetricsService {
       },
       statusClasses: Object.fromEntries(this.statusClasses.entries()),
       routes: perRoute,
+      tenantRouting: {
+        selections: Object.fromEntries(this.tenantRoutingSelections.entries()),
+        mismatchRejects: this.tenantMismatchRejects,
+      },
       generatedAt: new Date().toISOString(),
     };
   }
@@ -158,6 +177,20 @@ export class HttpMetricsService {
       lines.push(`api_http_route_latency_ms_p95{${labels}} ${metrics.p95Ms}`);
       lines.push(`api_http_route_latency_ms_p99{${labels}} ${metrics.p99Ms}`);
     }
+
+    lines.push('# TYPE api_tenant_routing_selection_total counter');
+    for (const [selection, count] of Object.entries(
+      snapshot.tenantRouting.selections,
+    )) {
+      lines.push(
+        `api_tenant_routing_selection_total{selection="${this.escapeLabel(selection)}"} ${count}`,
+      );
+    }
+
+    lines.push('# TYPE api_tenant_mismatch_reject_total counter');
+    lines.push(
+      `api_tenant_mismatch_reject_total ${snapshot.tenantRouting.mismatchRejects}`,
+    );
 
     return lines;
   }

@@ -13,7 +13,6 @@ import { ProviderAuthzService } from './provider-authz.service';
 import { ProviderRequirementsService } from './provider-requirements.service';
 import { ProviderComplianceService } from './provider-compliance.service';
 import { ProviderCompliancePolicyService } from './provider-compliance-policy.service';
-import { PrismaService } from '../../prisma.service';
 import { MediaStorageService } from '../../common/services/media-storage.service';
 
 @Module({
@@ -26,7 +25,6 @@ import { MediaStorageService } from '../../common/services/media-storage.service
     ProviderCompliancePolicyController,
   ],
   providers: [
-    PrismaService,
     ProviderAuthzService,
     ProviderRequirementsService,
     ProviderCompliancePolicyService,

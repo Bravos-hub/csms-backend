@@ -120,6 +120,12 @@ enum InvitationStatus {
   REVOKED
 }
 
+enum TenantTier {
+  SHARED
+  SCHEMA
+  DEDICATED_DB
+}
+
 model User {
   id              String  @id @default(uuid())
   name            String
@@ -204,7 +210,11 @@ model Organization {
   name        String
   description String?
   logoUrl     String?
-  type        String   @default("COMPANY") // COMPANY, INDIVIDUAL
+  type                 String     @default("COMPANY") // COMPANY, INDIVIDUAL
+  tenantSubdomain      String?    @unique @map("tenant_subdomain")
+  tenantTier           TenantTier @default(SHARED) @map("tenant_tier")
+  tenantSchema         String?    @map("tenant_schema")
+  tenantRoutingEnabled Boolean    @default(false) @map("tenant_routing_enabled")
   
   // Financials
   paymentProvider String?  // MTN, AIRTEL, M-PESA
@@ -453,7 +463,11 @@ model UserApplication {
   taxId           String?
   country         String
   region          String
-  accountType     String   @default("COMPANY") // COMPANY, INDIVIDUAL
+  accounttype                 String     @default("COMPANY") // COMPANY, INDIVIDUAL
+  tenantSubdomain      String?    @unique @map("tenant_subdomain")
+  tenantTier           TenantTier @default(SHARED) @map("tenant_tier")
+  tenantSchema         String?    @map("tenant_schema")
+  tenantRoutingEnabled Boolean    @default(false) @map("tenant_routing_enabled")
   role            String   // STATION_OWNER, STATION_OPERATOR, etc.
   subscribedPackage String?
   
@@ -1269,6 +1283,7 @@ model NegotiationRound {
 
 model Command {
   id            String    @id @default(uuid())
+  tenantId      String?   @map("tenant_id")
   stationId     String?   @map("station_id")
   chargePointId String?   @map("charge_point_id")
   connectorId   String?   @map("connector_id")
@@ -1287,6 +1302,7 @@ model Command {
   @@map("commands")
   @@index([correlationId])
   @@index([status, requestedAt])
+  @@index([tenantId, requestedAt], map: "commands_tenant_id_requested_at_idx")
 }
 
 model CommandOutbox {
@@ -1766,3 +1782,6 @@ enum BatteryStatus {
   IN_TRANSIT
   UNKNOWN
 }
+
+
+

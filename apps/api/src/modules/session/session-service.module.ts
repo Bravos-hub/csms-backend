@@ -1,18 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { DatabaseModule } from '@app/database';
-// import { TypeOrmModule } from '@nestjs/typeorm'; (Removed)
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { SessionController } from './session-service.controller';
 import { SessionService } from './session-service.service';
 import { NotificationServiceModule } from '../notification/notification-service.module';
-import { PrismaService } from '../../prisma.service';
 import { OcpiTokenSyncService } from '../../common/services/ocpi-token-sync.service';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
-    // DatabaseModule removed
     NotificationServiceModule,
     ClientsModule.register([
       {
@@ -31,6 +27,6 @@ import { OcpiTokenSyncService } from '../../common/services/ocpi-token-sync.serv
     ]),
   ],
   controllers: [SessionController],
-  providers: [SessionService, PrismaService, OcpiTokenSyncService],
+  providers: [SessionService, OcpiTokenSyncService],
 })
 export class SessionServiceModule {}

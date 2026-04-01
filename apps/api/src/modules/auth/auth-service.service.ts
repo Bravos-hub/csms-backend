@@ -50,6 +50,29 @@ import {
   AccessStationContextSummary,
 } from './access-profile.service';
 
+type AuthUserContextInput = Pick<
+  User,
+  | 'id'
+  | 'email'
+  | 'phone'
+  | 'name'
+  | 'status'
+  | 'role'
+  | 'providerId'
+  | 'organizationId'
+  | 'ownerCapability'
+  | 'lastStationAssignmentId'
+  | 'mustChangePassword'
+  | 'region'
+  | 'zoneId'
+> & {
+  organization?: {
+    id: string;
+    name: string;
+    type: string;
+  } | null;
+};
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -333,9 +356,9 @@ export class AuthService {
     return roleLabels[role] || role;
   }
 
-  private isEvzoneRole(role: UserRole | string | undefined): role is UserRole {
+  private isEvzoneRole(role: UserRole | undefined): role is UserRole {
     if (!role) return false;
-    return this.evzoneRoles.has(role as UserRole);
+    return this.evzoneRoles.has(role);
   }
 
   private assertCanAssignEvzoneRole(
@@ -1120,7 +1143,6 @@ export class AuthService {
   }
 
   async login(loginDto: LoginDto, context?: AuthMonitoringContext) {
-    const startTime = Date.now();
     const { email: normalizedEmail, phone: normalizedPhone } =
       this.resolveLoginIdentifiers(loginDto);
     const monitoringContext = this.createMonitoringContext(
@@ -1258,9 +1280,12 @@ export class AuthService {
       this.anomalyMonitor.recordSuccess(monitoringContext);
       return response;
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `Login error for ${loginDto.email || loginDto.phone}: ${error.message}`,
-        error.stack,
+        `Login error for ${loginDto.email || loginDto.phone}: ${errorMessage}`,
+        errorStack,
       );
       this.anomalyMonitor.recordFailure(
         monitoringContext,
@@ -1468,7 +1493,7 @@ export class AuthService {
   }
 
   private async generateAuthResponse(
-    user: any,
+    user: AuthUserContextInput,
     options?: { preferredOrganizationId?: string },
   ) {
     const result = await this.issueTokens(user, options);
@@ -1572,7 +1597,9 @@ export class AuthService {
           region: geography.region,
           zoneId: geography.zoneId,
           subscribedPackage: createUserDto.subscribedPackage || 'Free',
-          ownerCapability: createUserDto.ownerCapability as any,
+          ownerCapability:
+            (createUserDto.ownerCapability as StationOwnerCapability | null) ||
+            null,
           organizationId: organization.id,
         },
       });
@@ -1582,7 +1609,9 @@ export class AuthService {
           userId: user.id,
           organizationId: organization.id,
           role: requestedRole,
-          ownerCapability: createUserDto.ownerCapability as any,
+          ownerCapability:
+            (createUserDto.ownerCapability as StationOwnerCapability | null) ||
+            null,
           status: MembershipStatus.ACTIVE,
         },
       });
@@ -1607,7 +1636,7 @@ export class AuthService {
           taxId: createUserDto.taxId,
           country: createUserDto.country || 'Unknown',
           region: geography.region,
-          accountType: orgType,
+          accounttype: orgType,
           role: requestedRole,
           subscribedPackage: createUserDto.subscribedPackage,
           status: 'PENDING',
@@ -2096,15 +2125,15 @@ export class AuthService {
             (this.config.get(
               'JWT_SERVICE_EXPIRY',
             ) as SignOptions['expiresIn']) || '1y',
-          issuer: this.config.get('JWT_SERVICE_ISSUER'),
-          audience: this.config.get('JWT_SERVICE_AUDIENCE'),
+          issuer: this.config.get<string>('JWT_SERVICE_ISSUER'),
+          audience: this.config.get<string>('JWT_SERVICE_AUDIENCE'),
         },
       );
 
       this.anomalyMonitor.recordSuccess(monitoringContext);
       return {
         accessToken: token,
-        expiresIn: this.config.get('JWT_SERVICE_EXPIRY') || '1y',
+        expiresIn: this.config.get<string>('JWT_SERVICE_EXPIRY') || '1y',
       };
     } catch (error) {
       this.anomalyMonitor.recordFailure(
@@ -2218,7 +2247,7 @@ export class AuthService {
       await this.syncOcpiTokenSafe(updatedUser);
       this.anomalyMonitor.recordSuccess(monitoringContext);
 
-      return this.issueTokens(updatedUser as any);
+      return this.issueTokens(updatedUser);
     } catch (error) {
       this.anomalyMonitor.recordFailure(
         monitoringContext,
@@ -2281,7 +2310,7 @@ export class AuthService {
   }
 
   private async buildAuthUserContext(
-    user: any,
+    user: AuthUserContextInput,
     options?: { preferredOrganizationId?: string },
   ) {
     const activeMemberships = await this.getActiveMemberships(user.id);
@@ -2306,10 +2335,8 @@ export class AuthService {
                 {
                   id: `legacy-${user.id}-${legacyOrganization.id}`,
                   organizationId: legacyOrganization.id,
-                  role: user.role as UserRole,
-                  ownerCapability:
-                    (user.ownerCapability as StationOwnerCapability | null) ||
-                    null,
+                  role: user.role,
+                  ownerCapability: user.ownerCapability || null,
                   status: MembershipStatus.ACTIVE,
                   organization: legacyOrganization,
                 },
@@ -2426,7 +2453,7 @@ export class AuthService {
   }
 
   private async issueTokens(
-    user: any,
+    user: AuthUserContextInput,
     options?: { preferredOrganizationId?: string },
   ) {
     const secret = this.config.get<string>('JWT_SECRET');
@@ -2447,7 +2474,7 @@ export class AuthService {
       secret as jwt.Secret,
       {
         expiresIn: (this.config.get<string>('JWT_ACCESS_EXPIRY') ||
-          '15m') as any,
+          '15m') as SignOptions['expiresIn'],
       } as SignOptions,
     );
 
@@ -2485,10 +2512,19 @@ export class AuthService {
     try {
       if (!secret) throw new Error('JWT_SECRET not configured');
 
-      let payload: any;
+      let payload: jwt.JwtPayload & { sub: string };
       try {
-        payload = jwt.verify(refreshToken, secret);
-      } catch (error) {
+        const verified = jwt.verify(refreshToken, secret);
+        if (
+          !verified ||
+          typeof verified !== 'object' ||
+          Array.isArray(verified) ||
+          typeof verified.sub !== 'string'
+        ) {
+          throw new UnauthorizedException('Invalid token');
+        }
+        payload = verified as jwt.JwtPayload & { sub: string };
+      } catch {
         throw new UnauthorizedException('Invalid token');
       }
 
@@ -2619,7 +2655,7 @@ export class AuthService {
       { limit: 50, maxLimit: 200 },
     );
 
-    const where: any = {};
+    const where: Prisma.UserWhereInput = {};
     if (params.search) {
       where.OR = [
         { name: { contains: params.search, mode: 'insensitive' } },
@@ -2627,7 +2663,7 @@ export class AuthService {
       ];
     }
     if (params.role) {
-      where.role = params.role;
+      where.role = params.role as UserRole;
     }
     if (params.status) {
       where.status = params.status;
@@ -2643,8 +2679,13 @@ export class AuthService {
     }
     if (params.orgId || params.organizationId) {
       const scopedOrgId = params.orgId || params.organizationId;
+      const existingAndFilters = Array.isArray(where.AND)
+        ? where.AND
+        : where.AND
+          ? [where.AND]
+          : [];
       where.AND = [
-        ...(where.AND || []),
+        ...existingAndFilters,
         {
           OR: [
             { organizationId: scopedOrgId },
@@ -3459,7 +3500,7 @@ export class AuthService {
     return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
   }
 
-  private async syncOcpiTokenSafe(user: any) {
+  private async syncOcpiTokenSafe(user: AuthUserContextInput) {
     try {
       await this.ocpiTokenSync.syncUserToken(user);
     } catch (error) {

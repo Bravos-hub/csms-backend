@@ -381,7 +381,8 @@ export class AccessProfileService {
       return {
         type: 'station',
         organizationId:
-          input.activeStationContext.organizationId || input.activeOrganizationId,
+          input.activeStationContext.organizationId ||
+          input.activeOrganizationId,
         stationId: input.activeStationContext.stationId,
         stationIds,
         providerId: input.providerId || null,

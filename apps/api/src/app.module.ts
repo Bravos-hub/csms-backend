@@ -46,6 +46,7 @@ import { OcpiModule } from './modules/ocpi/ocpi.module';
 import { GeographyModule } from './modules/geography/geography.module';
 import { MarketplaceContactsModule } from './modules/marketplace/marketplace-contacts.module';
 import { ObservabilityModule } from './common/observability/observability.module';
+import { TenantRoutingModule } from './common/tenant/tenant-routing.module';
 import { AttendantModule } from './modules/attendant/attendant.module';
 import { VehiclesModule } from './modules/vehicles/vehicles.module';
 import { BmsModule } from './modules/bms/bms.module';
@@ -60,6 +61,7 @@ import { BmsModule } from './modules/bms/bms.module';
       },
     ]),
     ObservabilityModule,
+    TenantRoutingModule,
     PrismaModule,
 
     // Existing

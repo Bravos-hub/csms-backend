@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
 import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { AttendantRoleGuard } from './attendant-role.guard';
 
