@@ -1,7 +1,14 @@
 import { StationService } from './station-service.service';
+import { PrismaService } from '../../prisma.service';
+import { ChargerProvisioningService } from './provisioning/charger-provisioning.service';
+import { CommandsService } from '../commands/commands.service';
 
 describe('StationService operational station status', () => {
-  const prisma = {};
+  const prisma = {
+    station: {
+      findMany: jest.fn(),
+    },
+  };
   const provisioningService = {
     provision: jest.fn(),
   };
@@ -10,9 +17,9 @@ describe('StationService operational station status', () => {
   };
 
   const service = new StationService(
-    prisma as any,
-    provisioningService as any,
-    commands as any,
+    prisma as unknown as PrismaService,
+    provisioningService as unknown as ChargerProvisioningService,
+    commands as unknown as CommandsService,
   );
 
   const baseStation = {
@@ -35,62 +42,93 @@ describe('StationService operational station status', () => {
     site: null,
     owner: null,
     zone: null,
-    chargePoints: [] as Array<{ status?: string }>,
+    chargePoints: [] as Array<{
+      id: string;
+      type: string;
+      power: number;
+      status?: string;
+    }>,
   };
 
-  const mapOperationalStatus = (overrides: Partial<typeof baseStation>) => {
-    const mapped = (service as any).mapToFrontendStation({
-      ...baseStation,
-      ...overrides,
-    });
-    return mapped.operationalStatus;
+  const mapOperationalStatus = async (
+    overrides: Partial<typeof baseStation>,
+  ): Promise<string> => {
+    prisma.station.findMany.mockResolvedValueOnce([
+      {
+        ...baseStation,
+        ...overrides,
+      },
+    ]);
+
+    const stations = await service.findAllStations();
+    const first = stations[0] as { operationalStatus: string } | undefined;
+    expect(first).toBeDefined();
+    if (!first) {
+      throw new Error('Expected a mapped station');
+    }
+    return first.operationalStatus;
   };
 
-  it('returns OFFLINE when all charge points are offline', () => {
-    const status = mapOperationalStatus({
-      chargePoints: [{ status: 'Offline' }, { status: 'Faulted' }],
+  it('returns OFFLINE when all charge points are offline', async () => {
+    const status = await mapOperationalStatus({
+      chargePoints: [
+        { id: 'cp-1', type: 'CCS2', power: 50, status: 'Offline' },
+        { id: 'cp-2', type: 'CCS2', power: 50, status: 'Faulted' },
+      ],
     });
 
     expect(status).toBe('OFFLINE');
   });
 
-  it('returns DEGRADED when charge points are mixed offline and online', () => {
-    const status = mapOperationalStatus({
-      chargePoints: [{ status: 'Offline' }, { status: 'Available' }],
+  it('returns DEGRADED when charge points are mixed offline and online', async () => {
+    const status = await mapOperationalStatus({
+      chargePoints: [
+        { id: 'cp-1', type: 'CCS2', power: 50, status: 'Offline' },
+        { id: 'cp-2', type: 'CCS2', power: 50, status: 'Available' },
+      ],
     });
 
     expect(status).toBe('DEGRADED');
   });
 
-  it('returns ONLINE when all charge points are operational non-offline states', () => {
-    const status = mapOperationalStatus({
-      chargePoints: [{ status: 'Charging' }, { status: 'Reserved' }],
+  it('returns ONLINE when all charge points are operational non-offline states', async () => {
+    const status = await mapOperationalStatus({
+      chargePoints: [
+        { id: 'cp-1', type: 'CCS2', power: 50, status: 'Charging' },
+        { id: 'cp-2', type: 'CCS2', power: 50, status: 'Reserved' },
+      ],
     });
 
     expect(status).toBe('ONLINE');
   });
 
-  it('returns DEGRADED when no charge points exist on a charge-capable station', () => {
-    const status = mapOperationalStatus({
+  it('returns DEGRADED when no charge points exist on a charge-capable station', async () => {
+    const status = await mapOperationalStatus({
       chargePoints: [],
     });
 
     expect(status).toBe('DEGRADED');
   });
 
-  it('forces OFFLINE when lifecycle status is INACTIVE', () => {
-    const status = mapOperationalStatus({
+  it('forces OFFLINE when lifecycle status is INACTIVE', async () => {
+    const status = await mapOperationalStatus({
       status: 'INACTIVE',
-      chargePoints: [{ status: 'Online' }, { status: 'Available' }],
+      chargePoints: [
+        { id: 'cp-1', type: 'CCS2', power: 50, status: 'Online' },
+        { id: 'cp-2', type: 'CCS2', power: 50, status: 'Available' },
+      ],
     });
 
     expect(status).toBe('OFFLINE');
   });
 
-  it('forces MAINTENANCE when lifecycle status is MAINTENANCE', () => {
-    const status = mapOperationalStatus({
+  it('forces MAINTENANCE when lifecycle status is MAINTENANCE', async () => {
+    const status = await mapOperationalStatus({
       status: 'MAINTENANCE',
-      chargePoints: [{ status: 'Online' }, { status: 'Available' }],
+      chargePoints: [
+        { id: 'cp-1', type: 'CCS2', power: 50, status: 'Online' },
+        { id: 'cp-2', type: 'CCS2', power: 50, status: 'Available' },
+      ],
     });
 
     expect(status).toBe('MAINTENANCE');

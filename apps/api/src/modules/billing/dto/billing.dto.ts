@@ -1,11 +1,4 @@
-import {
-  IsString,
-  IsNotEmpty,
-  IsNumber,
-  IsOptional,
-  IsEnum,
-  Min,
-} from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, Min } from 'class-validator';
 
 export class TopUpDto {
   @IsNumber()

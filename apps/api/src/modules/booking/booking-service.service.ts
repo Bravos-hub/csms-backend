@@ -4,7 +4,9 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
-import { CreateBookingDto, UpdateBookingDto } from './dto/booking.dto';
+import { CreateBookingDto } from './dto/booking.dto';
+
+type CreateBookingWithStationId = CreateBookingDto & { stationId?: string };
 
 @Injectable()
 export class BookingService {
@@ -31,7 +33,8 @@ export class BookingService {
     // Assuming DTO has stationId or we look it up.
     // If DTO doesn't satisfy Prisma (strict mode), we must fix.
     // For now, I will assume DTO *should* have it or I'll fetch it.
-    let stationId = (createDto as any).stationId;
+    const bookingInput = createDto as CreateBookingWithStationId;
+    let stationId: string | undefined = bookingInput.stationId;
     if (!stationId && createDto.chargePointId) {
       // Assuming chargePointId is the ID (UUID) not OcppID based on schema relation
       const cp = await this.prisma.chargePoint.findUnique({
@@ -55,7 +58,7 @@ export class BookingService {
     try {
       const user = await this.prisma.user.findFirst();
       if (user) userId = user.id;
-    } catch (error) {
+    } catch {
       throw new BadRequestException('Failed to retrieve user data');
     }
 
@@ -67,8 +70,8 @@ export class BookingService {
         const station = await this.prisma.station.findFirst();
         if (station) stationId = station.id;
         else throw new BadRequestException('No station available');
-      } catch (error) {
-        if (error instanceof BadRequestException) throw error;
+      } catch (retrievalError) {
+        if (retrievalError instanceof BadRequestException) throw retrievalError;
         throw new BadRequestException('Failed to retrieve station data');
       }
     }
@@ -86,7 +89,7 @@ export class BookingService {
   }
 
   async cancel(id: string) {
-    const booking = await this.findById(id);
+    await this.findById(id);
     return this.prisma.booking.update({
       where: { id },
       data: { status: 'CANCELLED' },

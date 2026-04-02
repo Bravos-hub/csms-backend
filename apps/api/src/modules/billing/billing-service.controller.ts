@@ -1,42 +1,62 @@
-import { Controller, Get, Post, Body, Param, Req, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Req, Query } from '@nestjs/common';
 import { BillingService } from './billing-service.service';
 import { TopUpDto, GenerateInvoiceDto } from './dto/billing.dto';
+
+type BillingRequest = {
+  headers?: Record<string, string | string[] | undefined>;
+};
 
 @Controller()
 export class BillingController {
   constructor(private readonly billingService: BillingService) {}
 
+  private resolveUserId(req: BillingRequest): string {
+    const headerValue = req.headers?.['x-user-id'];
+    if (typeof headerValue === 'string' && headerValue.trim().length > 0) {
+      return headerValue;
+    }
+    if (
+      Array.isArray(headerValue) &&
+      headerValue.length > 0 &&
+      typeof headerValue[0] === 'string' &&
+      headerValue[0].trim().length > 0
+    ) {
+      return headerValue[0];
+    }
+    return 'mock-user-id';
+  }
+
   // Wallet
   @Get('wallet/balance')
-  getBalance(@Req() req: any) {
-    const userId = req.headers['x-user-id'] || 'mock-user-id';
+  getBalance(@Req() req: BillingRequest) {
+    const userId = this.resolveUserId(req);
     return this.billingService.getWalletBalance(userId);
   }
 
   @Get('wallet/transactions')
   getTransactions(
-    @Req() req: any,
+    @Req() req: BillingRequest,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    const userId = req.headers['x-user-id'] || 'mock-user-id';
+    const userId = this.resolveUserId(req);
     return this.billingService.getTransactions(userId, limit, offset);
   }
 
   @Post('wallet/topup')
-  topUp(@Req() req: any, @Body() dto: TopUpDto) {
-    const userId = req.headers['x-user-id'] || 'mock-user-id';
+  topUp(@Req() req: BillingRequest, @Body() dto: TopUpDto) {
+    const userId = this.resolveUserId(req);
     return this.billingService.topUp(userId, dto);
   }
 
   // Billing
   @Get('billing/invoices')
   getInvoices(
-    @Req() req: any,
+    @Req() req: BillingRequest,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    const userId = req.headers['x-user-id'] || 'mock-user-id';
+    const userId = this.resolveUserId(req);
     return this.billingService.getInvoices(userId, limit, offset);
   }
 

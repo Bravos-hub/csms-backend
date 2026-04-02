@@ -8,14 +8,14 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { IncidentsService } from './incidents.service';
+import { IncidentQuery, IncidentsService } from './incidents.service';
 
 @Controller('incidents')
 export class IncidentsController {
   constructor(private readonly incidentsService: IncidentsService) {}
 
   @Get()
-  getAll(@Query() query: any) {
+  getAll(@Query() query: IncidentQuery) {
     return this.incidentsService.getAll(query);
   }
 
@@ -25,12 +25,12 @@ export class IncidentsController {
   }
 
   @Post()
-  create(@Body() payload: any) {
+  create(@Body() payload: Record<string, unknown>) {
     return this.incidentsService.create(payload);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() payload: any) {
+  update(@Param('id') id: string, @Body() payload: Record<string, unknown>) {
     return this.incidentsService.update(id, payload);
   }
 

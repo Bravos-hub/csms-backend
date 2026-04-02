@@ -27,9 +27,9 @@ export type DateRange = 'TODAY' | '7D' | '30D' | 'CUSTOM';
 
 export type Scope = {
   region: RegionId | 'ALL';
-  orgId: string | 'ALL';
-  stationId: string | 'ALL';
-  siteId?: string | 'ALL';
+  orgId: string;
+  stationId: string;
+  siteId?: string;
   dateRange: DateRange;
 };
 
@@ -41,13 +41,7 @@ export type UserProfile = {
   avatarUrl?: string;
 };
 
-import {
-  IsString,
-  IsOptional,
-  IsEmail,
-  IsEnum,
-  IsArray,
-} from 'class-validator';
+import { IsString, IsOptional, IsEmail, IsArray } from 'class-validator';
 
 // Auth Types
 export class LoginRequest {

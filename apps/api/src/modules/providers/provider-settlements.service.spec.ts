@@ -1,5 +1,7 @@
 import { UserRole } from '@prisma/client';
+import { PrismaService } from '../../prisma.service';
 import { ProviderSettlementsService } from './provider-settlements.service';
+import { ProviderAuthzService } from './provider-authz.service';
 
 describe('ProviderSettlementsService', () => {
   const prisma = {
@@ -10,7 +12,7 @@ describe('ProviderSettlementsService', () => {
     providerRelationship: {
       findUnique: jest.fn(),
     },
-  } as any;
+  };
 
   const authz = {
     getActor: jest.fn(),
@@ -18,13 +20,16 @@ describe('ProviderSettlementsService', () => {
     isOwnerRole: jest.fn(),
     isPlatformOps: jest.fn(),
     requirePlatformOps: jest.fn(),
-  } as any;
+  };
 
   let service: ProviderSettlementsService;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new ProviderSettlementsService(prisma, authz);
+    service = new ProviderSettlementsService(
+      prisma as unknown as PrismaService,
+      authz as unknown as ProviderAuthzService,
+    );
   });
 
   it('aggregates settlement totals correctly', async () => {

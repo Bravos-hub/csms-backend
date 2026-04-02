@@ -12,7 +12,8 @@ import {
 @Controller('dispatches')
 export class DispatchesController {
   @Get()
-  getAll(@Query() query: Record<string, unknown>) {
+  getAll(@Query() _query: Record<string, unknown>) {
+    void _query;
     return [];
   }
 
@@ -22,17 +23,17 @@ export class DispatchesController {
   }
 
   @Post()
-  create(@Body() payload: any) {
+  create(@Body() payload: Record<string, unknown>) {
     return payload;
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() payload: any) {
+  update(@Param('id') id: string, @Body() payload: Record<string, unknown>) {
     return { id, ...payload };
   }
 
   @Post(':id/assign')
-  assign(@Param('id') id: string, @Body() payload: any) {
+  assign(@Param('id') id: string, @Body() payload: Record<string, unknown>) {
     return { id, ...payload };
   }
 

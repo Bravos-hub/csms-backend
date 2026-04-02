@@ -24,11 +24,16 @@ type SiteWithRelations = Prisma.SiteGetPayload<{
 export class SiteService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private parseArray(value?: string) {
+  private parseArray(value?: string): string[] {
     if (!value) return [];
     try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed : [];
+      const parsed: unknown = JSON.parse(value);
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      return parsed.filter(
+        (entry): entry is string => typeof entry === 'string',
+      );
     } catch {
       return [];
     }
@@ -132,7 +137,7 @@ export class SiteService {
         },
       },
     });
-    return sites.map((site: any) => this.formatSite(site));
+    return sites.map((site) => this.formatSite(site));
   }
 
   async findSiteById(id: string) {
@@ -273,7 +278,7 @@ export class SiteService {
     });
 
     // Map database fields to frontend interface
-    return documents.map((doc: any) => ({
+    return documents.map((doc) => ({
       id: doc.id,
       siteId: doc.siteId,
       title: doc.name,

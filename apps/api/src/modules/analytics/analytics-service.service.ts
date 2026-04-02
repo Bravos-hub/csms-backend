@@ -726,13 +726,20 @@ export class AnalyticsService {
       }
     >();
 
-    for (const station of stations as any[]) {
+    for (const station of stations) {
       let region = 'Unknown';
 
       if (station.zone) {
-        let current = station.zone;
+        const zoneLevels = [
+          station.zone,
+          station.zone.parent,
+          station.zone.parent?.parent,
+        ];
         let found = false;
-        for (let i = 0; i < 5; i += 1) {
+        for (const current of zoneLevels) {
+          if (!current) {
+            continue;
+          }
           if (
             current.type === 'CONTINENT' ||
             ['AFRICA', 'EUROPE', 'AMERICAS', 'ASIA', 'MIDDLE_EAST'].includes(
@@ -743,11 +750,15 @@ export class AnalyticsService {
             found = true;
             break;
           }
-          if (!current.parent) break;
-          current = current.parent;
         }
         if (!found) {
-          region = current.name;
+          for (let i = zoneLevels.length - 1; i >= 0; i -= 1) {
+            const current = zoneLevels[i];
+            if (current) {
+              region = current.name;
+              break;
+            }
+          }
         }
       } else if (station.owner?.zone) {
         region = station.owner.zone.name;
@@ -776,7 +787,7 @@ export class AnalyticsService {
       for (const cp of station.chargePoints) {
         metrics.sessions += cp.sessions.length;
         metrics.revenue += cp.sessions.reduce(
-          (sum: number, session: any) => sum + (session.amount || 0),
+          (sum, session) => sum + (session.amount || 0),
           0,
         );
       }

@@ -1,8 +1,5 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { TopUpDto, GenerateInvoiceDto } from './dto/billing.dto';
 import { parsePaginationOptions } from '../../common/utils/pagination';
@@ -61,7 +58,7 @@ export class BillingService {
       });
 
       return updatedWallet;
-    } catch (error) {
+    } catch {
       throw new BadRequestException('Failed to process top-up');
     }
   }
@@ -92,7 +89,7 @@ export class BillingService {
   }
 
   // Tariffs
-  async getTariffs() {
+  getTariffs() {
     // Tariff model not in schema yet. Mocking or adding?
     // User didn't ask for Tariff schema explicitly in migration list earlier, but it was in Billing module.
     // I can return mock or add to schema.
@@ -100,10 +97,9 @@ export class BillingService {
     return [{ id: 'mock-tariff', name: 'Standard', rate: 0.5 }];
   }
   // Admin - All Payments
-  async getAllPayments(query: any) {
-    const where: any = {};
+  async getAllPayments(query: { limit?: string; offset?: string } = {}) {
     const pagination = parsePaginationOptions(
-      { limit: query?.limit, offset: query?.offset },
+      { limit: query.limit, offset: query.offset },
       { limit: 50, maxLimit: 200 },
     );
     // Apply filters from query (type, status, date, site, etc.)
@@ -136,7 +132,7 @@ export class BillingService {
     limit?: string,
     offset?: string,
   ) {
-    const where: any = {};
+    const where: Prisma.TransactionWhereInput = {};
     const pagination = parsePaginationOptions(
       { limit, offset },
       { limit: 50, maxLimit: 200 },
@@ -159,11 +155,7 @@ export class BillingService {
     }
 
     const transactions = await this.prisma.transaction.findMany({
-      where: {
-        ...where,
-        // We might want to filter by type if we had 'SETTLEMENT' type
-        // type: 'DEBIT'
-      },
+      where,
       include: {
         wallet: {
           include: {

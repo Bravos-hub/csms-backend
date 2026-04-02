@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  Logger,
+  BadRequestException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 
 @Injectable()
@@ -6,6 +12,10 @@ export class OrganizationsService {
   private readonly logger = new Logger(OrganizationsService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  private isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+  }
 
   async findOne(id: string) {
     const org = await this.prisma.organization.findUnique({
@@ -16,10 +26,15 @@ export class OrganizationsService {
     return org;
   }
 
-  async update(id: string, data: any) {
+  async update(id: string, data: unknown) {
+    if (!this.isObject(data)) {
+      throw new BadRequestException('Invalid organization update payload');
+    }
+
+    const updateData = data as Prisma.OrganizationUpdateInput;
     return this.prisma.organization.update({
       where: { id },
-      data,
+      data: updateData,
     });
   }
 

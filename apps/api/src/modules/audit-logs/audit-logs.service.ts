@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 
 export type AuditLogFilters = {
@@ -18,7 +19,7 @@ export type CreateAuditLogDto = {
   action: string;
   resource: string;
   resourceId?: string;
-  details?: any;
+  details?: unknown;
   ipAddress?: string;
   userAgent?: string;
   status?: string;
@@ -29,9 +30,20 @@ export type CreateAuditLogDto = {
 export class AuditLogsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+    return value as Prisma.InputJsonValue;
+  }
+
   async create(dto: CreateAuditLogDto) {
+    const { details, ...rest } = dto;
     return this.prisma.auditLog.create({
-      data: dto,
+      data: {
+        ...rest,
+        details: this.toJsonValue(details),
+      },
     });
   }
 
@@ -40,7 +52,7 @@ export class AuditLogsService {
     const limit = filters?.limit || 50;
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: Prisma.AuditLogWhereInput = {};
 
     if (filters?.actor) where.actor = filters.actor;
     if (filters?.action) where.action = filters.action;
@@ -98,7 +110,7 @@ export class AuditLogsService {
     action: string,
     resource: string,
     resourceId?: string,
-    details?: any,
+    details?: unknown,
     actorName?: string,
   ) {
     return this.create({

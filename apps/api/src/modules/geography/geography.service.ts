@@ -157,7 +157,7 @@ export class GeographyService implements OnModuleInit {
    * Auto-detect location from IP address.
    * Mock implementation for now.
    */
-  async detectLocationFromIp(ip: string) {
+  detectLocationFromIp(ip: string) {
     // In a real app, use MaxMind or an IP-API here.
     // For prototype, return a default or random location based on simple logic
 
@@ -182,7 +182,7 @@ export class GeographyService implements OnModuleInit {
    * Reverse geocode a lat/long to a standardized address.
    * This is the "Magic" for mobile users.
    */
-  async reverseGeocode(lat: number, lng: number) {
+  reverseGeocode(lat: number, lng: number) {
     // Mock implementation.
     // In production, integrate Google Maps API or OpenCage.
 
@@ -385,7 +385,7 @@ export class GeographyService implements OnModuleInit {
 
       // 2. Build filter clauses
       let filterSql = '';
-      const params: any[] = [xMin, yMin, xMax, yMax];
+      const params: Array<number | string> = [xMin, yMin, xMax, yMax];
       let paramIdx = 5;
 
       if (filters?.status && filters.status !== 'All') {
@@ -423,13 +423,16 @@ export class GeographyService implements OnModuleInit {
                 SELECT ST_AsMVT(mvt_geom.*, 'stations') AS mvt FROM mvt_geom;
             `;
 
-      const result: any[] = await this.prisma.$queryRawUnsafe(query, ...params);
+      const result = await this.prisma.$queryRawUnsafe<
+        Array<{ mvt: Buffer | Uint8Array | null }>
+      >(query, ...params);
 
       if (!result || result.length === 0 || !result[0].mvt) {
         return Buffer.alloc(0);
       }
 
-      return result[0].mvt;
+      const tile = result[0].mvt;
+      return Buffer.isBuffer(tile) ? tile : Buffer.from(tile);
     } catch (error) {
       this.logger.error(`MVT Generation failed for ${z}/${x}/${y}`, error);
       throw new InternalServerErrorException('Tile generation failed');

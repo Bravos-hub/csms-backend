@@ -3,13 +3,16 @@ jest.mock('./station-service.service', () => ({
 }));
 
 import { StationController } from './station-service.controller';
+import { StationService } from './station-service.service';
 
 describe('StationController bounds parsing', () => {
   const service = {
     findAllStations: jest.fn(),
   };
 
-  const controller = new StationController(service as any);
+  const controller = new StationController(
+    service as unknown as StationService,
+  );
 
   beforeEach(() => {
     service.findAllStations.mockReset();

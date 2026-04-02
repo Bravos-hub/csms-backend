@@ -5,7 +5,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import Redis from 'ioredis';
+import Redis, { RedisOptions } from 'ioredis';
 import { ChargePoint, Station } from '@prisma/client';
 import * as fs from 'fs';
 
@@ -30,6 +30,12 @@ type BootstrapUpdateInput = {
   ttlMinutes?: number;
   allowedIps?: string[];
   allowedCidrs?: string[];
+};
+
+type StationProvisionTarget = Station & {
+  site?: {
+    ownerId?: string | null;
+  } | null;
 };
 
 type RedisChargerIdentity = {
@@ -93,7 +99,7 @@ export class ChargerProvisioningService
     );
 
     const tlsEnabled = this.config.get<string>('REDIS_TLS') === 'true';
-    const redisOptions: any = {};
+    const redisOptions: RedisOptions = {};
 
     if (tlsEnabled || redisUrl.startsWith('rediss://')) {
       const rejectUnauthorized =
@@ -131,7 +137,7 @@ export class ChargerProvisioningService
 
   async provision(
     chargePoint: ChargePoint,
-    station: Station,
+    station: StationProvisionTarget,
     ocppVersion: '1.6' | '2.0.1' | '2.1' = '1.6',
     options?: ProvisioningOptions,
   ) {
@@ -188,7 +194,7 @@ export class ChargerProvisioningService
     const identity: RedisChargerIdentity = {
       chargePointId: chargePoint.ocppId,
       stationId: station.id,
-      tenantId: (station as any).site?.ownerId || 'unknown-owner', // Fallback or need deeper fetch
+      tenantId: station.site?.ownerId || 'unknown-owner',
       status: 'active',
       allowedProtocols: [this.gatewayVersion(ocppVersion)],
       allowedIps,

@@ -5,6 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import * as mqtt from 'mqtt';
 import { PrismaService } from '../../prisma.service';
 
@@ -66,15 +67,15 @@ export class BmsService implements OnModuleInit, OnModuleDestroy {
         });
       });
 
-      this.mqttClient.on('message', async (topic, message) => {
-        try {
-          await this.handleIncomingTelemetry(topic, message.toString());
-        } catch (err) {
-          this.logger.error(
-            `Error processing telemetry from topic ${topic}`,
-            err,
-          );
-        }
+      this.mqttClient.on('message', (topic, message) => {
+        void this.handleIncomingTelemetry(topic, message.toString()).catch(
+          (err) => {
+            this.logger.error(
+              `Error processing telemetry from topic ${topic}`,
+              err,
+            );
+          },
+        );
       });
 
       this.mqttClient.on('error', (err) => {
@@ -92,9 +93,16 @@ export class BmsService implements OnModuleInit, OnModuleDestroy {
 
     if (!packSerialNumber) return;
 
-    let data;
+    let data: Record<string, unknown>;
     try {
-      data = JSON.parse(payload);
+      const parsed: unknown = JSON.parse(payload);
+      if (!this.isRecord(parsed)) {
+        this.logger.warn(
+          `Received non-object telemetry payload on topic ${topic}`,
+        );
+        return;
+      }
+      data = parsed;
     } catch {
       this.logger.warn(`Received malformed JSON payload on topic ${topic}`);
       return;
@@ -112,9 +120,9 @@ export class BmsService implements OnModuleInit, OnModuleDestroy {
       pack = await this.prisma.batteryPack.create({
         data: {
           serialNumber: packSerialNumber,
-          bmsType: data.bmsType || 'UNKNOWN_3RD_PARTY',
+          bmsType: this.readString(data.bmsType) || 'UNKNOWN_3RD_PARTY',
           status: 'READY',
-          capacityAh: data.capacity || 0,
+          capacityAh: this.readNumber(data.capacity) || 0,
         },
       });
     }
@@ -128,25 +136,31 @@ export class BmsService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.batteryTelemetry.create({
       data: {
         packId: pack.id,
-        voltage: data.voltage || 0,
-        current: data.current || 0,
-        soc: data.soc || 0,
-        soh: data.soh || null,
-        temps: data.temps || [],
-        cells: data.cellvolt || [],
-        alerts: data.alerts || {},
+        voltage: this.readNumber(data.voltage) || 0,
+        current: this.readNumber(data.current) || 0,
+        soc: this.readNumber(data.soc) || 0,
+        soh: this.readNumber(data.soh) || null,
+        temps: this.readNumberArray(data.temps),
+        cells: this.readNumberArray(data.cellvolt),
+        alerts: this.readRecord(data.alerts) || ({} as Prisma.JsonObject),
       },
     });
+
+    const soc = this.readNumber(data.soc);
+    const soh = this.readNumber(data.soh);
+    const voltage = this.readNumber(data.voltage);
+    const current = this.readNumber(data.current);
+    const cycles = this.readNumber(data.cycles);
 
     // 2. Update current state of the proxy Pack model
     await this.prisma.batteryPack.update({
       where: { id: pack.id },
       data: {
-        soc: data.soc !== undefined ? data.soc : pack.soc,
-        soh: data.soh !== undefined ? data.soh : pack.soh,
-        voltage: data.voltage !== undefined ? data.voltage : pack.voltage,
-        current: data.current !== undefined ? data.current : pack.current,
-        cycleCount: data.cycles !== undefined ? data.cycles : pack.cycleCount,
+        soc: soc ?? pack.soc,
+        soh: soh ?? pack.soh,
+        voltage: voltage ?? pack.voltage,
+        current: current ?? pack.current,
+        cycleCount: cycles ?? pack.cycleCount,
       },
     });
   }
@@ -208,5 +222,42 @@ export class BmsService implements OnModuleInit, OnModuleDestroy {
         },
       );
     });
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  private readRecord(value: unknown): Prisma.JsonObject | undefined {
+    return this.isRecord(value) ? (value as Prisma.JsonObject) : undefined;
+  }
+
+  private readString(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private readNumber(value: unknown): number | undefined {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+    return undefined;
+  }
+
+  private readNumberArray(value: unknown): number[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    const numbers = value
+      .map((item) => this.readNumber(item))
+      .filter((item): item is number => item !== undefined);
+    return numbers;
   }
 }

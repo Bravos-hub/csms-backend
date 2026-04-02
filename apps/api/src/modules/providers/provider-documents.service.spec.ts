@@ -1,6 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
+import { PrismaService } from '../../prisma.service';
+import { MediaStorageService } from '../../common/services/media-storage.service';
 import { ProviderDocumentsService } from './provider-documents.service';
+import { ProviderAuthzService } from './provider-authz.service';
 
 describe('ProviderDocumentsService', () => {
   const prisma = {
@@ -8,18 +11,27 @@ describe('ProviderDocumentsService', () => {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
-  } as any;
+  };
 
   const authz = {
     getActor: jest.fn(),
     requirePlatformOps: jest.fn(),
-  } as any;
+  };
+
+  const mediaStorage = {
+    upload: jest.fn(),
+    deleteByUrl: jest.fn(),
+  };
 
   let service: ProviderDocumentsService;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new ProviderDocumentsService(prisma, authz);
+    service = new ProviderDocumentsService(
+      prisma as unknown as PrismaService,
+      authz as unknown as ProviderAuthzService,
+      mediaStorage as unknown as MediaStorageService,
+    );
   });
 
   it('requires reason/notes for rejected reviews', async () => {

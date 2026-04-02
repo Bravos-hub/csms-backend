@@ -30,4 +30,7 @@ async function bootstrap() {
   }
 }
 
-bootstrap();
+bootstrap().catch((error: unknown) => {
+  console.error('Bootstrap failed:', error);
+  process.exit(1);
+});

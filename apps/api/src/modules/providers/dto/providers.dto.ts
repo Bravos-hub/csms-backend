@@ -25,12 +25,6 @@ import {
 const toBoolean = ({ value }: { value: unknown }) =>
   value === true || value === 'true' || value === '1';
 
-const toInt = ({ value }: { value: unknown }) => {
-  if (value == null || value === '') return undefined;
-  const parsed = Number(value);
-  return Number.isNaN(parsed) ? value : parsed;
-};
-
 const toStringArray = ({ value }: { value: unknown }) => {
   if (value == null || value === '') return undefined;
   if (Array.isArray(value))

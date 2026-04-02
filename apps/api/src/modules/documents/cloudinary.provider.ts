@@ -12,9 +12,9 @@ export const CloudinaryProvider: Provider = {
       return cloudinary;
     }
 
-    const cloudName = configService.get('CLOUDINARY_CLOUD_NAME');
-    const apiKey = configService.get('CLOUDINARY_API_KEY');
-    const apiSecret = configService.get('CLOUDINARY_API_SECRET');
+    const cloudName = configService.get<string>('CLOUDINARY_CLOUD_NAME');
+    const apiKey = configService.get<string>('CLOUDINARY_API_KEY');
+    const apiSecret = configService.get<string>('CLOUDINARY_API_SECRET');
 
     if (!cloudName || !apiKey || !apiSecret) {
       throw new Error(

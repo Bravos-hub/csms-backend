@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { isIP } from 'net';
 import { PrismaService } from '../../prisma.service';
@@ -39,6 +40,26 @@ type StationOperationalStatus =
   | 'OFFLINE'
   | 'MAINTENANCE';
 
+const stationFrontendInclude = Prisma.validator<Prisma.StationInclude>()({
+  chargePoints: true,
+  site: true,
+  zone: { include: { parent: { include: { parent: true } } } },
+  owner: { include: { zone: true } },
+});
+
+type StationWithFrontendRelations = Prisma.StationGetPayload<{
+  include: typeof stationFrontendInclude;
+}>;
+
+type StationZoneNode = {
+  code: string;
+  name: string;
+  type: string;
+  parent?: StationZoneNode | null;
+};
+
+type OcppPayload = Record<string, unknown>;
+
 @Injectable()
 export class StationService {
   private readonly logger = new Logger(StationService.name);
@@ -67,7 +88,7 @@ export class StationService {
     );
   }
 
-  async handleOcppMessage(message: any) {
+  async handleOcppMessage(message: unknown) {
     const normalized = this.normalizeStationEvent(message);
     if (!normalized.chargePointId) return;
 
@@ -134,50 +155,55 @@ export class StationService {
       throw new NotFoundException('Site not found');
     }
 
+    const stationData: Prisma.StationUncheckedCreateInput = {
+      name: createDto.name,
+      latitude: createDto.latitude,
+      longitude: createDto.longitude,
+      address: createDto.address || 'Unknown',
+      status: 'ACTIVE',
+      siteId: site.id,
+      orgId: createDto.orgId,
+      ownerId: createDto.ownerId,
+      rating: createDto.rating || 0,
+      price: createDto.price || 0,
+      amenities: createDto.amenities || '[]',
+      images: createDto.images || '[]',
+      open247: createDto.open247 || false,
+      phone: createDto.phone,
+      bookingFee: createDto.bookingFee || 0,
+    };
+
     return this.prisma.station.create({
-      data: {
-        name: createDto.name,
-        latitude: createDto.latitude,
-        longitude: createDto.longitude,
-        address: createDto.address || 'Unknown',
-        status: 'ACTIVE',
-        siteId: site.id,
-        orgId: createDto.orgId,
-        ownerId: createDto.ownerId,
-        // New Fields
-        rating: createDto.rating || 0,
-        price: createDto.price || 0,
-        amenities: createDto.amenities || '[]',
-        images: createDto.images || '[]',
-        open247: createDto.open247 || false,
-        phone: createDto.phone,
-        bookingFee: createDto.bookingFee || 0,
-      } as any,
+      data: stationData,
       include: { chargePoints: true, site: true },
     });
   }
 
   // Helper to walk up the zone hierarchy and find the continent or top-level region
-  private deriveRegion(station: any): string {
-    if (station.zone) {
-      let current = station.zone;
-      // Traverse up to 3 levels to find a Continent or root
-      for (let i = 0; i < 5; i++) {
+  private deriveRegion(station: StationWithFrontendRelations): string {
+    const zone = this.toZoneNode(station.zone);
+    if (zone) {
+      const zoneChain = [
+        zone,
+        zone.parent ?? null,
+        zone.parent?.parent ?? null,
+      ];
+      let topMost = zone;
+      for (const current of zoneChain) {
+        if (!current) break;
+        topMost = current;
         if (
           current.type === 'CONTINENT' ||
           ['AFRICA', 'EUROPE', 'AMERICAS', 'ASIA', 'MIDDLE_EAST'].includes(
             current.code,
           )
         ) {
-          return current.name; // Return "Africa", "Europe", etc.
+          return current.name;
         }
-        if (!current.parent) break;
-        current = current.parent;
       }
-      // If no continent found, return the top-most parent name found
-      return current.name;
+      return topMost.name;
     }
-    // Fallback to legacy fields
+
     return station.owner?.region || 'Unknown';
   }
 
@@ -194,7 +220,7 @@ export class StationService {
       { limit: 50, maxLimit: 200 },
     );
 
-    const where: any = {};
+    const where: Prisma.StationWhereInput = {};
 
     if (bounds) {
       where.latitude = { gte: bounds.south, lte: bounds.north };
@@ -213,26 +239,16 @@ export class StationService {
       where: Object.keys(where).length > 0 ? where : undefined,
       take: pagination.limit,
       skip: pagination.offset,
-      include: {
-        chargePoints: true,
-        site: true,
-        zone: { include: { parent: { include: { parent: true } } } },
-        owner: { include: { zone: true } },
-      },
+      include: stationFrontendInclude,
     });
 
-    return stations.map((s: any) => this.mapToFrontendStation(s));
+    return stations.map((station) => this.mapToFrontendStation(station));
   }
 
   async findStationById(id: string) {
     const station = await this.prisma.station.findUnique({
       where: { id },
-      include: {
-        chargePoints: true,
-        site: true,
-        zone: { include: { parent: { include: { parent: true } } } },
-        owner: { include: { zone: true } },
-      },
+      include: stationFrontendInclude,
     });
     if (!station) throw new NotFoundException('Station not found');
 
@@ -242,12 +258,7 @@ export class StationService {
   async findStationByCode(code: string) {
     const station = await this.prisma.station.findFirst({
       where: { name: code },
-      include: {
-        chargePoints: true,
-        site: true,
-        zone: { include: { parent: { include: { parent: true } } } },
-        owner: { include: { zone: true } },
-      },
+      include: stationFrontendInclude,
     });
     if (!station) throw new NotFoundException('Station not found');
 
@@ -279,28 +290,29 @@ export class StationService {
     return this.prisma.station.delete({ where: { id } });
   }
 
-  async getNearbyStations(lat: number, lng: number, radiusKm: number) {
+  async getNearbyStations(_lat: number, _lng: number, _radiusKm: number) {
+    void [_lat, _lng, _radiusKm];
     // Geo queries in Prisma are tricky without PostGIS raw queries
     // Returning top 10 for now
     const stations = await this.prisma.station.findMany({
       take: 10,
-      include: { chargePoints: true, site: true },
+      include: stationFrontendInclude,
     });
-    return stations.map((s: any) => this.mapToFrontendStation(s));
+    return stations.map((station) => this.mapToFrontendStation(station));
   }
 
   // --- Helper ---
-  private mapToFrontendStation(s: any) {
-    const chargePoints = Array.isArray(s.chargePoints) ? s.chargePoints : [];
+  private mapToFrontendStation(s: StationWithFrontendRelations) {
+    const chargePoints = s.chargePoints;
     const total = chargePoints.length;
     const available = chargePoints.filter(
-      (cp: any) => this.statusBucket(cp.status) === 'available',
+      (cp) => this.statusBucket(cp.status) === 'available',
     ).length;
     const busy = chargePoints.filter(
-      (cp: any) => this.statusBucket(cp.status) === 'busy',
+      (cp) => this.statusBucket(cp.status) === 'busy',
     ).length;
     const offline = chargePoints.filter(
-      (cp: any) => this.statusBucket(cp.status) === 'offline',
+      (cp) => this.statusBucket(cp.status) === 'offline',
     ).length;
     const operationalStatus = this.deriveOperationalStationStatus(
       s.status,
@@ -308,18 +320,8 @@ export class StationService {
       chargePoints,
     );
 
-    let amenities: string[] = [];
-    let images: string[] = [];
-    try {
-      amenities = JSON.parse(s.amenities || '[]');
-    } catch {
-      amenities = [];
-    }
-    try {
-      images = JSON.parse(s.images || '[]');
-    } catch {
-      images = [];
-    }
+    const amenities = this.parseStringArray(s.amenities);
+    const images = this.parseStringArray(s.images);
 
     return {
       ...s,
@@ -334,7 +336,7 @@ export class StationService {
         offline,
       },
       operationalStatus,
-      connectors: chargePoints.map((cp: any) => ({
+      connectors: chargePoints.map((cp) => ({
         id: cp.id,
         type: cp.type || 'CCS2',
         power: cp.power || 50,
@@ -348,8 +350,8 @@ export class StationService {
       open247: s.open247,
       phone: s.phone,
       bookingFee: s.bookingFee || 0,
-      ownerId: s.ownerId || s.site?.ownerId,
-      orgId: s.orgId || s.site?.organizationId,
+      ownerId: s.ownerId || s.site?.ownerId || undefined,
+      orgId: s.orgId || s.site?.organizationId || undefined,
       region: this.deriveRegion(s),
     };
   }
@@ -398,7 +400,8 @@ export class StationService {
     };
   }
 
-  async getSwapsToday(id: string) {
+  getSwapsToday(_id: string) {
+    void _id;
     return { successful: 10, failed: 0 };
   }
 
@@ -415,7 +418,7 @@ export class StationService {
       { limit: 50, maxLimit: 200 },
     );
 
-    const where: any = {};
+    const where: Prisma.ChargePointWhereInput = {};
     if (filter?.stationId) {
       where.stationId = filter.stationId;
     }
@@ -711,20 +714,20 @@ export class StationService {
   // --- OCPP Private Handlers ---
   private async handleBootNotification(
     ocppId: string,
-    payload: any,
+    payload: OcppPayload | undefined,
     ocppVersion?: string,
   ) {
+    const chargingStation = this.readRecord(payload?.chargingStation);
     const normalizedVersion = this.normalizeOcppVersion(ocppVersion);
     const model =
-      payload?.chargingStation?.model || payload?.chargePointModel || undefined;
+      this.readString(chargingStation?.model) ||
+      this.readString(payload?.chargePointModel);
     const vendor =
-      payload?.chargingStation?.vendorName ||
-      payload?.chargePointVendor ||
-      undefined;
+      this.readString(chargingStation?.vendorName) ||
+      this.readString(payload?.chargePointVendor);
     const firmwareVersion =
-      payload?.chargingStation?.firmwareVersion ||
-      payload?.firmwareVersion ||
-      undefined;
+      this.readString(chargingStation?.firmwareVersion) ||
+      this.readString(payload?.firmwareVersion);
     const cp = await this.prisma.chargePoint.findUnique({ where: { ocppId } });
 
     if (!cp) {
@@ -787,25 +790,22 @@ export class StationService {
 
   private async handleConnectorStatusChanged(
     ocppId: string,
-    payload: any,
+    payload: OcppPayload | undefined,
     ocppVersion?: string,
   ) {
     const cp = await this.prisma.chargePoint.findUnique({ where: { ocppId } });
     if (!cp) return;
 
     const connectorStatus =
-      typeof payload?.status === 'string'
-        ? payload.status
-        : typeof payload?.connectorStatus === 'string'
-          ? payload.connectorStatus
-          : undefined;
+      this.readString(payload?.status) ||
+      this.readString(payload?.connectorStatus);
 
     await this.prisma.chargePoint.update({
       where: { id: cp.id },
       data: {
         status: this.mapConnectorStatusToChargePointStatus(
           connectorStatus,
-          payload?.errorCode,
+          this.readString(payload?.errorCode),
         ),
         ocppVersion: this.normalizeOcppVersion(ocppVersion || cp.ocppVersion),
       },
@@ -828,7 +828,8 @@ export class StationService {
     });
   }
 
-  async getStatusHistory(stationId: string) {
+  getStatusHistory(_stationId: string) {
+    void _stationId;
     return [];
   }
 
@@ -884,30 +885,28 @@ export class StationService {
     return '1.6';
   }
 
-  private normalizeStationEvent(message: any): {
+  private normalizeStationEvent(message: unknown): {
     chargePointId?: string;
     action?: string;
     eventType?: string;
     ocppVersion?: string;
-    payload?: any;
+    payload?: OcppPayload;
   } {
     const input = this.unwrapEnvelope(message);
-    if (!input || typeof input !== 'object') {
+    if (!this.isRecord(input)) {
       return {};
     }
 
+    const chargePoint = this.readRecord(input.chargePoint);
     const chargePointId = this.readString(
-      input.chargePointId || input.ocppId || input.chargePoint?.ocppId,
+      input.chargePointId || input.ocppId || chargePoint?.ocppId,
     );
     const eventType = this.readString(input.eventType);
-    const rawPayload = input.payload ?? input.data;
+    const rawPayload = this.readRecord(input.payload ?? input.data);
+    const nestedPayload = this.readRecord(rawPayload?.payload);
     const payload =
-      rawPayload &&
-      typeof rawPayload === 'object' &&
-      !Array.isArray(rawPayload) &&
-      rawPayload.payload &&
-      typeof rawPayload.payload === 'object'
-        ? rawPayload.payload
+      nestedPayload && Object.keys(nestedPayload).length > 0
+        ? nestedPayload
         : rawPayload;
     const action =
       this.readString(input.action) || this.readString(rawPayload?.action);
@@ -920,19 +919,19 @@ export class StationService {
       action,
       eventType,
       ocppVersion,
-      payload,
+      payload: payload ?? undefined,
     };
   }
 
-  private unwrapEnvelope(message: any): any {
+  private unwrapEnvelope(message: unknown): unknown {
     if (typeof message === 'string') {
       try {
-        return JSON.parse(message);
+        return JSON.parse(message) as unknown;
       } catch {
         return null;
       }
     }
-    if (message && typeof message === 'object' && message.value !== undefined) {
+    if (this.isRecord(message) && message.value !== undefined) {
       return this.unwrapEnvelope(message.value);
     }
     return message;
@@ -942,6 +941,40 @@ export class StationService {
     if (typeof value !== 'string') return undefined;
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private parseStringArray(raw: string | null | undefined): string[] {
+    if (!raw) return [];
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(
+        (entry): entry is string => typeof entry === 'string',
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  private readRecord(value: unknown): Record<string, unknown> | undefined {
+    return this.isRecord(value) ? value : undefined;
+  }
+
+  private toZoneNode(value: unknown): StationZoneNode | undefined {
+    const record = this.readRecord(value);
+    if (!record) return undefined;
+
+    const code = this.readString(record.code);
+    const name = this.readString(record.name);
+    const type = this.readString(record.type);
+    if (!code || !name || !type) return undefined;
+
+    const parent = this.toZoneNode(record.parent);
+    return { code, name, type, parent };
   }
 
   private subprotocolForVersion(version: '1.6' | '2.0.1' | '2.1'): string {

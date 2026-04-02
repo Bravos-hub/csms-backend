@@ -14,6 +14,13 @@ import {
 } from './dto/marketplace-contacts.dto';
 import { MarketplaceContactsService } from './marketplace-contacts.service';
 
+type MarketplaceRequestContext = {
+  user?: {
+    sub?: string;
+    id?: string;
+  };
+};
+
 @Controller('marketplace/contacts')
 @UseGuards(JwtAuthGuard)
 export class MarketplaceContactsController {
@@ -21,21 +28,25 @@ export class MarketplaceContactsController {
     private readonly marketplaceContactsService: MarketplaceContactsService,
   ) {}
 
+  private actorId(req: MarketplaceRequestContext): string | undefined {
+    return req.user?.sub ?? req.user?.id;
+  }
+
   @Post()
-  create(@Body() body: CreateMarketplaceContactEventDto, @Req() req: any) {
-    return this.marketplaceContactsService.createEvent(
-      req.user?.sub || req.user?.id,
-      body,
-    );
+  create(
+    @Body() body: CreateMarketplaceContactEventDto,
+    @Req() req: MarketplaceRequestContext,
+  ) {
+    return this.marketplaceContactsService.createEvent(this.actorId(req), body);
   }
 
   @Get('recent')
   getRecent(
     @Query() query: MarketplaceRecentContactsQueryDto,
-    @Req() req: any,
+    @Req() req: MarketplaceRequestContext,
   ) {
     return this.marketplaceContactsService.getRecentContacts(
-      req.user?.sub || req.user?.id,
+      this.actorId(req),
       query.limit,
     );
   }

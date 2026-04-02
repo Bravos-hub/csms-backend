@@ -9,7 +9,7 @@ export interface ServiceHealth {
   responseTime: number;
   uptime?: string;
   lastCheck: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface HealthCheckResult {
@@ -41,7 +41,9 @@ export class HealthCheckService {
           lazyConnect: true,
         });
       } catch (error) {
-        this.logger.warn(`Failed to initialize Redis client: ${error.message}`);
+        this.logger.warn(
+          `Failed to initialize Redis client: ${this.errorMessage(error)}`,
+        );
       }
     }
   }
@@ -63,7 +65,7 @@ export class HealthCheckService {
         this.checkDatabase(),
         this.checkRedis(),
         this.checkOCPPGateway(),
-        this.checkPaymentGateway(),
+        Promise.resolve(this.checkPaymentGateway()),
       ]);
 
       // Map settled promises to ServiceHealth objects
@@ -77,15 +79,16 @@ export class HealthCheckService {
         if (result.status === 'fulfilled') {
           return result.value;
         } else {
+          const reasonMessage = this.errorMessage(result.reason);
           this.logger.error(
-            `Health check failed for ${serviceNames[index]}: ${result.reason?.message || result.reason}`,
+            `Health check failed for ${serviceNames[index]}: ${reasonMessage}`,
           );
           return {
             name: serviceNames[index],
             status: 'Down' as const,
             responseTime: 0,
             lastCheck: new Date().toISOString(),
-            metadata: { error: result.reason?.message || 'Unknown error' },
+            metadata: { error: reasonMessage || 'Unknown error' },
           };
         }
       });
@@ -121,8 +124,8 @@ export class HealthCheckService {
       return result;
     } catch (error) {
       this.logger.error(
-        `Critical error in getSystemHealth: ${error.message}`,
-        error.stack,
+        `Critical error in getSystemHealth: ${this.errorMessage(error)}`,
+        this.errorStack(error),
       );
       // Return a safe fallback response
       return {
@@ -156,9 +159,11 @@ export class HealthCheckService {
       const responseTime = Date.now() - startTime;
 
       // Get connection pool info if available
-      let metadata: Record<string, any> = {};
+      let metadata: Record<string, unknown> = {};
       try {
-        const result = await this.prisma.$queryRaw<any[]>`
+        const result = await this.prisma.$queryRaw<
+          Array<{ connections: number | string | bigint }>
+        >`
                     SELECT count(*) as connections 
                     FROM pg_stat_activity 
                     WHERE datname = current_database()
@@ -178,14 +183,15 @@ export class HealthCheckService {
         lastCheck: new Date().toISOString(),
         metadata,
       };
-    } catch (error: any) {
-      this.logger.error(`Database health check failed: ${error.message}`);
+    } catch (error) {
+      const message = this.errorMessage(error);
+      this.logger.error(`Database health check failed: ${message}`);
       return {
         name,
         status: 'Down',
         responseTime: Date.now() - startTime,
         lastCheck: new Date().toISOString(),
-        metadata: { error: error.message },
+        metadata: { error: message },
       };
     }
   }
@@ -228,14 +234,15 @@ export class HealthCheckService {
           memory: usedMemory,
         },
       };
-    } catch (error: any) {
-      this.logger.error(`Redis health check failed: ${error.message}`);
+    } catch (error) {
+      const message = this.errorMessage(error);
+      this.logger.error(`Redis health check failed: ${message}`);
       return {
         name,
         status: 'Down',
         responseTime: Date.now() - startTime,
         lastCheck: new Date().toISOString(),
-        metadata: { error: error.message },
+        metadata: { error: message },
       };
     }
   }
@@ -288,14 +295,15 @@ export class HealthCheckService {
           metadata: { httpStatus: response.status },
         };
       }
-    } catch (error: any) {
-      this.logger.error(`OCPP Gateway health check failed: ${error.message}`);
+    } catch (error) {
+      const message = this.errorMessage(error);
+      this.logger.error(`OCPP Gateway health check failed: ${message}`);
       return {
         name,
         status: 'Down',
         responseTime: Date.now() - startTime,
         lastCheck: new Date().toISOString(),
-        metadata: { error: error.message },
+        metadata: { error: message },
       };
     }
   }
@@ -303,7 +311,7 @@ export class HealthCheckService {
   /**
    * Check Payment Gateway health
    */
-  private async checkPaymentGateway(): Promise<ServiceHealth> {
+  private checkPaymentGateway(): ServiceHealth {
     const startTime = Date.now();
     const name = 'Payment Gateway';
 
@@ -332,17 +340,30 @@ export class HealthCheckService {
         uptime: '99.95%',
         lastCheck: new Date().toISOString(),
       };
-    } catch (error: any) {
-      this.logger.error(
-        `Payment Gateway health check failed: ${error.message}`,
-      );
+    } catch (error) {
+      const message = this.errorMessage(error);
+      this.logger.error(`Payment Gateway health check failed: ${message}`);
       return {
         name,
         status: 'Down',
         responseTime: Date.now() - startTime,
         lastCheck: new Date().toISOString(),
-        metadata: { error: error.message },
+        metadata: { error: message },
       };
     }
+  }
+
+  private errorMessage(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return String(error);
+  }
+
+  private errorStack(error: unknown): string | undefined {
+    if (error instanceof Error) {
+      return error.stack;
+    }
+    return undefined;
   }
 }

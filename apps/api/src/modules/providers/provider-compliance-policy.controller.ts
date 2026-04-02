@@ -9,12 +9,22 @@ import {
   ProviderCompliancePolicyService,
 } from './provider-compliance-policy.service';
 
+type ProviderRequestContext = {
+  user?: {
+    sub?: string;
+  };
+};
+
 @Controller('compliance-policies')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ProviderCompliancePolicyController {
   constructor(
     private readonly providerCompliancePolicyService: ProviderCompliancePolicyService,
   ) {}
+
+  private actorId(req: ProviderRequestContext): string | undefined {
+    return req.user?.sub;
+  }
 
   @Get('provider')
   @Roles(
@@ -34,11 +44,11 @@ export class ProviderCompliancePolicyController {
   @Roles(UserRole.SUPER_ADMIN, UserRole.EVZONE_ADMIN)
   updateProviderPolicy(
     @Body() body: UpdateCompliancePolicyDto,
-    @Req() req: any,
+    @Req() req: ProviderRequestContext,
   ) {
     return this.providerCompliancePolicyService.updateProviderPolicy(
       body as unknown as Partial<ProviderCompliancePolicyData>,
-      req.user?.sub,
+      this.actorId(req),
     );
   }
 }

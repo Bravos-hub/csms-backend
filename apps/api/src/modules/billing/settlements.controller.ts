@@ -10,10 +10,10 @@ export interface SettlementRecord {
   type?: string;
   amount?: number;
   currency?: string;
-  status?: 'pending' | 'processing' | 'completed' | 'failed';
+  status?: string;
   startedAt?: string;
   finishedAt?: string;
-  note?: string;
+  note?: string | null;
 }
 
 @ApiTags('Settlements')
@@ -25,17 +25,12 @@ export class SettlementsController {
   @Get()
   @ApiOperation({ summary: 'Get all settlements' })
   @ApiResponse({ status: 200, description: 'List of settlements' })
-  async getAll(
+  getAll(
     @Query('status') status?: string,
     @Query('region') region?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ): Promise<SettlementRecord[]> {
-    return this.billingService.getSettlements(
-      status,
-      region,
-      limit,
-      offset,
-    ) as any;
+    return this.billingService.getSettlements(status, region, limit, offset);
   }
 }

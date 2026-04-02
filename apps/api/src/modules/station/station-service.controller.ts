@@ -6,7 +6,6 @@ import {
   Patch,
   Param,
   Delete,
-  Put,
   Query,
   Logger,
 } from '@nestjs/common';
@@ -85,16 +84,12 @@ export class StationController {
   }
 
   @Get(':id/swaps-today')
-  async getSwaps(@Param('id') id: string) {
-    try {
-      return await this.stationService.getSwapsToday(id);
-    } catch (error) {
-      throw error;
-    }
+  getSwaps(@Param('id') id: string) {
+    return this.stationService.getSwapsToday(id);
   }
 
   @Get(':id/reliability-history')
-  async getReliabilityHistory(@Param('id') id: string) {
+  getReliabilityHistory(@Param('id') id: string) {
     return this.stationService.getStatusHistory(id);
   }
 

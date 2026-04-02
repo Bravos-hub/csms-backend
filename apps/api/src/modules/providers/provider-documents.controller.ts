@@ -25,6 +25,12 @@ import {
 } from './dto/providers.dto';
 import { ProviderDocumentsService } from './provider-documents.service';
 
+type ProviderRequestContext = {
+  user?: {
+    sub?: string;
+  };
+};
+
 @Controller('provider-documents')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(
@@ -41,9 +47,19 @@ export class ProviderDocumentsController {
     private readonly providerDocumentsService: ProviderDocumentsService,
   ) {}
 
+  private actorId(req: ProviderRequestContext): string | undefined {
+    return req.user?.sub;
+  }
+
   @Get()
-  getAll(@Query() query: ProviderDocumentsQueryDto, @Req() req: any) {
-    return this.providerDocumentsService.listDocuments(query, req.user?.sub);
+  getAll(
+    @Query() query: ProviderDocumentsQueryDto,
+    @Req() req: ProviderRequestContext,
+  ) {
+    return this.providerDocumentsService.listDocuments(
+      query,
+      this.actorId(req),
+    );
   }
 
   @Post('upload')
@@ -55,12 +71,12 @@ export class ProviderDocumentsController {
   upload(
     @UploadedFile() file: Express.Multer.File,
     @Body() body: UploadProviderDocumentDto,
-    @Req() req: any,
+    @Req() req: ProviderRequestContext,
   ) {
     return this.providerDocumentsService.uploadDocument(
       file,
       body,
-      req.user?.sub,
+      this.actorId(req),
     );
   }
 
@@ -68,20 +84,26 @@ export class ProviderDocumentsController {
    * @deprecated Use POST /provider-documents/upload for native file uploads.
    */
   @Post()
-  create(@Body() body: CreateProviderDocumentDto, @Req() req: any) {
-    return this.providerDocumentsService.createDocument(body, req.user?.sub);
+  create(
+    @Body() body: CreateProviderDocumentDto,
+    @Req() req: ProviderRequestContext,
+  ) {
+    return this.providerDocumentsService.createDocument(
+      body,
+      this.actorId(req),
+    );
   }
 
   @Patch(':id')
   review(
     @Param('id') id: string,
     @Body() body: ReviewProviderDocumentDto,
-    @Req() req: any,
+    @Req() req: ProviderRequestContext,
   ) {
     return this.providerDocumentsService.reviewDocument(
       id,
       body,
-      req.user?.sub,
+      this.actorId(req),
     );
   }
 
@@ -89,18 +111,18 @@ export class ProviderDocumentsController {
   reviewLegacy(
     @Param('id') id: string,
     @Body() body: ReviewProviderDocumentDto,
-    @Req() req: any,
+    @Req() req: ProviderRequestContext,
   ) {
     return this.providerDocumentsService.reviewDocument(
       id,
       body,
-      req.user?.sub,
+      this.actorId(req),
     );
   }
 
   @Delete(':id')
-  async remove(@Param('id') id: string, @Req() req: any) {
-    await this.providerDocumentsService.deleteDocument(id, req.user?.sub);
+  async remove(@Param('id') id: string, @Req() req: ProviderRequestContext) {
+    await this.providerDocumentsService.deleteDocument(id, this.actorId(req));
     return { success: true };
   }
 }

@@ -1,6 +1,11 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
-import { DocumentCategory, DocumentStatus, EntityType } from '@prisma/client';
+import {
+  DocumentCategory,
+  DocumentStatus,
+  EntityType,
+  Prisma,
+} from '@prisma/client';
 import { UploadDocumentDto } from './dto/upload-document.dto';
 import { VerifyDocumentDto } from './dto/verify-document.dto';
 import { MediaStorageService } from '../../common/services/media-storage.service';
@@ -42,9 +47,7 @@ export class DocumentsService {
         cloudinaryPublicId: uploadResult.publicId,
         uploadedBy: userId,
         isRequired: uploadDto.isRequired || false,
-        metadata: uploadDto.metadata
-          ? JSON.parse(uploadDto.metadata)
-          : undefined,
+        metadata: this.parseMetadata(uploadDto.metadata),
         status: DocumentStatus.PENDING,
       },
     });
@@ -89,5 +92,20 @@ export class DocumentsService {
     const doc = await this.prisma.document.findUnique({ where: { id } });
     await this.mediaStorage.delete(doc?.cloudinaryPublicId);
     return this.prisma.document.delete({ where: { id } });
+  }
+
+  private parseMetadata(
+    metadata: string | undefined,
+  ): Prisma.InputJsonValue | undefined {
+    if (!metadata) {
+      return undefined;
+    }
+
+    try {
+      const parsed: unknown = JSON.parse(metadata);
+      return parsed as Prisma.InputJsonValue;
+    } catch {
+      throw new BadRequestException('metadata must be valid JSON');
+    }
   }
 }

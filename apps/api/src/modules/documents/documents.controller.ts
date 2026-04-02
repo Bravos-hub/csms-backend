@@ -8,8 +8,6 @@ import {
   Body,
   UseInterceptors,
   UploadedFile,
-  Query,
-  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DocumentsService } from './documents.service';

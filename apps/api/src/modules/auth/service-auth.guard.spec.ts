@@ -1,43 +1,61 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { sign } from 'jsonwebtoken';
 import { TenantContextService } from '@app/db';
 import { HttpMetricsService } from '../../common/observability/http-metrics.service';
 import { ServiceAuthGuard } from './service-auth.guard';
 
-function createExecutionContext(request: any, response: any): any {
+type GuardRequest = {
+  headers: {
+    authorization?: string;
+  };
+};
+
+type GuardResponse = {
+  locals: Record<string, unknown>;
+};
+
+function createExecutionContext(
+  request: GuardRequest,
+  response: GuardResponse,
+): ExecutionContext {
   return {
     switchToHttp: () => ({
-      getRequest: () => request,
-      getResponse: () => response,
+      getRequest: <T = GuardRequest>() => request as unknown as T,
+      getResponse: <T = GuardResponse>() => response as unknown as T,
+      getNext: <T = unknown>() => undefined as T,
     }),
-  };
+  } as unknown as ExecutionContext;
 }
 
 describe('ServiceAuthGuard', () => {
+  const configGet = jest.fn<(key: string) => unknown>();
+  const recordTenantRoutingSelection = jest.fn();
+
   const config = {
-    get: jest.fn(),
+    get: configGet,
   } as unknown as ConfigService;
 
   const tenantContext = new TenantContextService();
 
   const metrics = {
-    recordTenantRoutingSelection: jest.fn(),
+    recordTenantRoutingSelection,
   } as unknown as HttpMetricsService;
 
   const guard = new ServiceAuthGuard(config, tenantContext, metrics);
 
   beforeEach(() => {
-    (config.get as jest.Mock).mockReset();
-    (metrics.recordTenantRoutingSelection as jest.Mock).mockReset();
+    configGet.mockReset();
+    recordTenantRoutingSelection.mockReset();
 
-    (config.get as jest.Mock).mockImplementation((key: string) => {
+    configGet.mockImplementation((key: string) => {
       if (key === 'JWT_SERVICE_SECRET') return 'service-secret';
       return undefined;
     });
   });
 
   it('finalizes host-based tenant context for service tokens', () => {
-    const token = require('jsonwebtoken').sign(
+    const token = sign(
       {
         sub: 'svc-1',
         type: 'service',
@@ -46,10 +64,10 @@ describe('ServiceAuthGuard', () => {
       'service-secret',
     );
 
-    const request = {
+    const request: GuardRequest = {
       headers: { authorization: `Bearer ${token}` },
     };
-    const response = { locals: {} };
+    const response: GuardResponse = { locals: {} };
 
     const allowed = tenantContext.run(
       {
@@ -64,13 +82,11 @@ describe('ServiceAuthGuard', () => {
     expect(allowed).toBe(true);
     expect(response.locals.tenantResolutionSource).toBe('host_subdomain');
     expect(response.locals.tenantOrganizationId).toBe('org-host');
-    expect(
-      metrics.recordTenantRoutingSelection as jest.Mock,
-    ).toHaveBeenCalledWith('schema');
+    expect(recordTenantRoutingSelection).toHaveBeenCalledWith('schema');
   });
 
   it('keeps service token platform-scoped when no host tenant exists', () => {
-    const token = require('jsonwebtoken').sign(
+    const token = sign(
       {
         sub: 'svc-1',
         type: 'service',
@@ -78,10 +94,10 @@ describe('ServiceAuthGuard', () => {
       'service-secret',
     );
 
-    const request = {
+    const request: GuardRequest = {
       headers: { authorization: `Bearer ${token}` },
     };
-    const response = { locals: {} };
+    const response: GuardResponse = { locals: {} };
 
     const allowed = tenantContext.run({}, () =>
       guard.canActivate(createExecutionContext(request, response)),
@@ -90,13 +106,11 @@ describe('ServiceAuthGuard', () => {
     expect(allowed).toBe(true);
     expect(response.locals.tenantResolutionSource).toBe('platform_shared');
     expect(response.locals.tenantOrganizationId).toBeNull();
-    expect(
-      metrics.recordTenantRoutingSelection as jest.Mock,
-    ).toHaveBeenCalledWith('shared');
+    expect(recordTenantRoutingSelection).toHaveBeenCalledWith('shared');
   });
 
   it('rejects non-service token type', () => {
-    const token = require('jsonwebtoken').sign(
+    const token = sign(
       {
         sub: 'user-1',
         type: 'access',
@@ -104,7 +118,7 @@ describe('ServiceAuthGuard', () => {
       'service-secret',
     );
 
-    const request = {
+    const request: GuardRequest = {
       headers: { authorization: `Bearer ${token}` },
     };
 

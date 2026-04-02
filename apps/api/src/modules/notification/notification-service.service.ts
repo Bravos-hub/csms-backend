@@ -21,6 +21,15 @@ type NotificationKind =
 
 type NoticeChannel = 'in-app' | 'email' | 'sms';
 
+type SendNotificationPayload = {
+  phone?: string;
+  message?: string;
+  userId?: string;
+  zoneId?: string;
+  country?: string;
+  region?: string;
+};
+
 export interface NotificationItemDto {
   id: string;
   kind: NotificationKind;
@@ -50,7 +59,11 @@ export class NotificationService {
     return [];
   }
 
-  async sendSms(to: string, message: string, context?: DeliveryContext) {
+  async sendSms(
+    to: string,
+    message: string,
+    context?: DeliveryContext,
+  ): Promise<unknown> {
     const route = await this.routingService.resolveSmsRoute({ to, context });
     try {
       return await this.sendSmsWithProvider(route.primary, to, message);
@@ -70,17 +83,32 @@ export class NotificationService {
     }
   }
 
-  async sendNotification(userId: string, type: string, payload: any) {
+  async sendNotification(
+    userId: string,
+    type: string,
+    payload: SendNotificationPayload,
+  ): Promise<unknown> {
     // Logic to resolve userId to phone number (e.g. from User Service)
     // For now, assume payload has phone
-    if (type === 'SMS' && payload.phone) {
+    const phone = payload.phone;
+    const message = payload.message;
+    if (type === 'SMS') {
+      if (
+        typeof phone !== 'string' ||
+        phone.length === 0 ||
+        typeof message !== 'string' ||
+        message.length === 0
+      ) {
+        return { status: 'skipped', reason: 'Not SMS or no phone' };
+      }
+
       const context: DeliveryContext = {
         userId: payload.userId || userId,
         zoneId: payload.zoneId,
         country: payload.country,
         region: payload.region,
       };
-      return this.sendSms(payload.phone, payload.message, context);
+      return this.sendSms(phone, message, context);
     }
     return { status: 'skipped', reason: 'Not SMS or no phone' };
   }
@@ -89,13 +117,16 @@ export class NotificationService {
     provider: SmsProvider,
     to: string,
     message: string,
-  ) {
+  ): Promise<unknown> {
     if (provider === 'submail') {
-      return this.submailSmsService.sendSms(to, message);
+      return this.submailSmsService.sendSms(to, message) as Promise<unknown>;
     }
     if (provider === 'africas_talking') {
-      return this.africasTalkingService.sendSms(to, message);
+      return this.africasTalkingService.sendSms(
+        to,
+        message,
+      ) as Promise<unknown>;
     }
-    return this.twilioService.sendSms(to, message);
+    return this.twilioService.sendSms(to, message) as Promise<unknown>;
   }
 }
