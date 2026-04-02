@@ -18,7 +18,7 @@ async function main() {
   const prisma = new PrismaClient();
 
   try {
-    const teamAttendants = await (prisma as any).stationTeamAssignment.findMany({
+    const teamAttendants = await prisma.stationTeamAssignment.findMany({
       where: {
         role: UserRole.ATTENDANT,
         isActive: true,
@@ -40,15 +40,15 @@ async function main() {
     });
 
     const teamKeys = new Set(
-      teamAttendants.map((row: { userId: string; stationId: string }) => `${row.userId}:${row.stationId}`),
+      teamAttendants.map((row) => `${row.userId}:${row.stationId}`),
     );
     const attendantKeys = new Set(
       attendantAssignments.map((row) => `${row.userId}:${row.stationId}`),
     );
 
     const missingInAttendant = teamAttendants
-      .filter((row: { userId: string; stationId: string }) => !attendantKeys.has(`${row.userId}:${row.stationId}`))
-      .map((row: { id: string; userId: string; stationId: string }) => ({
+      .filter((row) => !attendantKeys.has(`${row.userId}:${row.stationId}`))
+      .map((row) => ({
         stationTeamAssignmentId: row.id,
         userIdHash: hashIdentifier(row.userId),
         stationId: row.stationId,
@@ -74,17 +74,17 @@ async function main() {
 
     const activeUserIdsWithAssignments = new Set(
       (
-        await (prisma as any).stationTeamAssignment.findMany({
+        await prisma.stationTeamAssignment.findMany({
           where: {
             isActive: true,
           },
           select: { userId: true },
         })
-      ).map((row: { userId: string }) => row.userId),
+      ).map((row) => row.userId),
     );
 
     const activeUsersWithoutAssignments = activeUsers
-      .filter((user) => !isPlatformRole(user.role as UserRole))
+      .filter((user) => !isPlatformRole(user.role))
       .filter((user) => !activeUserIdsWithAssignments.has(user.id))
       .map((user) => ({
         userIdHash: hashIdentifier(user.id),

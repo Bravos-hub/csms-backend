@@ -135,7 +135,7 @@ async function main() {
 
   // 2. Create Mock User
   const mockUserId = 'mock-id';
-  const mockUser = await prisma.user.upsert({
+  await prisma.user.upsert({
     where: { id: mockUserId },
     update: {
       region: 'Africa',
@@ -299,7 +299,7 @@ async function main() {
 
   // 2. Create Site
   const siteId = 'default-site-id';
-  const site = await prisma.site.upsert({
+  await prisma.site.upsert({
     where: { id: siteId },
     update: {},
     create: {
@@ -455,7 +455,7 @@ async function main() {
 
   // 4. Create Site for the station (using the same ID the frontend is requesting)
   const frontendSiteId = '0b0817eb-fc2a-413c-94f7-c8826ad57967';
-  const frontendSite = await prisma.site.upsert({
+  await prisma.site.upsert({
     where: { id: frontendSiteId },
     update: {},
     create: {
@@ -596,7 +596,7 @@ async function main() {
   console.log('Seeding subscription plans...');
 
   // Station Owner Plans
-  const ownerStarter = await prisma.subscriptionPlan.upsert({
+  await prisma.subscriptionPlan.upsert({
     where: { code: 'owner-starter' },
     update: {},
     create: {
@@ -649,7 +649,7 @@ async function main() {
     },
   });
 
-  const ownerGrowth = await prisma.subscriptionPlan.upsert({
+  await prisma.subscriptionPlan.upsert({
     where: { code: 'owner-growth' },
     update: {},
     create: {
@@ -705,7 +705,7 @@ async function main() {
     },
   });
 
-  const ownerEnterprise = await prisma.subscriptionPlan.upsert({
+  await prisma.subscriptionPlan.upsert({
     where: { code: 'owner-enterprise' },
     update: {},
     create: {
@@ -761,7 +761,7 @@ async function main() {
   });
 
   // Operator Plans
-  const operatorBasic = await prisma.subscriptionPlan.upsert({
+  await prisma.subscriptionPlan.upsert({
     where: { code: 'op-basic' },
     update: {},
     create: {
@@ -807,7 +807,7 @@ async function main() {
     },
   });
 
-  const operatorPlus = await prisma.subscriptionPlan.upsert({
+  await prisma.subscriptionPlan.upsert({
     where: { code: 'op-plus' },
     update: {},
     create: {
@@ -871,7 +871,7 @@ async function main() {
   });
 
   // Technician Plans
-  const techFree = await prisma.subscriptionPlan.upsert({
+  await prisma.subscriptionPlan.upsert({
     where: { code: 'tech-free' },
     update: {},
     create: {
@@ -907,7 +907,7 @@ async function main() {
     },
   });
 
-  const techPro = await prisma.subscriptionPlan.upsert({
+  await prisma.subscriptionPlan.upsert({
     where: { code: 'tech-pro' },
     update: {},
     create: {
@@ -956,7 +956,7 @@ async function main() {
   });
 
   // Site Owner Plans
-  const siteBasic = await prisma.subscriptionPlan.upsert({
+  await prisma.subscriptionPlan.upsert({
     where: { code: 'so-basic' },
     update: {},
     create: {
@@ -1005,7 +1005,7 @@ async function main() {
     },
   });
 
-  const sitePro = await prisma.subscriptionPlan.upsert({
+  await prisma.subscriptionPlan.upsert({
     where: { code: 'so-pro' },
     update: {},
     create: {
@@ -1251,7 +1251,7 @@ async function main() {
     },
   });
 
-  const provider3 = await prisma.swapProvider.upsert({
+  await prisma.swapProvider.upsert({
     where: { id: 'provider-pending-1' },
     update: {
       name: 'SwapLink Transit',

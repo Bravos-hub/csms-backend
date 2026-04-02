@@ -42,7 +42,7 @@
     "prisma:check": "node scripts/prisma-check.js",
     "backfill:user-org-region": "tsx ./prisma/backfill-user-org-region.ts",
     "seed": "prisma db seed",
-    "lint": "eslint \"{src,apps,packages,test}/**/*.ts\" --fix",
+    "lint": "eslint . --max-warnings 0",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",

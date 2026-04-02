@@ -30,7 +30,7 @@ async function main() {
     for (const source of sourceAssignments) {
       result.processed += 1;
 
-      const exists = await (prisma as any).stationTeamAssignment.findFirst({
+      const exists = await prisma.stationTeamAssignment.findFirst({
         where: {
           userId: source.userId,
           stationId: source.stationId,
@@ -44,7 +44,7 @@ async function main() {
         continue;
       }
 
-      const hasPrimary = await (prisma as any).stationTeamAssignment.findFirst({
+      const hasPrimary = await prisma.stationTeamAssignment.findFirst({
         where: {
           userId: source.userId,
           isPrimary: true,
@@ -54,7 +54,7 @@ async function main() {
 
       if (!flags.dryRun) {
         try {
-          await (prisma as any).stationTeamAssignment.create({
+          await prisma.stationTeamAssignment.create({
             data: {
               userId: source.userId,
               stationId: source.stationId,
@@ -80,16 +80,18 @@ async function main() {
     }
 
     if (!flags.dryRun) {
-      const usersMissingPrimary = await (prisma as any).stationTeamAssignment.findMany({
+      const usersMissingPrimary = await prisma.stationTeamAssignment.findMany({
         where: {
           isActive: true,
         },
         select: { userId: true },
       });
 
-      const uniqueUserIds = Array.from(new Set(usersMissingPrimary.map((row: { userId: string }) => row.userId)));
+      const uniqueUserIds = Array.from(
+        new Set(usersMissingPrimary.map((row) => row.userId)),
+      );
       for (const userId of uniqueUserIds) {
-        const hasPrimary = await (prisma as any).stationTeamAssignment.findFirst({
+        const hasPrimary = await prisma.stationTeamAssignment.findFirst({
           where: {
             userId,
             isActive: true,
@@ -99,7 +101,7 @@ async function main() {
 
         if (hasPrimary) continue;
 
-        const firstActive = await (prisma as any).stationTeamAssignment.findFirst({
+        const firstActive = await prisma.stationTeamAssignment.findFirst({
           where: {
             userId,
             isActive: true,
@@ -108,7 +110,7 @@ async function main() {
         });
 
         if (firstActive) {
-          await (prisma as any).stationTeamAssignment.update({
+          await prisma.stationTeamAssignment.update({
             where: { id: firstActive.id },
             data: { isPrimary: true },
           });

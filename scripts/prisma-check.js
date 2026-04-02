@@ -6,12 +6,34 @@ const path = require('path');
 
 const rootDir = path.resolve(__dirname, '..');
 const prismaEnvPath = path.join(rootDir, 'prisma', '.env');
-const prismaPkgPath = path.join(rootDir, 'node_modules', 'prisma', 'package.json');
-const prismaClientPkgPath = path.join(rootDir, 'node_modules', '@prisma', 'client', 'package.json');
-const generatedClientDir = path.join(rootDir, 'node_modules', '.prisma', 'client');
+const prismaPkgPath = path.join(
+  rootDir,
+  'node_modules',
+  'prisma',
+  'package.json',
+);
+const prismaClientPkgPath = path.join(
+  rootDir,
+  'node_modules',
+  '@prisma',
+  'client',
+  'package.json',
+);
+const generatedClientDir = path.join(
+  rootDir,
+  'node_modules',
+  '.prisma',
+  'client',
+);
 const generatedClientPkgPath = path.join(generatedClientDir, 'package.json');
 const generatedClientIndexPath = path.join(generatedClientDir, 'index.js');
-const prismaRuntimeDir = path.join(rootDir, 'node_modules', '@prisma', 'client', 'runtime');
+const prismaRuntimeDir = path.join(
+  rootDir,
+  'node_modules',
+  '@prisma',
+  'client',
+  'runtime',
+);
 
 function readJson(filePath) {
   const raw = fs.readFileSync(filePath, 'utf8');
@@ -45,7 +67,9 @@ function printRemediation() {
   console.error('');
   console.error('Remediation:');
   console.error('1. Keep backend env vars only in root `.env`');
-  console.error('2. Make `prisma/.env` empty (or remove active key=value lines)');
+  console.error(
+    '2. Make `prisma/.env` empty (or remove active key=value lines)',
+  );
   console.error('3. Rebuild generated Prisma client: `npm run prisma:refresh`');
 }
 
@@ -55,7 +79,7 @@ function main() {
   const prismaEnvKeys = parseActiveEnvKeys(prismaEnvPath);
   if (prismaEnvKeys.length > 0) {
     issues.push(
-      `Root .env policy violation: \`prisma/.env\` has active keys (${prismaEnvKeys.join(', ')}).`
+      `Root .env policy violation: \`prisma/.env\` has active keys (${prismaEnvKeys.join(', ')}).`,
     );
   }
 
@@ -63,25 +87,35 @@ function main() {
   let prismaClientVersion;
 
   if (!fs.existsSync(prismaPkgPath)) {
-    issues.push('Missing `node_modules/prisma/package.json`. Install dependencies first.');
+    issues.push(
+      'Missing `node_modules/prisma/package.json`. Install dependencies first.',
+    );
   } else {
     prismaVersion = readJson(prismaPkgPath).version;
   }
 
   if (!fs.existsSync(prismaClientPkgPath)) {
-    issues.push('Missing `node_modules/@prisma/client/package.json`. Install dependencies first.');
+    issues.push(
+      'Missing `node_modules/@prisma/client/package.json`. Install dependencies first.',
+    );
   } else {
     prismaClientVersion = readJson(prismaClientPkgPath).version;
   }
 
-  if (prismaVersion && prismaClientVersion && prismaVersion !== prismaClientVersion) {
+  if (
+    prismaVersion &&
+    prismaClientVersion &&
+    prismaVersion !== prismaClientVersion
+  ) {
     issues.push(
-      `Version mismatch: prisma@${prismaVersion} does not match @prisma/client@${prismaClientVersion}.`
+      `Version mismatch: prisma@${prismaVersion} does not match @prisma/client@${prismaClientVersion}.`,
     );
   }
 
   if (!fs.existsSync(generatedClientDir)) {
-    issues.push('Missing generated Prisma client at `node_modules/.prisma/client`.');
+    issues.push(
+      'Missing generated Prisma client at `node_modules/.prisma/client`.',
+    );
   }
 
   if (fs.existsSync(generatedClientPkgPath) && prismaClientVersion) {
@@ -89,17 +123,22 @@ function main() {
     if (generatedVersion !== prismaClientVersion) {
       issues.push(
         `Generated client drift: node_modules/.prisma/client@${generatedVersion} ` +
-          `does not match @prisma/client@${prismaClientVersion}.`
+          `does not match @prisma/client@${prismaClientVersion}.`,
       );
     }
-  } else if (fs.existsSync(generatedClientDir) && !fs.existsSync(generatedClientPkgPath)) {
-    issues.push('Generated Prisma client package metadata is missing (`node_modules/.prisma/client/package.json`).');
+  } else if (
+    fs.existsSync(generatedClientDir) &&
+    !fs.existsSync(generatedClientPkgPath)
+  ) {
+    issues.push(
+      'Generated Prisma client package metadata is missing (`node_modules/.prisma/client/package.json`).',
+    );
   }
 
   if (fs.existsSync(generatedClientIndexPath)) {
     const generatedIndex = fs.readFileSync(generatedClientIndexPath, 'utf8');
     const runtimeMatches = Array.from(
-      generatedIndex.matchAll(/@prisma\/client\/runtime\/([A-Za-z0-9._/-]+)/g)
+      generatedIndex.matchAll(/@prisma\/client\/runtime\/([A-Za-z0-9._/-]+)/g),
     );
     const runtimeTargets = new Set(runtimeMatches.map((m) => m[1]));
 
@@ -108,12 +147,14 @@ function main() {
       if (!fs.existsSync(runtimeFilePath)) {
         issues.push(
           `Invalid generated runtime import target: @prisma/client/runtime/${runtimeTarget} ` +
-            `does not exist at ${path.relative(rootDir, runtimeFilePath)}.`
+            `does not exist at ${path.relative(rootDir, runtimeFilePath)}.`,
         );
       }
     }
   } else if (fs.existsSync(generatedClientDir)) {
-    issues.push('Generated Prisma client entry file is missing (`node_modules/.prisma/client/index.js`).');
+    issues.push(
+      'Generated Prisma client entry file is missing (`node_modules/.prisma/client/index.js`).',
+    );
   }
 
   if (issues.length > 0) {
@@ -126,7 +167,7 @@ function main() {
   }
 
   console.log(
-    `[prisma:check] OK - prisma@${prismaVersion} and @prisma/client@${prismaClientVersion} are aligned, generated client is valid.`
+    `[prisma:check] OK - prisma@${prismaVersion} and @prisma/client@${prismaClientVersion} are aligned, generated client is valid.`,
   );
 }
 
