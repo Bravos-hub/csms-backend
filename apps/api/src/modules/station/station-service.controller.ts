@@ -21,6 +21,7 @@ import {
   UpdateChargePointBootstrapDto,
   RemoteStartChargePointCommandDto,
   UnlockChargePointCommandDto,
+  RemoteStopChargePointCommandDto,
 } from './dto/station.dto';
 
 @Controller('stations')
@@ -219,6 +220,24 @@ export class ChargePointController {
   @Post(':id/commands/unlock')
   unlock(@Param('id') id: string, @Body() dto: UnlockChargePointCommandDto) {
     return this.stationService.unlockConnector(id, dto);
+  }
+
+  @Post(':id/commands/remote-stop')
+  remoteStop(
+    @Param('id') id: string,
+    @Body() dto: RemoteStopChargePointCommandDto,
+  ) {
+    return this.stationService.remoteStopChargePoint(id, dto);
+  }
+
+  @Post(':id/commands/pause')
+  pauseChargePoint(@Param('id') id: string) {
+    return this.stationService.pauseChargePoint(id);
+  }
+
+  @Post(':id/commands/resume')
+  resumeChargePoint(@Param('id') id: string) {
+    return this.stationService.resumeChargePoint(id);
   }
 
   @Get(':id/security')

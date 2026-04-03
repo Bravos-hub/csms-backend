@@ -450,7 +450,7 @@ export const CANONICAL_ROLE_DEFINITIONS: Record<
     label: 'Tenant Finance Analyst',
     description:
       'Tenant-level financial operator for revenue, settlements, and billing visibility.',
-    family: 'finance' as any, // Temporary cast until family type is updated
+    family: 'finance',
     scopeType: 'tenant',
     permissionScope: 'TENANT',
     customizable: true,

@@ -17,6 +17,7 @@ import {
   UpdateChargePointBootstrapDto,
   RemoteStartChargePointCommandDto,
   UnlockChargePointCommandDto,
+  RemoteStopChargePointCommandDto,
 } from './dto/station.dto';
 import { ChargerProvisioningService } from './provisioning/charger-provisioning.service';
 import { parsePaginationOptions } from '../../common/utils/pagination';
@@ -491,6 +492,7 @@ export class StationService {
         allowedInsecure: authProfile === 'mtls_bootstrap',
         type: createDto.type || 'CCS2',
         power: createDto.power || 50.0,
+        smartChargingEnabled: createDto.smartChargingEnabled ?? false,
       },
       include: { station: { include: { site: true } } },
     });
@@ -708,6 +710,72 @@ export class StationService {
       chargePointId: cp.id,
       commandType: 'UnlockConnector',
       message: 'Unlock connector command queued',
+    };
+  }
+
+  async remoteStopChargePoint(
+    id: string,
+    dto: RemoteStopChargePointCommandDto = {},
+  ) {
+    const cp = await this.getExistingChargePoint(id);
+
+    const response = await this.commands.enqueueCommand({
+      commandType: 'RemoteStop',
+      stationId: cp.stationId,
+      chargePointId: cp.id,
+      payload: dto as Record<string, unknown>,
+      requestedBy: {},
+    });
+
+    this.logger.log(`Queued RemoteStop command for charge point ${id}`);
+    return {
+      ...response,
+      stationId: cp.stationId,
+      chargePointId: cp.id,
+      commandType: 'RemoteStop',
+      message: 'Remote stop command queued',
+    };
+  }
+
+  async pauseChargePoint(id: string) {
+    const cp = await this.getExistingChargePoint(id);
+
+    const response = await this.commands.enqueueCommand({
+      commandType: 'PauseSession',
+      stationId: cp.stationId,
+      chargePointId: cp.id,
+      payload: {},
+      requestedBy: {},
+    });
+
+    this.logger.log(`Queued PauseSession command for charge point ${id}`);
+    return {
+      ...response,
+      stationId: cp.stationId,
+      chargePointId: cp.id,
+      commandType: 'PauseSession',
+      message: 'Pause session command queued',
+    };
+  }
+
+  async resumeChargePoint(id: string) {
+    const cp = await this.getExistingChargePoint(id);
+
+    const response = await this.commands.enqueueCommand({
+      commandType: 'ResumeSession',
+      stationId: cp.stationId,
+      chargePointId: cp.id,
+      payload: {},
+      requestedBy: {},
+    });
+
+    this.logger.log(`Queued ResumeSession command for charge point ${id}`);
+    return {
+      ...response,
+      stationId: cp.stationId,
+      chargePointId: cp.id,
+      commandType: 'ResumeSession',
+      message: 'Resume session command queued',
     };
   }
 

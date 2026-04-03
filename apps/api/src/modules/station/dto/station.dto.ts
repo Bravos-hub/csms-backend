@@ -194,6 +194,10 @@ export class CreateChargePointDto {
   @IsString({ each: true })
   @IsOptional()
   allowedCidrs?: string[];
+
+  @IsBoolean()
+  @IsOptional()
+  smartChargingEnabled?: boolean;
 }
 
 export class UpdateChargePointDto {
@@ -212,6 +216,10 @@ export class UpdateChargePointDto {
   @IsNumber()
   @IsOptional()
   power?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  smartChargingEnabled?: boolean;
 }
 
 export class BindChargePointCertificateDto {
@@ -284,4 +292,14 @@ export class UnlockChargePointCommandDto {
   @Min(1)
   @IsOptional()
   evseId?: number;
+}
+
+export class RemoteStopChargePointCommandDto {
+  @IsString()
+  @IsOptional()
+  sessionId?: string;
+
+  @IsString()
+  @IsOptional()
+  transactionId?: string;
 }

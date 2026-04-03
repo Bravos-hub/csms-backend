@@ -709,6 +709,7 @@ model ChargePoint {
   clientSecretHash String?
   clientSecretSalt String?
   allowedInsecure  Boolean @default(false)
+  smartChargingEnabled Boolean @default(false)
 
   station  Station   @relation(fields: [stationId], references: [id])
   sessions Session[]
