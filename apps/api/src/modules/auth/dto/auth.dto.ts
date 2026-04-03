@@ -324,6 +324,12 @@ export class SwitchOrganizationDto {
   organizationId: string;
 }
 
+export class SwitchTenantDto {
+  @IsString()
+  @IsNotEmpty()
+  tenantId: string;
+}
+
 export class AcceptInvitationResponseDto {
   email: string;
   organizationName: string;

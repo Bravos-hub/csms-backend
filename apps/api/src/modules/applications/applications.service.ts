@@ -600,7 +600,7 @@ export class ApplicationsService {
             include: tenantApplicationWithSiteInclude,
           });
 
-          const tenant = await tx.tenant.create({
+          const tenant = await tx.siteTenant.create({
             data: {
               name: application.organizationName,
               type: 'CPO',

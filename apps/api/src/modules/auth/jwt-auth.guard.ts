@@ -10,15 +10,24 @@ import { Reflector } from '@nestjs/core';
 import * as jwt from 'jsonwebtoken';
 import type { Request, Response } from 'express';
 import { TenantContextService } from '@app/db';
+import type { CanonicalRoleKey } from '@app/domain';
 import { HttpMetricsService } from '../../common/observability/http-metrics.service';
 import { TenantDirectoryService } from '../../common/tenant/tenant-directory.service';
 import { IS_PUBLIC_KEY } from './public.decorator';
 
 type JwtUserClaims = jwt.JwtPayload & {
   role?: string;
+  canonicalRole?: CanonicalRoleKey;
+  permissions?: string[];
   organizationId?: string;
   activeOrganizationId?: string;
+  tenantId?: string;
+  activeTenantId?: string;
   orgId?: string;
+  accessProfile?: {
+    canonicalRole?: CanonicalRoleKey;
+    permissions?: string[];
+  };
 };
 
 type AuthenticatedRequest = Request & {
@@ -87,6 +96,8 @@ export class JwtAuthGuard implements CanActivate {
       request.user = payload;
 
       const authenticatedOrganizationId =
+        payload.activeTenantId ||
+        payload.tenantId ||
         payload.activeOrganizationId ||
         payload.organizationId ||
         payload.orgId ||

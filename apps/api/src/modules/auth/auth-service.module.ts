@@ -12,6 +12,8 @@ import { NotificationServiceModule } from '../notification/notification-service.
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { ServiceAuthGuard } from './service-auth.guard';
 import { ServiceScopeGuard } from './service-scope.guard';
+import { PermissionsGuard } from './permissions.guard';
+import { RolesGuard } from './roles.guard';
 import { MailModule } from '../mail/mail.module';
 import { AuthAnomalyMonitorService } from './auth-anomaly-monitor.service';
 import { AccessProfileService } from './access-profile.service';
@@ -32,10 +34,19 @@ import { AccessProfileService } from './access-profile.service';
     JwtAuthGuard,
     ServiceAuthGuard,
     ServiceScopeGuard,
+    PermissionsGuard,
+    RolesGuard,
     AdminApprovalService,
     AuthAnomalyMonitorService,
     AccessProfileService,
   ],
-  exports: [JwtAuthGuard, ServiceAuthGuard, ServiceScopeGuard, MetricsService],
+  exports: [
+    JwtAuthGuard,
+    ServiceAuthGuard,
+    ServiceScopeGuard,
+    PermissionsGuard,
+    RolesGuard,
+    MetricsService,
+  ],
 })
 export class AuthModule {}

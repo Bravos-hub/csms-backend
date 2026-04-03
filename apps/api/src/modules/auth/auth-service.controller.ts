@@ -36,6 +36,7 @@ import {
   UpdateUserDto,
   ServiceTokenRequestDto,
   SwitchOrganizationDto,
+  SwitchTenantDto,
   TeamInviteUserDto,
   TeamStationAssignmentsUpdateDto,
   StaffPayoutProfileDto,
@@ -210,6 +211,40 @@ export class AuthController {
       userId,
       body.organizationId,
     );
+
+    res.cookie(
+      COOKIE_NAMES.ACCESS_TOKEN,
+      result.accessToken,
+      getCookieOptions(false),
+    );
+    res.cookie(
+      COOKIE_NAMES.REFRESH_TOKEN,
+      result.refreshToken,
+      getCookieOptions(true),
+    );
+
+    return {
+      user: result.user,
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+    };
+  }
+
+  @Post('switch-tenant')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Switch active tenant context' })
+  async switchTenant(
+    @Body() body: SwitchTenantDto,
+    @Req() req: Request & { user?: { sub?: string } },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const userId = req.user?.sub;
+    if (!userId) {
+      throw new BadRequestException('Authenticated user is required');
+    }
+
+    const result = await this.authService.switchTenant(userId, body.tenantId);
 
     res.cookie(
       COOKIE_NAMES.ACCESS_TOKEN,

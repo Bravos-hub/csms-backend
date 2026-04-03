@@ -72,7 +72,7 @@ describe('AccessProfileService', () => {
     });
 
     expect(profile.canonicalRole).toBe('TENANT_ADMIN');
-    expect(profile.scope.type).toBe('organization');
+    expect(profile.scope.type).toBe('tenant');
     expect(profile.scope.organizationId).toBe('org-tenant');
     expect(profile.permissions).toContain('tenant.users.write');
     expect(profile.permissions).toContain('tenant.tariffs.write');
@@ -88,7 +88,7 @@ describe('AccessProfileService', () => {
       providerId: 'provider-1',
     });
 
-    expect(profile.canonicalRole).toBe('EXTERNAL_PROVIDER_ADMIN');
+    expect(profile.canonicalRole).toBe('ROAMING_MANAGER');
     expect(profile.scope.type).toBe('provider');
     expect(profile.scope.providerId).toBe('provider-1');
     expect(profile.permissions).toContain('ocpi.partners.write');

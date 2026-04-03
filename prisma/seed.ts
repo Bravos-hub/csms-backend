@@ -3,6 +3,7 @@ import {
   SitePurpose,
   LeaseType,
   Footfall,
+  PermissionScope,
   ZoneType,
   MembershipStatus,
 } from '@prisma/client';
@@ -11,6 +12,11 @@ import * as bcrypt from 'bcrypt';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 import { URL } from 'url';
+import {
+  ALL_PERMISSION_CODES,
+  CANONICAL_ROLE_DEFINITIONS,
+  CANONICAL_ROLE_KEYS,
+} from '../packages/domain/src/rbac';
 
 // Load environment variables
 dotenv.config();
@@ -70,6 +76,95 @@ async function ensureEvzoneOrganization(client: PrismaClient) {
   });
 }
 
+function permissionLabel(code: string) {
+  return code
+    .split('.')
+    .map((segment) => segment.replace(/_/g, ' '))
+    .join(' / ');
+}
+
+async function syncCanonicalRbacCatalog(client: PrismaClient) {
+  const permissionIdByCode = new Map<string, string>();
+
+  for (const code of ALL_PERMISSION_CODES) {
+    const permission = await client.permissionDefinition.upsert({
+      where: { code },
+      update: {
+        label: permissionLabel(code),
+        scope: code.startsWith('platform.')
+          ? PermissionScope.PLATFORM
+          : PermissionScope.TENANT,
+        resource: code.split('.')[0] || null,
+        action: code.split('.').slice(1).join('.') || null,
+        isSystem: true,
+      },
+      create: {
+        code,
+        label: permissionLabel(code),
+        scope: code.startsWith('platform.')
+          ? PermissionScope.PLATFORM
+          : PermissionScope.TENANT,
+        resource: code.split('.')[0] || null,
+        action: code.split('.').slice(1).join('.') || null,
+        isSystem: true,
+      },
+    });
+
+    permissionIdByCode.set(code, permission.id);
+  }
+
+  for (const roleKey of CANONICAL_ROLE_KEYS) {
+    const definition = CANONICAL_ROLE_DEFINITIONS[roleKey];
+    const template = await client.systemRoleTemplate.upsert({
+      where: { key: roleKey },
+      update: {
+        label: definition.label,
+        description: definition.description,
+        family: definition.family,
+        scope:
+          definition.permissionScope === 'PLATFORM'
+            ? PermissionScope.PLATFORM
+            : PermissionScope.TENANT,
+        isPlatformRole: definition.permissionScope === 'PLATFORM',
+        customizable: definition.customizable,
+      },
+      create: {
+        key: roleKey,
+        label: definition.label,
+        description: definition.description,
+        family: definition.family,
+        scope:
+          definition.permissionScope === 'PLATFORM'
+            ? PermissionScope.PLATFORM
+            : PermissionScope.TENANT,
+        isPlatformRole: definition.permissionScope === 'PLATFORM',
+        customizable: definition.customizable,
+      },
+    });
+
+    for (const permissionCode of definition.permissions) {
+      const permissionId = permissionIdByCode.get(permissionCode);
+      if (!permissionId) {
+        continue;
+      }
+
+      await client.systemRoleTemplatePermission.upsert({
+        where: {
+          roleTemplateId_permissionId: {
+            roleTemplateId: template.id,
+            permissionId,
+          },
+        },
+        update: {},
+        create: {
+          roleTemplateId: template.id,
+          permissionId,
+        },
+      });
+    }
+  }
+}
+
 async function main() {
   // Initialize Prisma client with pg adapter (same as PrismaService)
   const connectionString = process.env.DATABASE_URL;
@@ -91,6 +186,7 @@ async function main() {
 
   console.log('Seeding database...');
   const evzoneOrganization = await ensureEvzoneOrganization(prisma);
+  await syncCanonicalRbacCatalog(prisma);
 
   // 1. Create Super Admin User
   const superAdminPassword = await bcrypt.hash('Password123.', 10);

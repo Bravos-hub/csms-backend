@@ -50,6 +50,9 @@ import { TenantRoutingModule } from './common/tenant/tenant-routing.module';
 import { AttendantModule } from './modules/attendant/attendant.module';
 import { VehiclesModule } from './modules/vehicles/vehicles.module';
 import { BmsModule } from './modules/bms/bms.module';
+import { TenantRbacModule } from './modules/tenant-rbac/tenant-rbac.module';
+import { TenantProvisioningModule } from './modules/tenant-provisioning/tenant-provisioning.module';
+import { PlatformModule } from './modules/platform/platform.module';
 
 @Module({
   imports: [
@@ -63,6 +66,7 @@ import { BmsModule } from './modules/bms/bms.module';
     ObservabilityModule,
     TenantRoutingModule,
     PrismaModule,
+    TenantProvisioningModule,
 
     // Existing
     AuthModule,
@@ -106,6 +110,8 @@ import { BmsModule } from './modules/bms/bms.module';
     AttendantModule,
     VehiclesModule,
     BmsModule,
+    TenantRbacModule,
+    PlatformModule,
   ],
   controllers: [AppController],
   providers: [
