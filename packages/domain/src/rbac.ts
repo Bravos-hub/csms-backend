@@ -33,6 +33,7 @@ export const CANONICAL_ROLE_KEYS = [
   'SMART_CHARGING_ENGINEER',
   'OPERATIONS_OPERATOR',
   'FIELD_TECHNICIAN',
+  'TENANT_FINANCE_ANALYST',
   'EXTERNAL_PROVIDER_OPERATOR',
 ] as const;
 
@@ -53,6 +54,7 @@ export type AccessRoleFamily =
   | 'platform'
   | 'tenant'
   | 'operations'
+  | 'finance'
   | 'fleet'
   | 'technical'
   | 'provider';
@@ -254,6 +256,17 @@ const EXTERNAL_PROVIDER_OPERATOR_PERMISSIONS = [
   'ocpi.commands.write',
 ] as const;
 
+const TENANT_FINANCE_ANALYST_PERMISSIONS = [
+  'finance.billing.read',
+  'finance.payouts.read',
+  'finance.settlement.read',
+  'finance.revenue_reports.read',
+  'tenant.tariffs.read',
+  'sites.read',
+  'stations.read',
+  'sessions.read',
+] as const;
+
 const dedupe = (...groups: readonly (readonly string[])[]): string[] =>
   Array.from(new Set(groups.flat())).sort();
 
@@ -431,6 +444,18 @@ export const CANONICAL_ROLE_DEFINITIONS: Record<
     customizable: true,
     defaultLegacyRole: 'TECHNICIAN_ORG',
     permissions: dedupe(FIELD_TECHNICIAN_PERMISSIONS),
+  },
+  TENANT_FINANCE_ANALYST: {
+    key: 'TENANT_FINANCE_ANALYST',
+    label: 'Tenant Finance Analyst',
+    description:
+      'Tenant-level financial operator for revenue, settlements, and billing visibility.',
+    family: 'finance' as any, // Temporary cast until family type is updated
+    scopeType: 'tenant',
+    permissionScope: 'TENANT',
+    customizable: true,
+    defaultLegacyRole: 'OWNER',
+    permissions: dedupe(TENANT_FINANCE_ANALYST_PERMISSIONS),
   },
   EXTERNAL_PROVIDER_OPERATOR: {
     key: 'EXTERNAL_PROVIDER_OPERATOR',
