@@ -230,7 +230,7 @@
       "fieldConfig": {
         "defaults": {
           "mappings": [],
-          "unit": "s"
+          "unit": "ms"
         },
         "overrides": []
       },
