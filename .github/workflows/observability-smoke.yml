@@ -152,6 +152,9 @@ jobs:
           wait_for_url "http://localhost:9090/-/ready"
           wait_for_url "http://localhost:3001/api/health"
 
+      - name: Allow Prometheus initial scrape cycle
+        run: sleep 20
+
       - name: Run observability smoke check
         run: pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/ops/observability-smoke-check.ps1 -ApiBaseUrl http://localhost:3000 -WorkerBaseUrl http://localhost:3010 -PrometheusBaseUrl http://localhost:9090 -TimeoutSeconds 10
 
