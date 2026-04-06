@@ -65,6 +65,7 @@ jobs:
       API_KAFKA_REQUIRED_ON_STARTUP: 'false'
       WORKER_COMMAND_EVENTS_ENABLED: 'false'
       OUTBOX_ENABLED: 'false'
+      MEDIA_PROVIDER: disabled
       REDIS_URL: redis://localhost:6379
 
     steps:
