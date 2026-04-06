@@ -26,6 +26,7 @@ Reference scripts:
 - Latest production candidate deployed to staging.
 - Alerts and dashboard panels live.
   Dashboard template: `ops/dashboards/launch-command-center.grafana.json`
+  Local observability setup: `docs/operations/observability-local-setup.md`
 - On-call roster and escalation bridge active.
 
 ## Exit Criteria

@@ -4,6 +4,10 @@ Dashboard template:
 
 - `ops/dashboards/launch-command-center.grafana.json`
 
+Local stack setup and validation runbook:
+
+- `docs/operations/observability-local-setup.md`
+
 ## Scope
 
 The dashboard template is aligned to launch SLO monitoring for:
