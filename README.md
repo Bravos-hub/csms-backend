@@ -179,6 +179,35 @@ Use the startup script with `.env`:
 - URL: [`http://localhost:3000/api/v1/auth/metrics`](http://localhost:3000/api/v1/auth/metrics)
 - Provides: Login/Logout/Refresh success rates and latency.
 
+### Observability Smoke (Local + CI)
+
+Quick local run:
+
+```powershell
+npm run ops:obs:up
+npm run ops:obs:smoke
+```
+
+Direct script invocation:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/ops/observability-smoke-check.ps1 `
+  -ApiBaseUrl http://localhost:3000 `
+  -WorkerBaseUrl http://localhost:3010 `
+  -PrometheusBaseUrl http://localhost:9090 `
+  -TimeoutSeconds 10
+```
+
+GitHub Actions workflow:
+
+- File: `.github/workflows/observability-smoke.yml`
+- Provisions Postgres + Kafka (`bitnamilegacy/kafka:3.7`) as workflow services.
+- Sets `MEDIA_PROVIDER=disabled` for CI startup so Cloudinary secrets are not required for smoke runs.
+- Waits one initial Prometheus scrape cycle (`sleep 20`) before asserting target health.
+- Uploads `api.log` and `worker.log` artifacts on failure.
+
+Detailed runbook: [`docs/operations/observability-local-setup.md`](./docs/operations/observability-local-setup.md)
+
 ### Manual Verification
 
 1.  **Auth API**:
