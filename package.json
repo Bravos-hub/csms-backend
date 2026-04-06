@@ -35,6 +35,8 @@
     "ops:obs:down": "docker compose -f ops/observability/docker-compose.yml down",
     "ops:obs:status": "docker compose -f ops/observability/docker-compose.yml ps",
     "ops:obs:logs": "docker compose -f ops/observability/docker-compose.yml logs -f",
+    "ops:obs:smoke": "powershell -ExecutionPolicy Bypass -File ./scripts/ops/observability-smoke-check.ps1",
+    "ops:observability:smoke": "powershell -ExecutionPolicy Bypass -File ./scripts/ops/observability-smoke-check.ps1",
     "ops:check-cross-repo-contracts": "tsx ./scripts/ops/check-cross-repo-contracts.ts",
     "ops:check-command-pipeline-migration": "tsx ./scripts/ops/check-command-pipeline-migration.ts",
     "ops:backfill-station-team-assignments": "tsx ./scripts/ops/backfill-station-team-assignments.ts",
