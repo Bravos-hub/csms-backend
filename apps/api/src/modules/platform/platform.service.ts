@@ -17,12 +17,15 @@ import {
   SuspendTenantDto,
   UpdatePlatformTenantDto,
 } from '../tenant-provisioning/dto/tenant-provisioning.dto';
+import { AssignTenantMembershipDto } from '../tenant-rbac/dto/tenant-rbac.dto';
+import { TenantRbacService } from '../tenant-rbac/tenant-rbac.service';
 
 @Injectable()
 export class PlatformService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenantProvisioning: TenantProvisioningService,
+    private readonly tenantRbac: TenantRbacService,
   ) {}
 
   listTenants() {
@@ -39,6 +42,34 @@ export class PlatformService {
 
   suspendTenant(id: string, dto: SuspendTenantDto) {
     return this.tenantProvisioning.setTenantSuspended(id, dto.suspended);
+  }
+
+  async assignTenantMembership(
+    tenantId: string,
+    dto: AssignTenantMembershipDto,
+    actorId: string,
+  ) {
+    const controlPlane = this.prisma.getControlPlaneClient();
+    const [tenant, user] = await Promise.all([
+      controlPlane.organization.findUnique({
+        where: { id: tenantId },
+        select: { id: true },
+      }),
+      controlPlane.user.findUnique({
+        where: { id: dto.userId },
+        select: { id: true },
+      }),
+    ]);
+
+    if (!tenant) {
+      throw new NotFoundException('Tenant not found');
+    }
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return this.tenantRbac.assignMembership(tenantId, dto, actorId);
   }
 
   listPlatformRoleTemplates() {

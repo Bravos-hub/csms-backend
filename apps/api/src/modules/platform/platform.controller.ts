@@ -20,6 +20,7 @@ import {
   SuspendTenantDto,
   UpdatePlatformTenantDto,
 } from '../tenant-provisioning/dto/tenant-provisioning.dto';
+import { AssignTenantMembershipDto } from '../tenant-rbac/dto/tenant-rbac.dto';
 
 type PlatformRequest = Request & {
   user?: {
@@ -54,6 +55,21 @@ export class PlatformController {
   @RequirePermissions('platform.tenants.write')
   suspendTenant(@Param('id') id: string, @Body() body: SuspendTenantDto) {
     return this.platformService.suspendTenant(id, body);
+  }
+
+  @Post('tenants/:id/memberships')
+  @RequirePermissions('platform.tenants.write')
+  assignTenantMembership(
+    @Param('id') id: string,
+    @Body() body: AssignTenantMembershipDto,
+    @Req() req: PlatformRequest,
+  ) {
+    const actorId = req.user?.sub;
+    if (!actorId) {
+      throw new BadRequestException('Authenticated user is required');
+    }
+
+    return this.platformService.assignTenantMembership(id, body, actorId);
   }
 
   @Get('role-templates')
