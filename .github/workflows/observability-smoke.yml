@@ -1,0 +1,190 @@
+name: Observability Smoke Check
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+
+permissions:
+  contents: read
+
+jobs:
+  observability-smoke:
+    name: Observability Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: evzone_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d evzone_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+      kafka:
+        image: bitnami/kafka:3.7
+        env:
+          KAFKA_CFG_NODE_ID: 1
+          KAFKA_CFG_PROCESS_ROLES: broker,controller
+          KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+          KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+          KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: 'true'
+          ALLOW_PLAINTEXT_LISTENER: 'yes'
+        ports:
+          - 9092:9092
+        options: >-
+          --health-cmd "bash -lc '/opt/bitnami/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1'"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 30
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/evzone_ci?schema=public
+      PORT: 3000
+      WORKER_PORT: 3010
+      KAFKA_BROKERS: localhost:9092
+      KAFKA_EVENTS_ENABLED: 'false'
+      API_READINESS_REQUIRE_KAFKA: 'false'
+      API_READINESS_REQUIRE_REDIS: 'false'
+      API_KAFKA_REQUIRED_ON_STARTUP: 'false'
+      WORKER_COMMAND_EVENTS_ENABLED: 'false'
+      OUTBOX_ENABLED: 'false'
+      REDIS_URL: redis://localhost:6379
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Build API and worker
+        run: npm run build
+
+      - name: Start API and worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup node dist/apps/api/main > api.log 2>&1 &
+          echo $! > api.pid
+
+          nohup node dist/apps/worker/main > worker.log 2>&1 &
+          echo $! > worker.pid
+
+      - name: Wait for API and worker readiness endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          wait_for_url() {
+            local url="$1"
+            local attempts="${2:-60}"
+            local delay="${3:-2}"
+            local i=1
+            while [ "$i" -le "$attempts" ]; do
+              if curl -fsS --max-time 5 "$url" >/dev/null; then
+                echo "Ready: $url"
+                return 0
+              fi
+              echo "Waiting for $url ($i/$attempts)"
+              i=$((i + 1))
+              sleep "$delay"
+            done
+            echo "Timed out waiting for $url"
+            return 1
+          }
+
+          wait_for_url "http://localhost:3000/health/ready"
+          wait_for_url "http://localhost:3010/health/ready"
+
+      - name: Start Prometheus and Grafana
+        run: docker compose -f ops/observability/docker-compose.yml up -d
+
+      - name: Wait for Prometheus and Grafana
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          wait_for_url() {
+            local url="$1"
+            local attempts="${2:-60}"
+            local delay="${3:-2}"
+            local i=1
+            while [ "$i" -le "$attempts" ]; do
+              if curl -fsS --max-time 5 "$url" >/dev/null; then
+                echo "Ready: $url"
+                return 0
+              fi
+              echo "Waiting for $url ($i/$attempts)"
+              i=$((i + 1))
+              sleep "$delay"
+            done
+            echo "Timed out waiting for $url"
+            return 1
+          }
+
+          wait_for_url "http://localhost:9090/-/ready"
+          wait_for_url "http://localhost:3001/api/health"
+
+      - name: Run observability smoke check
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/ops/observability-smoke-check.ps1 -ApiBaseUrl http://localhost:3000 -WorkerBaseUrl http://localhost:3010 -PrometheusBaseUrl http://localhost:9090 -TimeoutSeconds 10
+
+      - name: Upload runtime logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: observability-smoke-logs
+          path: |
+            api.log
+            worker.log
+
+      - name: Show logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          echo "=== API LOG ==="
+          tail -n 200 api.log || true
+          echo "=== WORKER LOG ==="
+          tail -n 200 worker.log || true
+          echo "=== OBSERVABILITY STACK ==="
+          docker compose -f ops/observability/docker-compose.yml ps || true
+          docker compose -f ops/observability/docker-compose.yml logs --tail=200 || true
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [ -f api.pid ]; then
+            kill "$(cat api.pid)" 2>/dev/null || true
+          fi
+          if [ -f worker.pid ]; then
+            kill "$(cat worker.pid)" 2>/dev/null || true
+          fi
+          docker compose -f ops/observability/docker-compose.yml down -v || true

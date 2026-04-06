@@ -95,6 +95,15 @@ Skip Prometheus target API check (only app endpoint checks):
 powershell -ExecutionPolicy Bypass -File ./scripts/ops/observability-smoke-check.ps1 -SkipPrometheusTargetCheck
 ```
 
+## CI Automation
+
+Observability validation is also automated in GitHub Actions:
+
+- `.github/workflows/observability-smoke.yml`
+
+The workflow provisions Postgres + Kafka, starts API/worker, starts local
+Prometheus/Grafana stack, and runs the same smoke-check script.
+
 ## Expected Success Signals
 
 1. `GET /health/ready` returns `status: ok` for API and worker.
