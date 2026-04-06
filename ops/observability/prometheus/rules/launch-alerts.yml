@@ -1,0 +1,62 @@
+groups:
+  - name: evzone-api-worker-launch
+    rules:
+      - alert: ApiReadinessDown
+        expr: api_health_ready_status == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: api
+        annotations:
+          summary: API readiness is failing
+          description: API /health/ready is not returning healthy.
+
+      - alert: WorkerReadinessDown
+        expr: worker_health_ready_status == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: worker
+        annotations:
+          summary: Worker readiness is failing
+          description: Worker /health/ready is not returning healthy.
+
+      - alert: ConsumerLagHigh
+        expr: command_events_consumer_lag_total > 1000
+        for: 10m
+        labels:
+          severity: high
+          service: worker
+        annotations:
+          summary: Consumer lag is above threshold
+          description: Command event consumer lag exceeded 1000 messages for 10m.
+
+      - alert: OutboxBacklogGrowing
+        expr: outbox_backlog_depth > 10000
+        for: 10m
+        labels:
+          severity: high
+          service: worker
+        annotations:
+          summary: Outbox backlog is above threshold
+          description: Outbox queued depth exceeded 10k for 10m.
+
+      - alert: OutboxOldestQueuedTooOld
+        expr: outbox_oldest_queued_age_seconds > 600
+        for: 10m
+        labels:
+          severity: high
+          service: worker
+        annotations:
+          summary: Oldest queued outbox item is stale
+          description: Outbox oldest queued age exceeded 10 minutes.
+
+      - alert: DeadLetterSpike
+        expr: increase(outbox_dead_letter_total[10m]) > 50
+        for: 5m
+        labels:
+          severity: high
+          service: worker
+        annotations:
+          summary: Dead-letter spike detected
+          description: Dead-letter count increased sharply in last 10m.
