@@ -16,6 +16,8 @@ import {
   UpdateChargePointBootstrapDto,
   RemoteStartChargePointCommandDto,
   UnlockChargePointCommandDto,
+  UpdateFirmwareChargePointCommandDto,
+  FirmwareEventHistoryQueryDto,
 } from './dto/station.dto';
 import { ChargerProvisioningService } from './provisioning/charger-provisioning.service';
 import { parsePaginationOptions } from '../../common/utils/pagination';
@@ -46,6 +48,8 @@ export class StationService {
   private readonly bootstrapDefaultMinutes: number;
   private readonly bootstrapMaxMinutes: number;
   private readonly publicWsBaseUrl: string;
+  private readonly firmwareCommandsEnabled: boolean;
+  private readonly firmwareStatusPersistenceEnabled: boolean;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -65,6 +69,10 @@ export class StationService {
     this.publicWsBaseUrl = this.resolvePublicWsBaseUrl(
       process.env.OCPP_PUBLIC_WS_BASE_URL || 'wss://ocpp.evzonecharging.com',
     );
+    this.firmwareCommandsEnabled =
+      process.env.FEATURE_OCPP_FIRMWARE_COMMANDS_ENABLED === 'true';
+    this.firmwareStatusPersistenceEnabled =
+      process.env.FEATURE_OCPP_FIRMWARE_STATUS_PERSIST_ENABLED === 'true';
   }
 
   async handleOcppMessage(message: any) {
@@ -110,6 +118,20 @@ export class StationService {
         normalized.chargePointId,
         eventPayload,
         normalized.ocppVersion,
+      );
+      return;
+    }
+
+    if (
+      action === 'FirmwareStatusNotification' ||
+      eventType === 'FirmwareStatusNotification'
+    ) {
+      await this.handleFirmwareStatusNotification(
+        normalized.chargePointId,
+        normalized.payload,
+        normalized.ocppVersion,
+        normalized.gatewayEventId,
+        normalized.occurredAt,
       );
       return;
     }
@@ -708,6 +730,87 @@ export class StationService {
     };
   }
 
+  async updateFirmware(id: string, dto: UpdateFirmwareChargePointCommandDto) {
+    if (!this.firmwareCommandsEnabled) {
+      throw new BadRequestException(
+        'Firmware update commands are disabled by FEATURE_OCPP_FIRMWARE_COMMANDS_ENABLED',
+      );
+    }
+
+    const cp = await this.getExistingChargePoint(id);
+    const retrieveAt = new Date(dto.retrieveAt);
+    const installAt = dto.installAt ? new Date(dto.installAt) : null;
+
+    if (Number.isNaN(retrieveAt.getTime())) {
+      throw new BadRequestException('retrieveAt must be a valid ISO datetime');
+    }
+    if (installAt && Number.isNaN(installAt.getTime())) {
+      throw new BadRequestException('installAt must be a valid ISO datetime');
+    }
+    if (installAt && installAt.getTime() < retrieveAt.getTime()) {
+      throw new BadRequestException('installAt must be greater than retrieveAt');
+    }
+
+    const response = await this.commands.enqueueCommand({
+      commandType: 'UpdateFirmware',
+      stationId: cp.stationId,
+      chargePointId: cp.id,
+      payload: {
+        location: dto.location.trim(),
+        retrieveAt: retrieveAt.toISOString(),
+        ...(installAt ? { installAt: installAt.toISOString() } : {}),
+        ...(dto.retries !== undefined ? { retries: dto.retries } : {}),
+        ...(dto.retryIntervalSec !== undefined
+          ? { retryIntervalSec: dto.retryIntervalSec }
+          : {}),
+        ...(dto.requestId !== undefined ? { requestId: dto.requestId } : {}),
+        ...(dto.signingCertificate
+          ? { signingCertificate: dto.signingCertificate }
+          : {}),
+        ...(dto.signature ? { signature: dto.signature } : {}),
+      },
+      requestedBy: {},
+    });
+
+    this.logger.log(`Queued UpdateFirmware command for charge point ${id}`);
+    return {
+      ...response,
+      stationId: cp.stationId,
+      chargePointId: cp.id,
+      commandType: 'UpdateFirmware',
+      message: 'Firmware update command queued',
+    };
+  }
+
+  async getFirmwareEvents(id: string, query: FirmwareEventHistoryQueryDto = {}) {
+    const cp = await this.getExistingChargePoint(id);
+    const limit = Math.min(Math.max(query.limit || 50, 1), 200);
+    const from = query.from ? new Date(query.from) : undefined;
+    const to = query.to ? new Date(query.to) : undefined;
+    const occurredAtFilter =
+      from || to
+        ? {
+            ...(from ? { gte: from } : {}),
+            ...(to ? { lte: to } : {}),
+          }
+        : undefined;
+
+    const rows = await this.prisma.firmwareUpdateEvent.findMany({
+      where: {
+        chargePointId: cp.id,
+        ...(occurredAtFilter ? { occurredAt: occurredAtFilter } : {}),
+      },
+      orderBy: { occurredAt: 'desc' },
+      take: limit,
+    });
+
+    return rows.map((row) => ({
+      ...row,
+      occurredAt: row.occurredAt.toISOString(),
+      createdAt: row.createdAt.toISOString(),
+    }));
+  }
+
   // --- OCPP Private Handlers ---
   private async handleBootNotification(
     ocppId: string,
@@ -812,6 +915,62 @@ export class StationService {
     });
   }
 
+  private async handleFirmwareStatusNotification(
+    ocppId: string,
+    payload: any,
+    ocppVersion?: string,
+    gatewayEventId?: string,
+    occurredAtRaw?: string,
+  ) {
+    if (!this.firmwareStatusPersistenceEnabled) {
+      return;
+    }
+
+    const cp = await this.prisma.chargePoint.findUnique({ where: { ocppId } });
+    if (!cp) return;
+
+    const status = this.readString(payload?.status);
+    if (!status) return;
+    const requestId = this.normalizeNonNegativeInt(payload?.requestId);
+    const occurredAt = this.parseOptionalDate(occurredAtRaw) || new Date();
+    const normalizedVersion = this.normalizeOcppVersion(ocppVersion || cp.ocppVersion);
+    const resolvedGatewayEventId =
+      this.readString(gatewayEventId) ||
+      this.deriveFirmwareGatewayEventId(
+        ocppId,
+        status,
+        requestId,
+        occurredAt.toISOString(),
+      );
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.chargePoint.update({
+        where: { id: cp.id },
+        data: {
+          firmwareUpdateStatus: status,
+          firmwareUpdateRequestId: requestId ?? null,
+          firmwareStatusUpdatedAt: occurredAt,
+          ocppVersion: normalizedVersion,
+        },
+      });
+
+      await tx.firmwareUpdateEvent.upsert({
+        where: { gatewayEventId: resolvedGatewayEventId },
+        update: {},
+        create: {
+          gatewayEventId: resolvedGatewayEventId,
+          chargePointId: cp.id,
+          stationId: cp.stationId,
+          ocppVersion: normalizedVersion,
+          requestId: requestId ?? null,
+          status,
+          payload: (payload || {}) as any,
+          occurredAt,
+        },
+      });
+    });
+  }
+
   private async handleChargePointDisconnected(
     ocppId: string,
     ocppVersion?: string,
@@ -874,6 +1033,14 @@ export class StationService {
     return Math.floor(Date.now() / 1000);
   }
 
+  private normalizeNonNegativeInt(value: unknown): number | undefined {
+    if (value === undefined || value === null || value === '') return undefined;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return undefined;
+    const normalized = Math.floor(parsed);
+    return normalized >= 0 ? normalized : undefined;
+  }
+
   private normalizeOcppVersion(version?: string): '1.6' | '2.0.1' | '2.1' {
     const normalized = String(version || '')
       .trim()
@@ -890,6 +1057,8 @@ export class StationService {
     eventType?: string;
     ocppVersion?: string;
     payload?: any;
+    gatewayEventId?: string;
+    occurredAt?: string;
   } {
     const input = this.unwrapEnvelope(message);
     if (!input || typeof input !== 'object') {
@@ -914,6 +1083,13 @@ export class StationService {
     const ocppVersion =
       this.readString(input.ocppVersion) ||
       this.readString(rawPayload?.ocppVersion);
+    const gatewayEventId =
+      this.readString(input.eventId) ||
+      this.readString(input.id) ||
+      this.readString(rawPayload?.eventId);
+    const occurredAt =
+      this.readString(input.occurredAt) ||
+      this.readString(rawPayload?.occurredAt);
 
     return {
       chargePointId,
@@ -921,6 +1097,8 @@ export class StationService {
       eventType,
       ocppVersion,
       payload,
+      gatewayEventId,
+      occurredAt,
     };
   }
 
@@ -942,6 +1120,32 @@ export class StationService {
     if (typeof value !== 'string') return undefined;
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private parseOptionalDate(value: unknown): Date | undefined {
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      return undefined;
+    }
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return undefined;
+    return parsed;
+  }
+
+  private deriveFirmwareGatewayEventId(
+    ocppId: string,
+    status: string,
+    requestId: number | undefined,
+    occurredAtIso: string,
+  ): string {
+    return createHash('sha256')
+      .update(ocppId)
+      .update('|')
+      .update(status)
+      .update('|')
+      .update(requestId !== undefined ? String(requestId) : 'none')
+      .update('|')
+      .update(occurredAtIso)
+      .digest('hex');
   }
 
   private subprotocolForVersion(version: '1.6' | '2.0.1' | '2.1'): string {

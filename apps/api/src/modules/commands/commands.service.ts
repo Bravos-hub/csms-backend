@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
@@ -19,13 +19,27 @@ type CommandRecord = {
 
 @Injectable()
 export class CommandsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly firmwareCommandsEnabled: boolean;
+
+  constructor(private readonly prisma: PrismaService) {
+    this.firmwareCommandsEnabled =
+      process.env.FEATURE_OCPP_FIRMWARE_COMMANDS_ENABLED === 'true';
+  }
 
   async enqueueCommand(
     input: Omit<CommandRequest, 'commandId' | 'requestedAt'> & {
       correlationId?: string;
     },
   ): Promise<CommandResponse> {
+    if (
+      this.isUpdateFirmwareCommand(input.commandType) &&
+      !this.firmwareCommandsEnabled
+    ) {
+      throw new BadRequestException(
+        'Firmware update commands are disabled by FEATURE_OCPP_FIRMWARE_COMMANDS_ENABLED',
+      );
+    }
+
     const now = new Date();
     const commandId = randomUUID();
 
@@ -174,5 +188,13 @@ export class CommandsService {
         : null,
       error: command.error,
     };
+  }
+
+  private isUpdateFirmwareCommand(commandType: string): boolean {
+    return commandType
+      .trim()
+      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+      .replace(/[\s-]+/g, '_')
+      .toUpperCase() === 'UPDATE_FIRMWARE';
   }
 }

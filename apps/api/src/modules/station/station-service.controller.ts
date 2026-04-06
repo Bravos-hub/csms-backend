@@ -22,6 +22,8 @@ import {
   UpdateChargePointBootstrapDto,
   RemoteStartChargePointCommandDto,
   UnlockChargePointCommandDto,
+  UpdateFirmwareChargePointCommandDto,
+  FirmwareEventHistoryQueryDto,
 } from './dto/station.dto';
 
 @Controller('stations')
@@ -224,6 +226,22 @@ export class ChargePointController {
   @Post(':id/commands/unlock')
   unlock(@Param('id') id: string, @Body() dto: UnlockChargePointCommandDto) {
     return this.stationService.unlockConnector(id, dto);
+  }
+
+  @Post(':id/commands/update-firmware')
+  updateFirmware(
+    @Param('id') id: string,
+    @Body() dto: UpdateFirmwareChargePointCommandDto,
+  ) {
+    return this.stationService.updateFirmware(id, dto);
+  }
+
+  @Get(':id/firmware/events')
+  getFirmwareEvents(
+    @Param('id') id: string,
+    @Query() query: FirmwareEventHistoryQueryDto,
+  ) {
+    return this.stationService.getFirmwareEvents(id, query);
   }
 
   @Get(':id/security')

@@ -10,9 +10,13 @@ import {
   IsIn,
   IsInt,
   Min,
+  Max,
   IsIP,
   IsBoolean,
+  IsISO8601,
+  IsUrl,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateStationDto {
   @IsString()
@@ -284,4 +288,72 @@ export class UnlockChargePointCommandDto {
   @Min(1)
   @IsOptional()
   evseId?: number;
+}
+
+export class UpdateFirmwareChargePointCommandDto {
+  @IsString()
+  @IsNotEmpty()
+  @IsUrl(
+    {
+      require_protocol: true,
+      protocols: ['https'],
+    },
+    { message: 'location must be a valid https URL' },
+  )
+  location: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @IsISO8601()
+  retrieveAt: string;
+
+  @IsString()
+  @IsOptional()
+  @IsISO8601()
+  installAt?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  retries?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  retryIntervalSec?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  requestId?: number;
+
+  @IsString()
+  @IsOptional()
+  signingCertificate?: string;
+
+  @IsString()
+  @IsOptional()
+  signature?: string;
+}
+
+export class FirmwareEventHistoryQueryDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  @IsOptional()
+  limit?: number;
+
+  @IsString()
+  @IsOptional()
+  @IsISO8601()
+  from?: string;
+
+  @IsString()
+  @IsOptional()
+  @IsISO8601()
+  to?: string;
 }
