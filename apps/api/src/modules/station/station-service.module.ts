@@ -8,6 +8,7 @@ import {
 } from './station-service.controller';
 import { StationService } from './station-service.service';
 import { CommandsModule } from '../commands/commands.module';
+import { OcpiModule } from '../ocpi/ocpi.module';
 // import { Station } from './stations/entities/station.entity'; (Removed)
 // import { ChargePoint } from './stations/entities/charge-point.entity'; (Removed)
 
@@ -17,6 +18,7 @@ import { ChargerProvisioningService } from './provisioning/charger-provisioning.
   imports: [
     ConfigModule,
     CommandsModule,
+    OcpiModule,
     // DatabaseModule removed
     // TypeOrmModule removed
     ClientsModule.register([

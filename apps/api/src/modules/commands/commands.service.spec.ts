@@ -3,6 +3,8 @@ import { PrismaService } from '../../prisma.service';
 import { TenantContextService } from '@app/db';
 
 describe('CommandsService', () => {
+  const previousFirmwareFlag =
+    process.env.FEATURE_OCPP_FIRMWARE_COMMANDS_ENABLED;
   const prisma = {
     command: {
       create: jest.fn(),
@@ -27,6 +29,7 @@ describe('CommandsService', () => {
   );
 
   beforeEach(() => {
+    process.env.FEATURE_OCPP_FIRMWARE_COMMANDS_ENABLED = previousFirmwareFlag;
     prisma.command.create.mockReset();
     prisma.command.findMany.mockReset();
     prisma.command.findUnique.mockReset();
@@ -77,6 +80,14 @@ describe('CommandsService', () => {
 
     expect(result.status).toBe('Queued');
     expect(result.commandId).toBeTruthy();
+  });
+
+  afterAll(() => {
+    if (previousFirmwareFlag === undefined) {
+      delete process.env.FEATURE_OCPP_FIRMWARE_COMMANDS_ENABLED;
+    } else {
+      process.env.FEATURE_OCPP_FIRMWARE_COMMANDS_ENABLED = previousFirmwareFlag;
+    }
   });
 
   it('lists command lifecycle records for a charge point', async () => {
@@ -139,5 +150,58 @@ describe('CommandsService', () => {
 
     const result = await service.getCommandById('missing');
     expect(result).toBeNull();
+  });
+
+  it('rejects UpdateFirmware commands when feature flag is disabled', async () => {
+    process.env.FEATURE_OCPP_FIRMWARE_COMMANDS_ENABLED = 'false';
+    const disabledService = new CommandsService(
+      prisma as unknown as PrismaService,
+      tenantContext as unknown as TenantContextService,
+    );
+
+    await expect(
+      disabledService.enqueueCommand({
+        commandType: 'UpdateFirmware',
+        chargePointId: 'cp-1',
+        payload: {
+          location: 'https://firmware.example.com/fw.bin',
+          retrieveAt: '2026-04-06T10:00:00.000Z',
+        },
+        requestedBy: {},
+      }),
+    ).rejects.toThrow(
+      'Firmware update commands are disabled by FEATURE_OCPP_FIRMWARE_COMMANDS_ENABLED',
+    );
+
+    expect(prisma.command.create).not.toHaveBeenCalled();
+  });
+
+  it('enqueues UpdateFirmware commands when feature flag is enabled', async () => {
+    process.env.FEATURE_OCPP_FIRMWARE_COMMANDS_ENABLED = 'true';
+    const enabledService = new CommandsService(
+      prisma as unknown as PrismaService,
+      tenantContext as unknown as TenantContextService,
+    );
+    prisma.command.create.mockResolvedValue({});
+    prisma.commandOutbox.create.mockResolvedValue({});
+    prisma.commandEvent.create.mockResolvedValue({});
+
+    const result = await enabledService.enqueueCommand({
+      commandType: 'UpdateFirmware',
+      chargePointId: 'cp-1',
+      stationId: 'station-1',
+      payload: {
+        location: 'https://firmware.example.com/fw.bin',
+        retrieveAt: '2026-04-06T10:00:00.000Z',
+      },
+      requestedBy: {},
+    });
+
+    expect(result.status).toBe('Queued');
+    const createCalls = prisma.command.create.mock.calls as Array<[unknown]>;
+    const createCallArg = createCalls[0]?.[0] as {
+      data?: { commandType?: string };
+    };
+    expect(createCallArg?.data?.commandType).toBe('UpdateFirmware');
   });
 });

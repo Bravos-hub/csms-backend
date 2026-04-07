@@ -701,6 +701,12 @@ model ChargePoint {
   model           String?
   vendor          String?
   firmwareVersion String?
+  bootNotificationAt      DateTime? @map("boot_notification_at")
+  bootNotificationPayload Json?     @map("boot_notification_payload")
+  identityConfirmedAt     DateTime? @map("identity_confirmed_at")
+  firmwareUpdateStatus    String?   @map("firmware_update_status")
+  firmwareUpdateRequestId Int?      @map("firmware_update_request_id")
+  firmwareStatusUpdatedAt DateTime? @map("firmware_status_updated_at")
   type            String  @default("CCS2")
   power           Float   @default(50.0)
   lastHeartbeat   DateTime?
@@ -714,6 +720,7 @@ model ChargePoint {
   station  Station   @relation(fields: [stationId], references: [id])
   sessions Session[]
   statusHistory ChargePointStatusHistory[]
+  firmwareEvents FirmwareUpdateEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1822,6 +1829,25 @@ model ChargePointStatusHistory {
   timestamp      DateTime    @default(now())
 
   @@index([chargePointId, timestamp])
+}
+
+model FirmwareUpdateEvent {
+  id             String      @id @default(uuid())
+  gatewayEventId String      @unique @map("gateway_event_id")
+  chargePointId  String      @map("charge_point_id")
+  stationId      String?     @map("station_id")
+  ocppVersion    String?     @map("ocpp_version")
+  requestId      Int?        @map("request_id")
+  status         String
+  payload        Json?
+  occurredAt     DateTime    @map("occurred_at")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  chargePoint    ChargePoint @relation(fields: [chargePointId], references: [id], onDelete: Cascade)
+
+  @@map("firmware_update_events")
+  @@index([chargePointId, occurredAt])
+  @@index([stationId, occurredAt])
+  @@index([status, occurredAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

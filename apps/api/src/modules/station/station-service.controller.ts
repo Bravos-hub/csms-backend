@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   Delete,
+  Put,
   Query,
   Logger,
 } from '@nestjs/common';
@@ -17,11 +18,15 @@ import {
   UpdateStationDto,
   CreateChargePointDto,
   UpdateChargePointDto,
+  ConfirmChargePointIdentityDto,
+  SetChargePointPublicationDto,
   BindChargePointCertificateDto,
   UpdateChargePointBootstrapDto,
   RemoteStartChargePointCommandDto,
   UnlockChargePointCommandDto,
   RemoteStopChargePointCommandDto,
+  UpdateFirmwareChargePointCommandDto,
+  FirmwareEventHistoryQueryDto,
 } from './dto/station.dto';
 
 @Controller('stations')
@@ -194,6 +199,27 @@ export class ChargePointController {
     return this.stationService.updateChargePoint(id, updateDto);
   }
 
+  @Post(':id/identity/confirm')
+  confirmIdentity(
+    @Param('id') id: string,
+    @Body() dto: ConfirmChargePointIdentityDto,
+  ) {
+    return this.stationService.confirmChargePointIdentity(id, dto);
+  }
+
+  @Get(':id/publication')
+  getPublication(@Param('id') id: string) {
+    return this.stationService.getChargePointPublication(id);
+  }
+
+  @Put(':id/publication')
+  setPublication(
+    @Param('id') id: string,
+    @Body() dto: SetChargePointPublicationDto,
+  ) {
+    return this.stationService.setChargePointPublication(id, dto.published);
+  }
+
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.stationService.removeChargePoint(id);
@@ -238,6 +264,22 @@ export class ChargePointController {
   @Post(':id/commands/resume')
   resumeChargePoint(@Param('id') id: string) {
     return this.stationService.resumeChargePoint(id);
+  }
+
+  @Post(':id/commands/update-firmware')
+  updateFirmware(
+    @Param('id') id: string,
+    @Body() dto: UpdateFirmwareChargePointCommandDto,
+  ) {
+    return this.stationService.updateFirmware(id, dto);
+  }
+
+  @Get(':id/firmware/events')
+  getFirmwareEvents(
+    @Param('id') id: string,
+    @Query() query: FirmwareEventHistoryQueryDto,
+  ) {
+    return this.stationService.getFirmwareEvents(id, query);
   }
 
   @Get(':id/security')

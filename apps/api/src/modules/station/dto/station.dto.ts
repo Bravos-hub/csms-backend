@@ -10,9 +10,13 @@ import {
   IsIn,
   IsInt,
   Min,
+  Max,
   IsIP,
   IsBoolean,
+  IsISO8601,
+  IsUrl,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateStationDto {
   @IsString()
@@ -207,6 +211,10 @@ export class UpdateChargePointDto {
 
   @IsString()
   @IsOptional()
+  manufacturer?: string;
+
+  @IsString()
+  @IsOptional()
   firmwareVersion?: string;
 
   @IsString()
@@ -220,6 +228,25 @@ export class UpdateChargePointDto {
   @IsBoolean()
   @IsOptional()
   smartChargingEnabled?: boolean;
+}
+
+export class ConfirmChargePointIdentityDto {
+  @IsString()
+  @IsNotEmpty()
+  model: string;
+
+  @IsString()
+  @IsNotEmpty()
+  manufacturer: string;
+
+  @IsString()
+  @IsNotEmpty()
+  firmwareVersion: string;
+}
+
+export class SetChargePointPublicationDto {
+  @IsBoolean()
+  published: boolean;
 }
 
 export class BindChargePointCertificateDto {
@@ -302,4 +329,72 @@ export class RemoteStopChargePointCommandDto {
   @IsString()
   @IsOptional()
   transactionId?: string;
+}
+
+export class UpdateFirmwareChargePointCommandDto {
+  @IsString()
+  @IsNotEmpty()
+  @IsUrl(
+    {
+      require_protocol: true,
+      protocols: ['https'],
+    },
+    { message: 'location must be a valid https URL' },
+  )
+  location: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @IsISO8601()
+  retrieveAt: string;
+
+  @IsString()
+  @IsOptional()
+  @IsISO8601()
+  installAt?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  retries?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  retryIntervalSec?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  requestId?: number;
+
+  @IsString()
+  @IsOptional()
+  signingCertificate?: string;
+
+  @IsString()
+  @IsOptional()
+  signature?: string;
+}
+
+export class FirmwareEventHistoryQueryDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  @IsOptional()
+  limit?: number;
+
+  @IsString()
+  @IsOptional()
+  @IsISO8601()
+  from?: string;
+
+  @IsString()
+  @IsOptional()
+  @IsISO8601()
+  to?: string;
 }

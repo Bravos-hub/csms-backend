@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-unsafe-argument */
 jest.mock('../../prisma.service', () => ({
   PrismaService: class PrismaServiceMock {},
 }));
@@ -25,11 +26,16 @@ describe('StationService bounds filtering', () => {
   const commands = {
     enqueueCommand: jest.fn(),
   };
+  const ocpiService = {
+    getChargePointRoamingPublication: jest.fn(),
+    setChargePointRoamingPublication: jest.fn(),
+  };
 
   const service = new StationService(
-    prisma as unknown as PrismaService,
-    provisioningService as unknown as ChargerProvisioningService,
-    commands as unknown as CommandsService,
+    prisma as any,
+    provisioningService as any,
+    commands as any,
+    ocpiService as any,
   );
 
   const stationEntity = {

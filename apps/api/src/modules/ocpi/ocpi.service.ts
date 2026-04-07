@@ -328,6 +328,7 @@ export class OcpiService {
       ocppId: cp.ocppId,
       stationId: cp.stationId,
       published: Boolean(record),
+      updatedAt: record?.updatedAt?.toISOString() || null,
       lastUpdatedAt: record?.updatedAt?.toISOString() || null,
     };
   }
