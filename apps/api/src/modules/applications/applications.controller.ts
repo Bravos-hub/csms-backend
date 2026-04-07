@@ -28,9 +28,26 @@ import {
 import { SignLeaseDto, VerifyLeaseDto } from './dto/lease.dto';
 import { ApplicationStatus } from '@prisma/client';
 
+interface RequestWithUser {
+  user?: {
+    id?: string;
+  };
+}
+
 @Controller('applications')
 export class ApplicationsController {
   constructor(private readonly applicationsService: ApplicationsService) {}
+
+  private resolveUserId(req: unknown, fallbackId: string): string {
+    if (typeof req !== 'object' || req === null) {
+      return fallbackId;
+    }
+
+    const userId = (req as RequestWithUser).user?.id;
+    return typeof userId === 'string' && userId.length > 0
+      ? userId
+      : fallbackId;
+  }
 
   @Get()
   findAll(@Query() query: { status?: ApplicationStatus; siteId?: string }) {
@@ -43,9 +60,9 @@ export class ApplicationsController {
   }
 
   @Post()
-  create(@Body() createDto: CreateApplicationDto, @Request() req?: any) {
+  create(@Body() createDto: CreateApplicationDto, @Request() req?: unknown) {
     // For now, use a mock applicant ID. In production, this would come from the authenticated user
-    const applicantId = req?.user?.id || 'mock-id';
+    const applicantId = this.resolveUserId(req, 'mock-id');
     return this.applicationsService.create(applicantId, createDto);
   }
 
@@ -61,9 +78,9 @@ export class ApplicationsController {
   reviewApplication(
     @Param('id') id: string,
     @Body() reviewDto: ReviewApplicationDto,
-    @Request() req?: any,
+    @Request() req?: unknown,
   ) {
-    const reviewerId = req?.user?.id || 'mock-admin-id';
+    const reviewerId = this.resolveUserId(req, 'mock-admin-id');
     return this.applicationsService.reviewApplication(
       id,
       reviewDto,
@@ -75,9 +92,9 @@ export class ApplicationsController {
   requestInfo(
     @Param('id') id: string,
     @Body() requestDto: RequestInfoDto,
-    @Request() req?: any,
+    @Request() req?: unknown,
   ) {
-    const reviewerId = req?.user?.id || 'mock-admin-id';
+    const reviewerId = this.resolveUserId(req, 'mock-admin-id');
     return this.applicationsService.requestInfo(id, requestDto, reviewerId);
   }
 
@@ -100,9 +117,9 @@ export class ApplicationsController {
   proposeTerms(
     @Param('id') id: string,
     @Body() dto: CreateNegotiationDto,
-    @Request() req?: any,
+    @Request() req?: unknown,
   ) {
-    const userId = req?.user?.id || 'mock-id';
+    const userId = this.resolveUserId(req, 'mock-id');
     return this.applicationsService.proposeTerms(id, dto, userId);
   }
 
@@ -111,9 +128,9 @@ export class ApplicationsController {
     @Param('id') id: string,
     @Param('roundId') roundId: string,
     @Body() dto: CounterProposalDto,
-    @Request() req?: any,
+    @Request() req?: unknown,
   ) {
-    const userId = req?.user?.id || 'mock-id';
+    const userId = this.resolveUserId(req, 'mock-id');
     return this.applicationsService.counterProposal(id, roundId, dto, userId);
   }
 
@@ -122,9 +139,9 @@ export class ApplicationsController {
     @Param('id') id: string,
     @Param('roundId') roundId: string,
     @Body() dto: AcceptProposalDto,
-    @Request() req?: any,
+    @Request() req?: unknown,
   ) {
-    const userId = req?.user?.id || 'mock-id';
+    const userId = this.resolveUserId(req, 'mock-id');
     return this.applicationsService.acceptProposal(id, roundId, dto, userId);
   }
 
@@ -133,9 +150,9 @@ export class ApplicationsController {
     @Param('id') id: string,
     @Param('roundId') roundId: string,
     @Body() dto: RejectProposalDto,
-    @Request() req?: any,
+    @Request() req?: unknown,
   ) {
-    const userId = req?.user?.id || 'mock-id';
+    const userId = this.resolveUserId(req, 'mock-id');
     return this.applicationsService.rejectProposal(id, roundId, dto, userId);
   }
 
@@ -160,14 +177,14 @@ export class ApplicationsController {
   async uploadSignedLease(
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
-    @Request() req: any,
+    @Request() req: unknown,
   ) {
     try {
       if (!file) {
         throw new Error('No file uploaded');
       }
 
-      const userId = req?.user?.id || 'system';
+      const userId = this.resolveUserId(req, 'system');
       return await this.applicationsService.uploadSignedLease(id, file, userId);
     } catch (error) {
       const message =

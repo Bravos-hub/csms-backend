@@ -27,6 +27,7 @@ import { MetricsService } from '../../common/services/metrics.service';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import {
   LoginDto,
+  CreateUserDto,
   RefreshTokenDto,
   Generate2faDto,
   Verify2faDto,
@@ -35,6 +36,7 @@ import {
   UpdateUserDto,
   ServiceTokenRequestDto,
   SwitchOrganizationDto,
+  SwitchTenantDto,
   TeamInviteUserDto,
   TeamStationAssignmentsUpdateDto,
   StaffPayoutProfileDto,
@@ -45,6 +47,23 @@ import {
   getCookieOptions,
 } from '../../common/utils/cookie.config';
 import { JwtAuthGuard } from './jwt-auth.guard';
+
+type AuthenticatedRequest = Request & { user?: { sub?: string } };
+type MutableFrontendUrl = { frontendUrl?: string };
+type PasswordResetBody = {
+  email?: string;
+  phone?: string;
+  identifier?: string;
+  code?: string;
+  token?: string;
+  otp?: string;
+  newPassword?: string;
+  password?: string;
+};
+type ChangePasswordBody = {
+  currentPassword?: string;
+  newPassword?: string;
+};
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -130,7 +149,7 @@ export class AuthController {
   ) {
     // Extract refresh token from cookie or request body
     const refreshToken =
-      req.cookies?.[COOKIE_NAMES.REFRESH_TOKEN] || body.refreshToken;
+      this.getCookieValue(req, COOKIE_NAMES.REFRESH_TOKEN) || body.refreshToken;
 
     if (!refreshToken) {
       throw new BadRequestException(
@@ -211,6 +230,40 @@ export class AuthController {
     };
   }
 
+  @Post('switch-tenant')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Switch active tenant context' })
+  async switchTenant(
+    @Body() body: SwitchTenantDto,
+    @Req() req: Request & { user?: { sub?: string } },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const userId = req.user?.sub;
+    if (!userId) {
+      throw new BadRequestException('Authenticated user is required');
+    }
+
+    const result = await this.authService.switchTenant(userId, body.tenantId);
+
+    res.cookie(
+      COOKIE_NAMES.ACCESS_TOKEN,
+      result.accessToken,
+      getCookieOptions(false),
+    );
+    res.cookie(
+      COOKIE_NAMES.REFRESH_TOKEN,
+      result.refreshToken,
+      getCookieOptions(true),
+    );
+
+    return {
+      user: result.user,
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+    };
+  }
+
   @Get('access-profile')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get effective canonical access profile' })
@@ -226,15 +279,11 @@ export class AuthController {
   @Post('register')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Register new user' })
-  async register(@Body() createUserDto: any, @Req() req: Request) {
-    if (!createUserDto.frontendUrl) {
-      const origin = req.headers.origin as string;
-      const host = req.headers.host;
-      // Only use origin if it exists and is different from the backend's own host
-      if (origin && (!host || !origin.includes(host))) {
-        createUserDto.frontendUrl = origin;
-      }
-    }
+  async register(
+    @Body() createUserDto: CreateUserDto & { frontendUrl?: string },
+    @Req() req: Request,
+  ) {
+    this.applyFrontendUrlFromRequest(createUserDto, req);
     // Registration only initiates verification, it does not log in the user
     return this.authService.register(createUserDto);
   }
@@ -247,7 +296,7 @@ export class AuthController {
   })
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     // Extract refresh token from cookie
-    const refreshToken = req.cookies?.[COOKIE_NAMES.REFRESH_TOKEN];
+    const refreshToken = this.getCookieValue(req, COOKIE_NAMES.REFRESH_TOKEN);
 
     if (refreshToken) {
       // Revoke the refresh token in database
@@ -267,8 +316,8 @@ export class AuthController {
   @Post('service/token')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: 'Issue service account token' })
-  serviceToken(@Req() req: any, @Body() body: ServiceTokenRequestDto) {
-    const authHeader = req.headers.authorization as string | undefined;
+  serviceToken(@Req() req: Request, @Body() body: ServiceTokenRequestDto) {
+    const authHeader = this.getRequestHeader(req, 'authorization');
     let clientId = body.clientId;
     let clientSecret = body.clientSecret;
 
@@ -336,8 +385,11 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Generate 2FA secret and QR code' })
-  generate2faSecret(@Req() req: any, @Body() body: Generate2faDto) {
-    const userId = req.user?.sub || req.headers['x-user-id'];
+  generate2faSecret(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: Generate2faDto,
+  ) {
+    const userId = this.getAuthenticatedUserId(req);
     if (!userId)
       throw new BadRequestException('Authenticated user is required');
     return this.authService.generate2faSecret(userId, body.currentPassword);
@@ -347,8 +399,8 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Verify and enable 2FA' })
-  verify2faSetup(@Req() req: any, @Body() body: Verify2faDto) {
-    const userId = req.user?.sub || req.headers['x-user-id'];
+  verify2faSetup(@Req() req: AuthenticatedRequest, @Body() body: Verify2faDto) {
+    const userId = this.getAuthenticatedUserId(req);
     if (!userId)
       throw new BadRequestException('Authenticated user is required');
     return this.authService.verify2faSetup(userId, body.token);
@@ -358,8 +410,8 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Disable 2FA' })
-  disable2fa(@Req() req: any, @Body() body: Disable2faDto) {
-    const userId = req.user?.sub || req.headers['x-user-id'];
+  disable2fa(@Req() req: AuthenticatedRequest, @Body() body: Disable2faDto) {
+    const userId = this.getAuthenticatedUserId(req);
     if (!userId)
       throw new BadRequestException('Authenticated user is required');
     return this.authService.disable2fa(
@@ -372,12 +424,16 @@ export class AuthController {
   @Post('password/reset')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Reset password' })
-  resetPassword(@Body() body: any, @Req() req: Request) {
+  resetPassword(@Body() body: PasswordResetBody, @Req() req: Request) {
     this.logger.log('Password reset request received');
 
-    const identifier = body.email || body.phone || body.identifier;
-    const otp = body.code || body.token || body.otp;
-    const pass = body.newPassword || body.password;
+    const identifier = this.coalesceString(
+      body.email,
+      body.phone,
+      body.identifier,
+    );
+    const otp = this.coalesceString(body.code, body.token, body.otp);
+    const pass = this.coalesceString(body.newPassword, body.password);
 
     if (!identifier || !otp || !pass) {
       this.logger.warn('Password reset failed: missing required fields');
@@ -451,12 +507,11 @@ export class AuthController {
       req.socket?.remoteAddress ||
       ''
     ).trim();
-    const userAgent = (req.headers['user-agent'] || '').toString();
-    const deviceIdRaw =
-      req.headers['x-device-id'] || req.headers['x-client-device-id'];
-    const deviceId = Array.isArray(deviceIdRaw)
-      ? deviceIdRaw[0]
-      : (deviceIdRaw || '').toString();
+    const userAgent = this.getRequestHeader(req, 'user-agent') || '';
+    const deviceId =
+      this.getRequestHeader(req, 'x-device-id') ||
+      this.getRequestHeader(req, 'x-client-device-id') ||
+      '';
 
     return {
       route: input.route,
@@ -466,11 +521,121 @@ export class AuthController {
       deviceId: deviceId || undefined,
     };
   }
+
+  private getHeaderValue(
+    value: string | string[] | undefined,
+  ): string | undefined {
+    if (Array.isArray(value)) {
+      return value.find(
+        (entry): entry is string =>
+          typeof entry === 'string' && entry.trim().length > 0,
+      );
+    }
+    return typeof value === 'string' && value.trim().length > 0
+      ? value
+      : undefined;
+  }
+
+  private getRequestHeader(req: Request, header: string): string | undefined {
+    return this.getHeaderValue(req.headers[header]);
+  }
+
+  private getCookieValue(req: Request, key: string): string | undefined {
+    const cookieContainer = (req as Request & { cookies?: unknown }).cookies;
+    if (typeof cookieContainer !== 'object' || cookieContainer === null) {
+      return undefined;
+    }
+
+    const value = (cookieContainer as Record<string, unknown>)[key];
+    if (typeof value === 'string') {
+      return value;
+    }
+
+    if (Array.isArray(value)) {
+      return value.find(
+        (entry): entry is string =>
+          typeof entry === 'string' && entry.trim().length > 0,
+      );
+    }
+
+    return undefined;
+  }
+
+  private getAuthenticatedUserId(
+    req: AuthenticatedRequest,
+  ): string | undefined {
+    return req.user?.sub || this.getRequestHeader(req, 'x-user-id');
+  }
+
+  private applyFrontendUrlFromRequest(
+    payload: MutableFrontendUrl,
+    req: Request,
+  ): void {
+    if (payload.frontendUrl) {
+      return;
+    }
+
+    const origin = this.getRequestHeader(req, 'origin');
+    const host = this.getRequestHeader(req, 'host');
+
+    if (origin && (!host || !origin.includes(host))) {
+      payload.frontendUrl = origin;
+    }
+  }
+
+  private coalesceString(
+    ...values: Array<string | undefined>
+  ): string | undefined {
+    return values.find(
+      (value): value is string =>
+        typeof value === 'string' && value.trim().length > 0,
+    );
+  }
 }
 
 @Controller('users')
 export class UsersController {
   constructor(private readonly authService: AuthService) {}
+
+  private getHeaderValue(
+    value: string | string[] | undefined,
+  ): string | undefined {
+    if (Array.isArray(value)) {
+      return value.find(
+        (entry): entry is string =>
+          typeof entry === 'string' && entry.trim().length > 0,
+      );
+    }
+    return typeof value === 'string' && value.trim().length > 0
+      ? value
+      : undefined;
+  }
+
+  private getRequestHeader(req: Request, header: string): string | undefined {
+    return this.getHeaderValue(req.headers[header]);
+  }
+
+  private getAuthenticatedUserId(
+    req: AuthenticatedRequest,
+  ): string | undefined {
+    return req.user?.sub || this.getRequestHeader(req, 'x-user-id');
+  }
+
+  private applyFrontendUrlFromRequest(
+    payload: MutableFrontendUrl,
+    req: Request,
+  ): void {
+    if (payload.frontendUrl) {
+      return;
+    }
+
+    const origin = this.getRequestHeader(req, 'origin');
+    const host = this.getRequestHeader(req, 'host');
+
+    if (origin && (!host || !origin.includes(host))) {
+      payload.frontendUrl = origin;
+    }
+  }
 
   @Get('crm-stats')
   @ApiOperation({ summary: 'Get CRM user statistics' })
@@ -480,8 +645,8 @@ export class UsersController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  getMe(@Req() req: any) {
-    const userId = req.user?.sub || req.headers['x-user-id'] || 'mock-id';
+  getMe(@Req() req: AuthenticatedRequest) {
+    const userId = this.getAuthenticatedUserId(req) || 'mock-id';
     return this.authService.getCurrentUser(userId);
   }
 
@@ -523,13 +688,7 @@ export class UsersController {
     @Body() inviteDto: TeamInviteUserDto,
     @Req() req: Request & { user?: { sub?: string } },
   ) {
-    if (!inviteDto.frontendUrl) {
-      const origin = req.headers.origin as string;
-      const host = req.headers.host;
-      if (origin && (!host || !origin.includes(host))) {
-        inviteDto.frontendUrl = origin;
-      }
-    }
+    this.applyFrontendUrlFromRequest(inviteDto, req);
 
     return this.authService.inviteTeamMember(inviteDto, req.user?.sub || '');
   }
@@ -624,36 +783,34 @@ export class UsersController {
     @Body() inviteDto: InviteUserDto,
     @Req() req: Request & { user?: { sub?: string } },
   ) {
-    if (!inviteDto.frontendUrl) {
-      const origin = req.headers.origin as string;
-      const host = req.headers.host;
-      // Only use origin if it exists and is different from the backend's own host
-      if (origin && (!host || !origin.includes(host))) {
-        inviteDto.frontendUrl = origin;
-      }
-    }
+    this.applyFrontendUrlFromRequest(inviteDto, req);
     return this.authService.inviteUser(inviteDto, req.user?.sub);
   }
 
   @Patch('me')
   @UseGuards(JwtAuthGuard)
-  async updateMe(@Req() req: any, @Body() updateDto: UpdateUserDto) {
-    try {
-      const userId = req.user?.sub || req.headers['x-user-id'];
-      if (!userId) {
-        throw new BadRequestException('Authenticated user is required');
-      }
-      return await this.authService.updateUser(userId, updateDto);
-    } catch (error) {
-      throw error;
+  async updateMe(
+    @Req() req: AuthenticatedRequest,
+    @Body() updateDto: UpdateUserDto,
+  ) {
+    const userId = this.getAuthenticatedUserId(req);
+    if (!userId) {
+      throw new BadRequestException('Authenticated user is required');
     }
+    return this.authService.updateUser(userId, updateDto);
   }
 
   @Post('me/password')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Change current user password' })
-  async changePassword(@Req() req: any, @Body() body: any) {
-    const userId = req.user?.sub || req.headers['x-user-id'];
+  async changePassword(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: ChangePasswordBody,
+  ) {
+    const userId = this.getAuthenticatedUserId(req);
+    if (!userId) {
+      throw new BadRequestException('Authenticated user is required');
+    }
     if (!body.currentPassword || !body.newPassword) {
       throw new BadRequestException('Current and new password are required');
     }

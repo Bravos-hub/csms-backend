@@ -4,6 +4,7 @@ import { CommandEventsConsumer } from './command-events.consumer';
 import { CommandHistoryCleanupWorker } from './command-history-cleanup.worker';
 import { KafkaModule } from '../../platform/kafka.module';
 import { OcpiCommandCallbackService } from './ocpi-command-callback.service';
+import { WorkerTenantRoutingService } from './worker-tenant-routing.service';
 
 @Module({
   imports: [KafkaModule],
@@ -12,6 +13,7 @@ import { OcpiCommandCallbackService } from './ocpi-command-callback.service';
     CommandEventsConsumer,
     CommandHistoryCleanupWorker,
     OcpiCommandCallbackService,
+    WorkerTenantRoutingService,
   ],
   exports: [CommandEventsConsumer],
 })

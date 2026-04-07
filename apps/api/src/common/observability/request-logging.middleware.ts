@@ -55,10 +55,25 @@ export function requestLoggingMiddleware(
   const startedAt = Date.now();
   response.on('finish', () => {
     const durationMs = Date.now() - startedAt;
+    const locals = response.locals as Record<string, unknown>;
     const requestId =
-      typeof response.locals.requestId === 'string'
-        ? response.locals.requestId
-        : undefined;
+      typeof locals.requestId === 'string' ? locals.requestId : undefined;
+    const tenantResolutionSource =
+      typeof locals.tenantResolutionSource === 'string'
+        ? locals.tenantResolutionSource
+        : null;
+    const tenantOrganizationId =
+      typeof locals.tenantOrganizationId === 'string'
+        ? locals.tenantOrganizationId
+        : null;
+    const tenantRoutingTier =
+      typeof locals.tenantRoutingTier === 'string'
+        ? locals.tenantRoutingTier
+        : null;
+    const tenantMismatchReason =
+      typeof locals.tenantMismatchReason === 'string'
+        ? locals.tenantMismatchReason
+        : null;
 
     const payload = {
       event: 'http_request',
@@ -69,6 +84,10 @@ export function requestLoggingMiddleware(
       durationMs,
       ip: request.ip,
       userAgent: request.get('user-agent') || '',
+      tenantResolutionSource,
+      tenantOrganizationId,
+      tenantRoutingTier,
+      tenantMismatchReason,
       timestamp: new Date().toISOString(),
     };
 

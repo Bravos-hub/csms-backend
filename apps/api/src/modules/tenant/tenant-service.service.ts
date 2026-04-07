@@ -7,10 +7,10 @@ export class TenantService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(siteId?: string) {
-    const where: Prisma.TenantWhereInput = {};
+    const where: Prisma.SiteTenantWhereInput = {};
     if (siteId) where.siteId = siteId;
 
-    return this.prisma.tenant.findMany({
+    return this.prisma.siteTenant.findMany({
       where,
       include: {
         site: {

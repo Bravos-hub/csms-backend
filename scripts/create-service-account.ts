@@ -2,8 +2,8 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 import crypto from 'crypto';
-// Use CommonJS require to avoid needing TypeScript type declarations.
-const dotenv = require('dotenv');
+import * as dotenv from 'dotenv';
+
 dotenv.config();
 
 const connectionString = process.env.DATABASE_URL;

@@ -1,18 +1,82 @@
 import { CommandsService } from './commands.service';
+import { PrismaService } from '../../prisma.service';
+import { TenantContextService } from '@app/db';
 
 describe('CommandsService', () => {
   const prisma = {
     command: {
+      create: jest.fn(),
       findMany: jest.fn(),
       findUnique: jest.fn(),
     },
+    commandOutbox: {
+      create: jest.fn(),
+    },
+    commandEvent: {
+      create: jest.fn(),
+    },
   };
 
-  const service = new CommandsService(prisma as any);
+  const tenantContext = {
+    get: jest.fn(),
+  };
+
+  const service = new CommandsService(
+    prisma as unknown as PrismaService,
+    tenantContext as unknown as TenantContextService,
+  );
 
   beforeEach(() => {
+    prisma.command.create.mockReset();
     prisma.command.findMany.mockReset();
     prisma.command.findUnique.mockReset();
+    prisma.commandOutbox.create.mockReset();
+    prisma.commandEvent.create.mockReset();
+    tenantContext.get.mockReset();
+  });
+
+  it('persists tenantId from request-scoped context when enqueueing commands', async () => {
+    tenantContext.get.mockReturnValue({
+      effectiveOrganizationId: 'org-tenant-1',
+      authenticatedOrganizationId: 'org-tenant-fallback',
+    });
+    prisma.command.create.mockResolvedValue({});
+    prisma.commandOutbox.create.mockResolvedValue({});
+    prisma.commandEvent.create.mockResolvedValue({});
+
+    const result = await service.enqueueCommand({
+      commandType: 'RemoteStart',
+      chargePointId: 'cp-1',
+      payload: { idTag: 'TAG-1' },
+      requestedBy: { userId: 'user-1', orgId: 'org-body' },
+    });
+
+    const createCalls = prisma.command.create.mock.calls as Array<[unknown]>;
+    const createCallArg = createCalls[0]?.[0] as {
+      data?: {
+        tenantId?: string | null;
+        chargePointId?: string;
+        commandType?: string;
+      };
+    };
+    expect(createCallArg.data?.tenantId).toBe('org-tenant-1');
+    expect(createCallArg.data?.chargePointId).toBe('cp-1');
+    expect(createCallArg.data?.commandType).toBe('RemoteStart');
+
+    const commandEventCalls = prisma.commandEvent.create.mock.calls as Array<
+      [unknown]
+    >;
+    const commandEventCallArg = commandEventCalls[0]?.[0] as {
+      data?: {
+        payload?: Record<string, unknown>;
+      };
+    };
+    expect(commandEventCallArg.data?.payload).toEqual(
+      expect.objectContaining({ tenantId: 'org-tenant-1' }),
+    );
+
+    expect(result.status).toBe('Queued');
+    expect(result.commandId).toBeTruthy();
   });
 
   it('lists command lifecycle records for a charge point', async () => {

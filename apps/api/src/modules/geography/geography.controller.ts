@@ -9,7 +9,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { GeographyService } from './geography.service';
 import { Request } from 'express';
 import { UserRole, ZoneType } from '@prisma/client';
@@ -75,7 +75,7 @@ export class GeographyController {
 
   @Get('detect')
   @ApiOperation({ summary: 'Auto-detect location from IP address' })
-  async detectLocation(@Req() req: Request) {
+  detectLocation(@Req() req: Request) {
     const ip =
       (req.headers['x-forwarded-for'] as string) ||
       req.socket.remoteAddress ||
@@ -87,7 +87,7 @@ export class GeographyController {
   @ApiOperation({ summary: 'Reverse geocode coordinates to an address' })
   @ApiQuery({ name: 'lat', required: true, type: Number })
   @ApiQuery({ name: 'lng', required: true, type: Number })
-  async reverseGeocode(@Query('lat') lat: number, @Query('lng') lng: number) {
+  reverseGeocode(@Query('lat') lat: number, @Query('lng') lng: number) {
     return this.geographyService.reverseGeocode(Number(lat), Number(lng));
   }
 

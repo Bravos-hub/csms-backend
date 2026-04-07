@@ -1,9 +1,12 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { NotificationService } from '../notification/notification-service.service';
 import { StopSessionDto, SessionFilterDto } from './dto/session.dto';
 import { OcpiTokenSyncService } from '../../common/services/ocpi-token-sync.service';
 import { parsePaginationOptions } from '../../common/utils/pagination';
+
+type OcppSessionPayload = Record<string, unknown>;
 
 @Injectable()
 export class SessionService {
@@ -35,7 +38,7 @@ export class SessionService {
   }
 
   async getHistory(filter: SessionFilterDto) {
-    const where: any = {};
+    const where: Prisma.SessionWhereInput = {};
     if (filter.status) where.status = filter.status;
     if (filter.stationId) where.stationId = filter.stationId;
     const pagination = parsePaginationOptions(
@@ -51,6 +54,7 @@ export class SessionService {
   }
 
   async stopSession(id: string, stopDto: StopSessionDto) {
+    void stopDto;
     const session = await this.findById(id);
     if (session.status !== 'ACTIVE') return session;
 
@@ -66,13 +70,18 @@ export class SessionService {
     // Notify User
     if (updatedSession.userId) {
       // Need to fetch user here or include in update? Fetch separate
-      this.notifyUserOfStop(updatedSession.userId, updatedSession as any);
+      void this.notifyUserOfStop(updatedSession.userId, {
+        totalEnergy: updatedSession.totalEnergy,
+      });
     }
 
     return updatedSession;
   }
 
-  private async notifyUserOfStop(userId: string, session: any) {
+  private async notifyUserOfStop(
+    userId: string,
+    session: { totalEnergy: number },
+  ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (user && user.phone) {
       const cost = (session.totalEnergy || 0) * 0.5; // Mock Rate
@@ -97,7 +106,7 @@ export class SessionService {
   }
 
   // --- OCPP ---
-  async handleOcppMessage(message: any) {
+  async handleOcppMessage(message: unknown) {
     const normalized = this.normalizeSessionEvent(message);
     if (!normalized.chargePointId) return;
 
@@ -141,9 +150,12 @@ export class SessionService {
     }
   }
 
-  private async handleStartTransaction(ocppId: string, payload: any) {
+  private async handleStartTransaction(
+    ocppId: string,
+    payload: OcppSessionPayload,
+  ) {
     this.logger.log(`Starting Transaction for ${ocppId}`);
-    const txId = payload.transactionId?.toString();
+    const txId = this.toTrimmedString(payload.transactionId);
     if (txId) {
       const existing = await this.prisma.session.findUnique({
         where: { ocppTxId: txId },
@@ -168,16 +180,22 @@ export class SessionService {
     }
 
     const idTag = this.extractIdToken(payload);
+    const evse = this.readRecord(payload.evse);
+    const connectorId =
+      this.toFiniteNumber(payload.connectorId) ??
+      this.toFiniteNumber(evse?.connectorId) ??
+      0;
+    const timestamp = this.toDate(payload.timestamp) ?? new Date();
+    const meterStart = this.toFiniteNumber(payload.meterStart) ?? 0;
 
     await this.prisma.session.create({
       data: {
         ocppId: ocppId,
-        connectorId:
-          Number(payload.connectorId || payload.evse?.connectorId) || 0,
+        connectorId,
         idTag,
         ocppTxId: txId,
-        startTime: payload.timestamp ? new Date(payload.timestamp) : new Date(),
-        meterStart: Number(payload.meterStart) || 0,
+        startTime: timestamp,
+        meterStart,
         status: 'ACTIVE',
         stationId: chargePoint.stationId,
       },
@@ -186,9 +204,12 @@ export class SessionService {
     await this.syncIdTagTokenSafe(idTag);
   }
 
-  private async handleStopTransaction(ocppId: string, payload: any) {
+  private async handleStopTransaction(
+    ocppId: string,
+    payload: OcppSessionPayload,
+  ) {
     this.logger.log(`Stopping Transaction for ${ocppId}`);
-    const txId = payload.transactionId?.toString();
+    const txId = this.toTrimmedString(payload.transactionId);
     if (!txId) {
       this.logger.warn('Missing transaction ID in stop transaction payload');
       return;
@@ -198,13 +219,14 @@ export class SessionService {
     });
 
     if (session) {
-      const meterStop = Number(payload.meterStop) || 0;
+      const meterStop = this.toFiniteNumber(payload.meterStop) ?? 0;
       const totalEnergy = Math.max(0, meterStop - session.meterStart);
+      const endTime = this.toDate(payload.timestamp) ?? new Date();
 
       const updated = await this.prisma.session.update({
         where: { id: session.id },
         data: {
-          endTime: payload.timestamp ? new Date(payload.timestamp) : new Date(),
+          endTime,
           meterStop,
           totalEnergy,
           status: 'COMPLETED',
@@ -219,28 +241,32 @@ export class SessionService {
     }
   }
 
-  private async handleTransactionEvent(ocppId: string, payload: any) {
-    const eventType = String(payload?.eventType || '').toLowerCase();
-    const transactionId = payload?.transactionInfo?.transactionId?.toString();
+  private async handleTransactionEvent(
+    ocppId: string,
+    payload: OcppSessionPayload,
+  ) {
+    const eventType = (this.readString(payload.eventType) || '').toLowerCase();
+    const transactionInfo = this.readRecord(payload.transactionInfo);
+    const transactionId = this.toTrimmedString(transactionInfo?.transactionId);
     if (!transactionId) {
       this.logger.warn('Missing transaction ID in TransactionEvent payload');
       return;
     }
 
-    const timestamp = payload?.timestamp
-      ? new Date(payload.timestamp)
-      : new Date();
+    const timestamp = this.toDate(payload.timestamp) ?? new Date();
     const extractedMeterWh = this.extractMeterWhFromTransactionEvent(payload);
-    const fallbackMeter = Number(payload?.meterValue);
+    const fallbackMeter = this.toFiniteNumber(payload.meterValue);
     const meterWh =
       extractedMeterWh !== undefined
         ? extractedMeterWh
-        : Number.isFinite(fallbackMeter)
+        : fallbackMeter !== undefined
           ? fallbackMeter
           : undefined;
+    const evse = this.readRecord(payload.evse);
     const connectorId =
-      Number(payload?.evse?.connectorId || payload?.connectorId) ||
-      Number(payload?.evse?.id) ||
+      this.toFiniteNumber(evse?.connectorId) ??
+      this.toFiniteNumber(payload.connectorId) ??
+      this.toFiniteNumber(evse?.id) ??
       0;
 
     if (eventType === 'started') {
@@ -295,58 +321,54 @@ export class SessionService {
     }
   }
 
-  private normalizeSessionEvent(message: any): {
+  private normalizeSessionEvent(message: unknown): {
     chargePointId?: string;
     eventType?: string;
     action?: string;
-    payload: Record<string, any>;
+    payload: OcppSessionPayload;
   } {
     const input = this.unwrapEnvelope(message);
-    if (!input || typeof input !== 'object') {
+    if (!this.isRecord(input)) {
       return { payload: {} };
     }
 
+    const chargePoint = this.readRecord(input.chargePoint);
     const chargePointId = this.readString(
-      input.chargePointId || input.ocppId || input.chargePoint?.ocppId,
+      input.chargePointId || input.ocppId || chargePoint?.ocppId,
     );
     const eventType = this.readString(input.eventType);
     const topLevelAction = this.readString(input.action);
-    const rawPayload =
-      input.payload && typeof input.payload === 'object' ? input.payload : {};
-    const payloadData =
-      rawPayload.payload &&
-      typeof rawPayload.payload === 'object' &&
-      !Array.isArray(rawPayload.payload)
-        ? rawPayload.payload
-        : rawPayload;
+    const rawPayload = this.readRecord(input.payload) ?? {};
+    const nestedPayload = this.readRecord(rawPayload.payload);
+    const payloadData = nestedPayload ?? rawPayload;
     const payloadAction = this.readString(rawPayload.action);
     const action = topLevelAction || payloadAction;
-    const payload: Record<string, any> =
-      action && payloadData && typeof payloadData === 'object'
+    const payload: OcppSessionPayload =
+      action && payloadData
         ? {
             ...payloadData,
             transactionId:
               payloadData.transactionId || rawPayload.transactionId,
           }
-        : payloadData;
+        : { ...payloadData };
 
     return {
       chargePointId,
       eventType,
       action,
-      payload: payload || {},
+      payload,
     };
   }
 
-  private unwrapEnvelope(message: any): any {
+  private unwrapEnvelope(message: unknown): unknown {
     if (typeof message === 'string') {
       try {
-        return JSON.parse(message);
+        return JSON.parse(message) as unknown;
       } catch {
         return null;
       }
     }
-    if (message && typeof message === 'object' && message.value !== undefined) {
+    if (this.isRecord(message) && message.value !== undefined) {
       return this.unwrapEnvelope(message.value);
     }
     return message;
@@ -358,33 +380,91 @@ export class SessionService {
     return trimmed.length > 0 ? trimmed : undefined;
   }
 
-  private extractIdToken(payload: any): string {
-    if (typeof payload?.idTag === 'string' && payload.idTag.trim().length > 0) {
-      return payload.idTag.trim();
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  private readRecord(value: unknown): Record<string, unknown> | undefined {
+    return this.isRecord(value) ? value : undefined;
+  }
+
+  private toFiniteNumber(value: unknown): number | undefined {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
     }
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+    return undefined;
+  }
+
+  private toTrimmedString(value: unknown): string | undefined {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    }
+    if (typeof value === 'number' || typeof value === 'bigint') {
+      return String(value);
+    }
+    return undefined;
+  }
+
+  private toDate(value: unknown): Date | undefined {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value;
+    }
+    if (typeof value === 'string' || typeof value === 'number') {
+      const parsed = new Date(value);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed;
+      }
+    }
+    return undefined;
+  }
+
+  private extractIdToken(payload: OcppSessionPayload): string {
+    const idTag = this.readString(payload.idTag);
+    if (idTag) {
+      return idTag;
+    }
+    const idToken = this.readRecord(payload.idToken);
     if (
-      payload?.idToken &&
-      typeof payload.idToken === 'object' &&
-      typeof payload.idToken.idToken === 'string' &&
-      payload.idToken.idToken.trim().length > 0
+      idToken &&
+      typeof idToken.idToken === 'string' &&
+      idToken.idToken.trim().length > 0
     ) {
-      return payload.idToken.idToken.trim();
+      return idToken.idToken.trim();
     }
     return '';
   }
 
-  private extractMeterWhFromTransactionEvent(payload: any): number | undefined {
-    const meterValues = Array.isArray(payload?.meterValue)
+  private extractMeterWhFromTransactionEvent(
+    payload: OcppSessionPayload,
+  ): number | undefined {
+    const meterValues = Array.isArray(payload.meterValue)
       ? payload.meterValue
       : [];
     for (const meterValue of meterValues) {
-      const sampledValues = Array.isArray(meterValue?.sampledValue)
-        ? meterValue.sampledValue
+      const meterValueRecord = this.readRecord(meterValue);
+      if (!meterValueRecord) {
+        continue;
+      }
+      const sampledValues = Array.isArray(meterValueRecord.sampledValue)
+        ? meterValueRecord.sampledValue
         : [];
       for (const sampled of sampledValues) {
-        const value = Number(sampled?.value);
-        if (!Number.isFinite(value)) continue;
-        const measurand = String(sampled?.measurand || '').toLowerCase();
+        const sampledRecord = this.readRecord(sampled);
+        if (!sampledRecord) {
+          continue;
+        }
+        const value = this.toFiniteNumber(sampledRecord.value);
+        if (value === undefined) continue;
+        const measurand = (this.readString(sampledRecord.measurand) || '')
+          .trim()
+          .toLowerCase();
         if (
           measurand &&
           measurand !== 'energy.active.import.register' &&
@@ -392,7 +472,12 @@ export class SessionService {
         ) {
           continue;
         }
-        const unit = String(sampled?.unitOfMeasure?.unit || sampled?.unit || '')
+        const unitOfMeasure = this.readRecord(sampledRecord.unitOfMeasure);
+        const unit = (
+          this.readString(unitOfMeasure?.unit) ||
+          this.readString(sampledRecord.unit) ||
+          ''
+        )
           .trim()
           .toLowerCase();
         if (unit === 'kwh') return value * 1000;

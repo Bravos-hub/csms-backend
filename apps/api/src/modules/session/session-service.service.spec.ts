@@ -1,4 +1,7 @@
 import { SessionService } from './session-service.service';
+import { PrismaService } from '../../prisma.service';
+import { NotificationService } from '../notification/notification-service.service';
+import { OcpiTokenSyncService } from '../../common/services/ocpi-token-sync.service';
 
 describe('SessionService OCPP TransactionEvent handling', () => {
   const prisma = {
@@ -26,9 +29,9 @@ describe('SessionService OCPP TransactionEvent handling', () => {
   };
 
   const service = new SessionService(
-    prisma as any,
-    notificationService as any,
-    ocpiTokenSync as any,
+    prisma as unknown as PrismaService,
+    notificationService as unknown as NotificationService,
+    ocpiTokenSync as unknown as OcpiTokenSyncService,
   );
 
   beforeEach(() => {
@@ -73,16 +76,30 @@ describe('SessionService OCPP TransactionEvent handling', () => {
       },
     });
 
-    expect(prisma.session.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        ocppId: 'CP-1',
-        stationId: 'station-1',
-        ocppTxId: 'tx-201',
-        connectorId: 2,
-        idTag: 'TAG-001',
-        meterStart: 10000,
-        status: 'ACTIVE',
-      }),
+    const createCalls = prisma.session.create.mock.calls as unknown[][];
+    const createArg = createCalls[0]?.[0] as
+      | {
+          data: {
+            ocppId: string;
+            stationId: string;
+            ocppTxId: string;
+            connectorId: number;
+            idTag: string;
+            meterStart: number;
+            status: string;
+          };
+        }
+      | undefined;
+
+    expect(createArg).toBeDefined();
+    expect(createArg?.data).toMatchObject({
+      ocppId: 'CP-1',
+      stationId: 'station-1',
+      ocppTxId: 'tx-201',
+      connectorId: 2,
+      idTag: 'TAG-001',
+      meterStart: 10000,
+      status: 'ACTIVE',
     });
   });
 
@@ -122,17 +139,38 @@ describe('SessionService OCPP TransactionEvent handling', () => {
       },
     });
 
-    expect(prisma.session.update).toHaveBeenCalledWith({
-      where: { id: 'session-1' },
-      data: expect.objectContaining({
-        meterStop: 15000,
-        totalEnergy: 5000,
-        status: 'COMPLETED',
-      }),
+    const updateCalls = prisma.session.update.mock.calls as unknown[][];
+    const updateArg = updateCalls[0]?.[0] as
+      | {
+          where: { id: string };
+          data: {
+            meterStop: number;
+            totalEnergy: number;
+            status: string;
+          };
+        }
+      | undefined;
+
+    expect(updateArg).toBeDefined();
+    expect(updateArg?.where).toEqual({ id: 'session-1' });
+    expect(updateArg?.data).toMatchObject({
+      meterStop: 15000,
+      totalEnergy: 5000,
+      status: 'COMPLETED',
     });
   });
 
   it('passes geo context when sending stop-session SMS notifications', async () => {
+    prisma.session.findUnique.mockResolvedValue({
+      id: 'session-1',
+      status: 'ACTIVE',
+    });
+    prisma.session.update.mockResolvedValue({
+      id: 'session-1',
+      userId: 'user-1',
+      totalEnergy: 2500,
+      status: 'STOPPED',
+    });
     prisma.user.findUnique.mockResolvedValue({
       id: 'user-1',
       phone: '+256700000001',
@@ -142,7 +180,8 @@ describe('SessionService OCPP TransactionEvent handling', () => {
     });
     notificationService.sendSms.mockResolvedValue({ sid: 'sms-1' });
 
-    await (service as any).notifyUserOfStop('user-1', { totalEnergy: 2500 });
+    await service.stopSession('session-1', {});
+    await new Promise((resolve) => setImmediate(resolve));
 
     expect(notificationService.sendSms).toHaveBeenCalledWith(
       '+256700000001',

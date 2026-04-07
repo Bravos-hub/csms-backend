@@ -14,6 +14,7 @@ import {
   CommandRequest,
 } from '../../contracts/commands';
 import { WorkerMetricsService } from '../observability/worker-metrics.service';
+import { WorkerTenantRoutingService } from './worker-tenant-routing.service';
 
 @Injectable()
 export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
@@ -29,6 +30,7 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly kafka: KafkaService,
     private readonly metrics: WorkerMetricsService,
+    private readonly tenantRouting: WorkerTenantRoutingService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -177,6 +179,7 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
       commandId: command.id,
       commandType: command.commandType,
       stationId: command.stationId || undefined,
+      tenantId: command.tenantId || undefined,
       chargePointId: targetOcppId,
       connectorId: command.connectorId
         ? Number(command.connectorId)
@@ -251,10 +254,13 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
     }
 
     let targetOcppId = command.chargePointId;
-    if (command.chargePointId) {
-      const cp = await this.prisma.chargePoint.findUnique({
-        where: { id: command.chargePointId },
-      });
+    const chargePointId = command.chargePointId;
+    if (chargePointId) {
+      const cp = await this.tenantRouting.runWithTenant(command.tenantId, () =>
+        this.prisma.chargePoint.findUnique({
+          where: { id: chargePointId },
+        }),
+      );
       if (!cp) {
         await this.handlePublishFailure(outbox, 'ChargePoint not found');
         return null;

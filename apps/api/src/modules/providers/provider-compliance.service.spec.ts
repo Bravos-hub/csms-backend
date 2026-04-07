@@ -1,5 +1,9 @@
 import { UserRole } from '@prisma/client';
+import { PrismaService } from '../../prisma.service';
 import { ProviderComplianceService } from './provider-compliance.service';
+import { ProviderAuthzService } from './provider-authz.service';
+import { ProviderRequirementsService } from './provider-requirements.service';
+import { ProviderCompliancePolicyService } from './provider-compliance-policy.service';
 
 describe('ProviderComplianceService', () => {
   const prisma = {
@@ -13,7 +17,7 @@ describe('ProviderComplianceService', () => {
     providerDocument: {
       findMany: jest.fn(),
     },
-  } as any;
+  };
 
   const authz = {
     getActor: jest.fn(),
@@ -22,16 +26,16 @@ describe('ProviderComplianceService', () => {
     isPlatformOps: jest.fn(),
     assertProviderScope: jest.fn(),
     assertRelationshipScopedAccess: jest.fn(),
-  } as any;
+  };
 
   const requirementsService = {
     listForScope: jest.fn(),
-  } as any;
+  };
 
   const policyService = {
     getProviderPolicy: jest.fn(),
     normalizePolicy: jest.fn(),
-  } as any;
+  };
 
   let service: ProviderComplianceService;
 
@@ -64,10 +68,10 @@ describe('ProviderComplianceService', () => {
     jest.useRealTimers();
 
     service = new ProviderComplianceService(
-      prisma,
-      authz,
-      requirementsService,
-      policyService,
+      prisma as unknown as PrismaService,
+      authz as unknown as ProviderAuthzService,
+      requirementsService as unknown as ProviderRequirementsService,
+      policyService as unknown as ProviderCompliancePolicyService,
     );
 
     authz.getActor.mockResolvedValue({

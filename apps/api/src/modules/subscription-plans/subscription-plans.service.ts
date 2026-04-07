@@ -2,27 +2,60 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
+import { Prisma, UserRole } from '@prisma/client';
 import { CreateSubscriptionPlanDto } from './dto/create-subscription-plan.dto';
 import { UpdateSubscriptionPlanDto } from './dto/update-subscription-plan.dto';
-import { UserRole } from '@prisma/client';
+
+type SubscriptionPlanFilters = {
+  role?: UserRole;
+  isActive?: boolean;
+  isPublic?: boolean;
+};
+
+const USER_ROLES = new Set<UserRole>(Object.values(UserRole));
+
+const toUserRole = (role: string): UserRole => {
+  if (USER_ROLES.has(role as UserRole)) {
+    return role as UserRole;
+  }
+  throw new BadRequestException(`Invalid role: ${role}`);
+};
+
+const toFeatureCreates = (
+  features: CreateSubscriptionPlanDto['features'],
+): Prisma.PlanFeatureCreateWithoutPlanInput[] | undefined =>
+  features?.map((feature) => ({
+    featureKey: feature.featureKey,
+    featureValue: feature.featureValue,
+    description: feature.description,
+    order: feature.order,
+  }));
+
+const toPermissionCreates = (
+  permissions: CreateSubscriptionPlanDto['permissions'],
+): Prisma.PlanPermissionCreateWithoutPlanInput[] | undefined =>
+  permissions?.map((permission) => ({
+    resource: permission.resource,
+    action: permission.action,
+    description: permission.description,
+  }));
 
 @Injectable()
 export class SubscriptionPlansService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(filters?: {
-    role?: any;
-    isActive?: boolean;
-    isPublic?: boolean;
-  }) {
+  async findAll(filters?: SubscriptionPlanFilters) {
+    const where: Prisma.SubscriptionPlanWhereInput = {
+      ...(filters?.role && { role: filters.role }),
+      ...(filters?.isActive !== undefined && { isActive: filters.isActive }),
+      ...(filters?.isPublic !== undefined && { isPublic: filters.isPublic }),
+    };
+
     return this.prisma.subscriptionPlan.findMany({
-      where: {
-        ...(filters?.role && { role: filters.role }),
-        ...(filters?.isActive !== undefined && { isActive: filters.isActive }),
-        ...(filters?.isPublic !== undefined && { isPublic: filters.isPublic }),
-      },
+      where,
       include: {
         features: true,
         permissions: true,
@@ -81,20 +114,22 @@ export class SubscriptionPlansService {
       );
     }
 
-    const { features, permissions, ...planData } = dto;
+    const { features, permissions, role, ...planData } = dto;
+    const featureCreates = toFeatureCreates(features);
+    const permissionCreates = toPermissionCreates(permissions);
 
     return this.prisma.subscriptionPlan.create({
       data: {
         ...planData,
-        role: planData.role as UserRole,
-        features: features
+        role: toUserRole(role),
+        features: featureCreates
           ? {
-              create: features as any,
+              create: featureCreates,
             }
           : undefined,
-        permissions: permissions
+        permissions: permissionCreates
           ? {
-              create: permissions as any,
+              create: permissionCreates,
             }
           : undefined,
       },
@@ -111,7 +146,9 @@ export class SubscriptionPlansService {
     // Ensure plan exists
     await this.findOne(id);
 
-    const { features, permissions, ...planData } = dto;
+    const { features, permissions, role, ...planData } = dto;
+    const featureCreates = toFeatureCreates(features);
+    const permissionCreates = toPermissionCreates(permissions);
 
     // If updating features or permissions, we need to delete existing and create new ones
     // This is a simple approach - for production, you might want more sophisticated merging
@@ -119,17 +156,17 @@ export class SubscriptionPlansService {
       where: { id },
       data: {
         ...planData,
-        ...(planData.role && { role: planData.role as any }),
-        ...(features && {
+        ...(role ? { role: toUserRole(role) } : {}),
+        ...(featureCreates && {
           features: {
             deleteMany: {},
-            create: features as any,
+            create: featureCreates,
           },
         }),
-        ...(permissions && {
+        ...(permissionCreates && {
           permissions: {
             deleteMany: {},
-            create: permissions as any,
+            create: permissionCreates,
           },
         }),
       },

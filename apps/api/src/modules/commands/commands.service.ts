@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
+import { TenantContextService } from '@app/db';
 import { PrismaService } from '../../prisma.service';
 import { CommandRequest, CommandResponse } from '../../contracts/commands';
 
@@ -19,7 +20,10 @@ type CommandRecord = {
 
 @Injectable()
 export class CommandsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantContext: TenantContextService,
+  ) {}
 
   async enqueueCommand(
     input: Omit<CommandRequest, 'commandId' | 'requestedAt'> & {
@@ -29,9 +33,18 @@ export class CommandsService {
     const now = new Date();
     const commandId = randomUUID();
 
+    const context = this.tenantContext.get();
+    const resolvedTenantId =
+      context?.effectiveOrganizationId ||
+      context?.authenticatedOrganizationId ||
+      input.tenantId ||
+      input.requestedBy?.orgId ||
+      null;
+
     await this.prisma.command.create({
       data: {
         id: commandId,
+        tenantId: resolvedTenantId,
         stationId: input.stationId || null,
         chargePointId: input.chargePointId || null,
         connectorId:
@@ -67,7 +80,10 @@ export class CommandsService {
       data: {
         commandId,
         status: 'Queued',
-        payload: { commandType: input.commandType },
+        payload: {
+          commandType: input.commandType,
+          tenantId: resolvedTenantId,
+        },
         occurredAt: now,
       },
     });

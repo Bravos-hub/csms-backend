@@ -1,8 +1,10 @@
 import { StationController } from './station-service.controller';
+import { StationService } from './station-service.service';
 
 describe('StationController', () => {
   it('should be defined', () => {
-    const controller = new StationController({} as any);
+    const stationService = {} as unknown as StationService;
+    const controller = new StationController(stationService);
     expect(controller).toBeDefined();
   });
 });

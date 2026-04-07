@@ -35,7 +35,10 @@ async function main() {
   try {
     const user = await prisma.user.findFirst({
       where: {
-        OR: [{ email: { equals: normalized, mode: 'insensitive' } }, { phone: identifier.trim() }],
+        OR: [
+          { email: { equals: normalized, mode: 'insensitive' } },
+          { phone: identifier.trim() },
+        ],
       },
       select: {
         id: true,
@@ -70,7 +73,7 @@ async function main() {
       return;
     }
 
-    const stationAssignments = await (prisma as any).stationTeamAssignment.findMany({
+    const stationAssignments = await prisma.stationTeamAssignment.findMany({
       where: { userId: user.id },
       include: {
         station: {
@@ -99,7 +102,7 @@ async function main() {
     });
 
     const activeStationAssignments = stationAssignments.filter(
-      (assignment: { isActive: boolean }) => assignment.isActive,
+      (assignment) => assignment.isActive,
     );
     const activeAttendantAssignments = attendantAssignments.filter(
       (assignment) => assignment.isActive,
@@ -126,7 +129,7 @@ async function main() {
             activeAttendantAssignments: activeAttendantAssignments.length,
             assignmentProjectionAligned:
               activeStationAssignments.filter(
-                (assignment: { role: string }) => assignment.role === 'ATTENDANT',
+                (assignment) => assignment.role === 'ATTENDANT',
               ).length === activeAttendantAssignments.length,
           },
           stationTeamAssignments: stationAssignments,

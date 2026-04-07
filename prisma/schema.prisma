@@ -27,6 +27,36 @@ enum UserRole {
   DRIVER
 }
 
+enum CanonicalRoleKey {
+  PLATFORM_SUPER_ADMIN
+  PLATFORM_BILLING_ADMIN
+  PLATFORM_NOC_LEAD
+  TENANT_ADMIN
+  STATION_MANAGER
+  SITE_HOST
+  ROAMING_MANAGER
+  FLEET_DISPATCHER
+  FLEET_DRIVER
+  INSTALLER_AGENT
+  SMART_CHARGING_ENGINEER
+  OPERATIONS_OPERATOR
+  FIELD_TECHNICIAN
+  TENANT_FINANCE_ANALYST
+  EXTERNAL_PROVIDER_OPERATOR
+}
+
+enum PermissionScope {
+  PLATFORM
+  TENANT
+}
+
+enum CustomRoleStatus {
+  DRAFT
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
 enum StationType {
   CHARGING
   SWAPPING
@@ -120,6 +150,12 @@ enum InvitationStatus {
   REVOKED
 }
 
+enum TenantTier {
+  SHARED
+  SCHEMA
+  DEDICATED_DB
+}
+
 model User {
   id              String  @id @default(uuid())
   name            String
@@ -204,7 +240,17 @@ model Organization {
   name        String
   description String?
   logoUrl     String?
-  type        String   @default("COMPANY") // COMPANY, INDIVIDUAL
+  type                 String     @default("COMPANY") // COMPANY, INDIVIDUAL
+  tenantSubdomain      String?    @unique @map("tenant_subdomain")
+  tenantTier           TenantTier @default(SHARED) @map("tenant_tier")
+  tenantSchema         String?    @map("tenant_schema")
+  tenantRoutingEnabled Boolean    @default(false) @map("tenant_routing_enabled")
+  primaryDomain        String?    @map("primary_domain")
+  allowedOrigins       String[]   @default([]) @map("allowed_origins")
+  whiteLabelConfig     Json?      @map("white_label_config")
+  billingPlanCode      String?    @map("billing_plan_code")
+  billingStatus        String?    @map("billing_status")
+  suspendedAt          DateTime?  @map("suspended_at")
   
   // Financials
   paymentProvider String?  // MTN, AIRTEL, M-PESA
@@ -234,6 +280,7 @@ model OrganizationMembership {
   userId          String
   organizationId  String
   role            UserRole
+  canonicalRoleKey CanonicalRoleKey?
   customRoleId    String?
   customRoleName  String?
   ownerCapability StationOwnerCapability?
@@ -257,6 +304,7 @@ model UserInvitation {
   userId              String?
   organizationId      String
   role                UserRole
+  canonicalRoleKey    CanonicalRoleKey?
   customRoleId        String?
   customRoleName      String?
   ownerCapability     StationOwnerCapability?
@@ -453,7 +501,11 @@ model UserApplication {
   taxId           String?
   country         String
   region          String
-  accountType     String   @default("COMPANY") // COMPANY, INDIVIDUAL
+  accounttype                 String     @default("COMPANY") // COMPANY, INDIVIDUAL
+  tenantSubdomain      String?    @unique @map("tenant_subdomain")
+  tenantTier           TenantTier @default(SHARED) @map("tenant_tier")
+  tenantSchema         String?    @map("tenant_schema")
+  tenantRoutingEnabled Boolean    @default(false) @map("tenant_routing_enabled")
   role            String   // STATION_OWNER, STATION_OPERATOR, etc.
   subscribedPackage String?
   
@@ -530,6 +582,70 @@ model PlanPermission {
   @@map("plan_permissions")
 }
 
+model PermissionDefinition {
+  id          String          @id @default(uuid())
+  code        String          @unique
+  label       String
+  description String?
+  scope       PermissionScope
+  resource    String?
+  action      String?
+  isSystem    Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  systemRoleTemplatePermissions SystemRoleTemplatePermission[]
+
+  @@map("permission_definitions")
+  @@index([scope])
+}
+
+model SystemRoleTemplate {
+  id             String           @id @default(uuid())
+  key            CanonicalRoleKey @unique
+  label          String
+  description    String?
+  family         String
+  scope          PermissionScope
+  isPlatformRole Boolean          @default(false)
+  customizable   Boolean          @default(false)
+  version        Int              @default(1)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  permissions SystemRoleTemplatePermission[]
+
+  @@map("system_role_templates")
+}
+
+model SystemRoleTemplatePermission {
+  id             String   @id @default(uuid())
+  roleTemplateId String
+  permissionId   String
+  createdAt      DateTime @default(now())
+
+  roleTemplate SystemRoleTemplate @relation(fields: [roleTemplateId], references: [id], onDelete: Cascade)
+  permission   PermissionDefinition @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@map("system_role_template_permissions")
+  @@unique([roleTemplateId, permissionId])
+  @@index([permissionId])
+}
+
+model PlatformRoleAssignment {
+  id         String            @id @default(uuid())
+  userId     String
+  roleKey    CanonicalRoleKey
+  status     MembershipStatus  @default(ACTIVE)
+  assignedBy String?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@map("platform_role_assignments")
+  @@unique([userId, roleKey])
+  @@index([userId, status])
+}
+
 model Station {
   id        String  @id @default(uuid())
   name      String
@@ -593,6 +709,7 @@ model ChargePoint {
   clientSecretHash String?
   clientSecretSalt String?
   allowedInsecure  Boolean @default(false)
+  smartChargingEnabled Boolean @default(false)
 
   station  Station   @relation(fields: [stationId], references: [id])
   sessions Session[]
@@ -949,7 +1066,7 @@ model Site {
   owner              User                 @relation(fields: [ownerId], references: [id])
   organization       Organization?        @relation(fields: [organizationId], references: [id])
   stations           Station[]
-  tenants            Tenant[]
+  tenants            SiteTenant[]
   leaseDetails       SiteLeaseDetails?
   documents          SiteDocument[]
   tenantApplications TenantApplication[]
@@ -984,7 +1101,7 @@ model SiteLeaseDetails {
   @@map("site_lease_details")
 }
 
-model Tenant {
+model SiteTenant {
   id        String    @id @default(uuid())
   name      String
   type      String
@@ -998,6 +1115,62 @@ model Tenant {
   updatedAt DateTime @updatedAt
 
   @@map("tenants")
+}
+
+model TenantCustomRole {
+  id              String           @id @default(uuid())
+  organizationId  String
+  key             String
+  name            String
+  description     String?
+  baseRoleKey     CanonicalRoleKey
+  status          CustomRoleStatus @default(DRAFT)
+  version         Int              @default(1)
+  createdBy       String?
+  updatedBy       String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  permissions TenantCustomRolePermission[]
+
+  @@map("tenant_custom_roles")
+  @@unique([organizationId, key])
+  @@index([organizationId, status])
+  @@index([organizationId, baseRoleKey])
+}
+
+model TenantCustomRolePermission {
+  id             String   @id @default(uuid())
+  customRoleId   String
+  permissionCode String
+  createdAt      DateTime @default(now())
+
+  customRole TenantCustomRole @relation(fields: [customRoleId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_custom_role_permissions")
+  @@unique([customRoleId, permissionCode])
+  @@index([permissionCode])
+}
+
+model TenantMembership {
+  id             String            @id @default(uuid())
+  organizationId String
+  userId         String
+  roleKey        CanonicalRoleKey
+  customRoleId   String?
+  status         MembershipStatus  @default(ACTIVE)
+  siteIds        String[]          @default([])
+  stationIds     String[]          @default([])
+  fleetGroupIds  String[]          @default([])
+  createdBy      String?
+  updatedBy      String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@map("tenant_memberships")
+  @@unique([userId, organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, roleKey])
 }
 
 
@@ -1269,6 +1442,7 @@ model NegotiationRound {
 
 model Command {
   id            String    @id @default(uuid())
+  tenantId      String?   @map("tenant_id")
   stationId     String?   @map("station_id")
   chargePointId String?   @map("charge_point_id")
   connectorId   String?   @map("connector_id")
@@ -1287,6 +1461,7 @@ model Command {
   @@map("commands")
   @@index([correlationId])
   @@index([status, requestedAt])
+  @@index([tenantId, requestedAt], map: "commands_tenant_id_requested_at_idx")
 }
 
 model CommandOutbox {
@@ -1766,3 +1941,6 @@ enum BatteryStatus {
   IN_TRANSIT
   UNKNOWN
 }
+
+
+

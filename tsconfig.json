@@ -25,6 +25,7 @@
     ],
     "types": [
       "node",
+      "jest",
       "bcrypt",
       "cookie-parser",
       "nodemailer",

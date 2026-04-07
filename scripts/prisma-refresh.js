@@ -6,8 +6,19 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const rootDir = path.resolve(__dirname, '..');
-const generatedClientDir = path.join(rootDir, 'node_modules', '.prisma', 'client');
-const prismaCliPath = path.join(rootDir, 'node_modules', 'prisma', 'build', 'index.js');
+const generatedClientDir = path.join(
+  rootDir,
+  'node_modules',
+  '.prisma',
+  'client',
+);
+const prismaCliPath = path.join(
+  rootDir,
+  'node_modules',
+  'prisma',
+  'build',
+  'index.js',
+);
 const schemaPath = path.join('prisma', 'schema.prisma');
 const checkScriptPath = path.join(rootDir, 'scripts', 'prisma-check.js');
 
@@ -25,8 +36,12 @@ function run(command, args, options = {}) {
 
 function main() {
   if (!fs.existsSync(prismaCliPath)) {
-    console.error('[prisma:refresh] Local Prisma CLI is missing at `node_modules/prisma`.');
-    console.error('Run `npm install` first, then run `npm run prisma:refresh` again.');
+    console.error(
+      '[prisma:refresh] Local Prisma CLI is missing at `node_modules/prisma`.',
+    );
+    console.error(
+      'Run `npm install` first, then run `npm run prisma:refresh` again.',
+    );
     process.exit(1);
   }
 

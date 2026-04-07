@@ -6,13 +6,14 @@ import {
   Param,
   Patch,
   Post,
-  Query,
 } from '@nestjs/common';
+
+type TariffPayload = Record<string, unknown>;
 
 @Controller('tariffs')
 export class TariffsController {
   @Get()
-  getAll(@Query() query: any) {
+  getAll() {
     return [];
   }
 
@@ -22,12 +23,12 @@ export class TariffsController {
   }
 
   @Post()
-  create(@Body() payload: any) {
-    return payload;
+  create(@Body() payload: TariffPayload) {
+    return { ...payload };
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() payload: any) {
+  update(@Param('id') id: string, @Body() payload: TariffPayload) {
     return { id, ...payload };
   }
 

@@ -1,5 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ZoneType } from '@prisma/client';
+import { PrismaService } from '../../prisma.service';
 import { GeographyService } from './geography.service';
 
 describe('GeographyService', () => {
@@ -14,13 +15,13 @@ describe('GeographyService', () => {
     station: {
       findMany: jest.fn(),
     },
-  } as any;
+  };
 
   let service: GeographyService;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new GeographyService(prisma);
+    service = new GeographyService(prisma as unknown as PrismaService);
   });
 
   it('creates a COUNTRY under a CONTINENT', async () => {

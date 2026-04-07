@@ -11,6 +11,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { UserRole } from '@prisma/client';
 import { SubscriptionPlansService } from './subscription-plans.service';
 import { CreateSubscriptionPlanDto } from './dto/create-subscription-plan.dto';
 import { UpdateSubscriptionPlanDto } from './dto/update-subscription-plan.dto';
@@ -32,7 +33,7 @@ export class SubscriptionPlansController {
     @Query('isPublic') isPublic?: string,
   ) {
     return this.plansService.findAll({
-      role: role as any,
+      role: role as UserRole | undefined,
       isActive:
         isActive === 'true' ? true : isActive === 'false' ? false : undefined,
       isPublic:

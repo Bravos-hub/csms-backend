@@ -5,8 +5,18 @@ import { Observable, Subject } from 'rxjs';
 export class EventStreamService {
   private readonly subject = new Subject<MessageEvent>();
 
+  private normalizeEventData(data: unknown): string | object {
+    if (typeof data === 'string') {
+      return data;
+    }
+    if (typeof data === 'object' && data !== null) {
+      return data;
+    }
+    return { value: data };
+  }
+
   emit(type: string, data: unknown) {
-    this.subject.next({ type, data: data as any });
+    this.subject.next({ type, data: this.normalizeEventData(data) });
   }
 
   stream(): Observable<MessageEvent> {

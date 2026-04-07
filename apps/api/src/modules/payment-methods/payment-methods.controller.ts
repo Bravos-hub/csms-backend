@@ -10,19 +10,31 @@ import {
 
 @Controller('payment-methods')
 export class PaymentMethodsController {
+  private toObjectPayload(payload: unknown): Record<string, unknown> {
+    if (
+      typeof payload === 'object' &&
+      payload !== null &&
+      !Array.isArray(payload)
+    ) {
+      return payload as Record<string, unknown>;
+    }
+
+    return { payload };
+  }
+
   @Get()
   getAll() {
     return [];
   }
 
   @Post()
-  create(@Body() payload: any) {
+  create(@Body() payload: unknown) {
     return payload;
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() payload: any) {
-    return { id, ...payload };
+  update(@Param('id') id: string, @Body() payload: unknown) {
+    return { id, ...this.toObjectPayload(payload) };
   }
 
   @Delete(':id')

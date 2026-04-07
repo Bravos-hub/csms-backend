@@ -13,6 +13,7 @@ import {
   MembershipStatus,
   Prisma,
   PayoutMethod,
+  CustomRoleStatus,
   StationOwnerCapability,
   AttendantRoleMode,
   User,
@@ -39,16 +40,46 @@ import { SignOptions } from 'jsonwebtoken';
 import * as bcrypt from 'bcrypt';
 import * as qrcode from 'qrcode';
 import * as speakeasy from 'speakeasy';
+import {
+  resolveCanonicalRoleKey,
+  resolveRoleLabel,
+  type CanonicalRoleKey,
+} from '@app/domain';
 import { parsePaginationOptions } from '../../common/utils/pagination';
 import {
   AuthAnomalyMonitorService,
   AuthMonitoringContext,
 } from './auth-anomaly-monitor.service';
 import {
+  ActiveCustomRoleAccessSummary,
   AccessMembershipSummary,
   AccessProfileService,
   AccessStationContextSummary,
 } from './access-profile.service';
+import { TenantDirectoryService } from '../../common/tenant/tenant-directory.service';
+
+type AuthUserContextInput = Pick<
+  User,
+  | 'id'
+  | 'email'
+  | 'phone'
+  | 'name'
+  | 'status'
+  | 'role'
+  | 'providerId'
+  | 'organizationId'
+  | 'ownerCapability'
+  | 'lastStationAssignmentId'
+  | 'mustChangePassword'
+  | 'region'
+  | 'zoneId'
+> & {
+  organization?: {
+    id: string;
+    name: string;
+    type: string;
+  } | null;
+};
 
 @Injectable()
 export class AuthService {
@@ -135,6 +166,7 @@ export class AuthService {
     id: true,
     organizationId: true,
     role: true,
+    canonicalRoleKey: true,
     customRoleId: true,
     customRoleName: true,
     ownerCapability: true,
@@ -166,6 +198,7 @@ export class AuthService {
     private readonly ocpiTokenSync: OcpiTokenSyncService,
     private readonly approvalService: AdminApprovalService,
     private readonly accessProfileService: AccessProfileService,
+    private readonly tenantDirectory: TenantDirectoryService,
   ) {}
 
   getHello(): string {
@@ -313,29 +346,20 @@ export class AuthService {
   }
 
   private toRoleLabel(role: string): string {
-    const roleLabels: Record<string, string> = {
-      SUPER_ADMIN: 'Super Admin',
-      EVZONE_ADMIN: 'EVzone Admin',
-      EVZONE_OPERATOR: 'EVzone Operations',
-      STATION_OPERATOR: 'Station Operator',
-      SITE_OWNER: 'Site Owner',
-      STATION_ADMIN: 'Station Admin',
-      MANAGER: 'Manager',
-      ATTENDANT: 'Attendant',
-      CASHIER: 'Cashier',
-      STATION_OWNER: 'Station Owner',
-      SWAP_PROVIDER_ADMIN: 'Swap Provider Admin',
-      SWAP_PROVIDER_OPERATOR: 'Swap Provider Operator',
-      TECHNICIAN_ORG: 'Technician (Org)',
-      TECHNICIAN_PUBLIC: 'Technician (Public)',
-    };
+    const canonicalLabel = resolveRoleLabel(role);
+    if (canonicalLabel && canonicalLabel !== role) {
+      return canonicalLabel;
+    }
 
-    return roleLabels[role] || role;
+    return role
+      .split('_')
+      .map((segment) => segment.charAt(0) + segment.slice(1).toLowerCase())
+      .join(' ');
   }
 
-  private isEvzoneRole(role: UserRole | string | undefined): role is UserRole {
+  private isEvzoneRole(role: UserRole | undefined): role is UserRole {
     if (!role) return false;
-    return this.evzoneRoles.has(role as UserRole);
+    return this.evzoneRoles.has(role);
   }
 
   private assertCanAssignEvzoneRole(
@@ -450,6 +474,7 @@ export class AuthService {
 
     const membershipUpdateData: Prisma.OrganizationMembershipUpdateInput = {
       role: params.role,
+      canonicalRoleKey: resolveCanonicalRoleKey(params.role),
       ownerCapability: params.ownerCapability || null,
       status: membershipStatus,
     };
@@ -474,6 +499,7 @@ export class AuthService {
         userId: params.userId,
         organizationId: organization.id,
         role: params.role,
+        canonicalRoleKey: resolveCanonicalRoleKey(params.role),
         ownerCapability: params.ownerCapability || null,
         status: membershipStatus,
         invitedBy: params.invitedBy || null,
@@ -622,6 +648,94 @@ export class AuthService {
     );
 
     return membership?.role || user.role;
+  }
+
+  private resolveEffectiveCanonicalRole(
+    membership:
+      | {
+          canonicalRoleKey?: CanonicalRoleKey | null;
+        }
+      | null
+      | undefined,
+    effectiveRole: UserRole,
+  ): CanonicalRoleKey | null {
+    return (
+      membership?.canonicalRoleKey || resolveCanonicalRoleKey(effectiveRole)
+    );
+  }
+
+  private async resolveActiveCustomRoleAccess(
+    activeOrganizationId: string | null,
+    membership:
+      | {
+          customRoleId?: string | null;
+        }
+      | null
+      | undefined,
+  ): Promise<ActiveCustomRoleAccessSummary | null> {
+    const customRoleId = membership?.customRoleId || null;
+
+    if (!activeOrganizationId || !customRoleId) {
+      return null;
+    }
+
+    const route =
+      await this.tenantDirectory.findByOrganizationId(activeOrganizationId);
+
+    return this.prisma.runWithTenantRouting(
+      route ? this.tenantDirectory.toRoutingHint(route) : null,
+      async () => {
+        const customRole = await this.prisma.tenantCustomRole.findFirst({
+          where: {
+            id: customRoleId,
+            organizationId: activeOrganizationId,
+            status: CustomRoleStatus.ACTIVE,
+          },
+          select: {
+            id: true,
+            name: true,
+            baseRoleKey: true,
+            permissions: {
+              select: {
+                permissionCode: true,
+              },
+            },
+          },
+        });
+
+        if (!customRole) {
+          return null;
+        }
+
+        return {
+          id: customRole.id,
+          name: customRole.name,
+          baseRoleKey: customRole.baseRoleKey,
+          permissions: customRole.permissions.map(
+            (permission: { permissionCode: string }) =>
+              permission.permissionCode,
+          ),
+        };
+      },
+    );
+  }
+
+  private async resolveActivePlatformRoleKey(
+    userId: string,
+  ): Promise<CanonicalRoleKey | null> {
+    const assignment = await this.prisma
+      .getControlPlaneClient()
+      .platformRoleAssignment.findFirst({
+        where: {
+          userId,
+          status: MembershipStatus.ACTIVE,
+        },
+        orderBy: {
+          createdAt: 'asc',
+        },
+      });
+
+    return assignment?.roleKey || null;
   }
 
   private async syncLegacyOrganizationId(
@@ -1120,7 +1234,6 @@ export class AuthService {
   }
 
   async login(loginDto: LoginDto, context?: AuthMonitoringContext) {
-    const startTime = Date.now();
     const { email: normalizedEmail, phone: normalizedPhone } =
       this.resolveLoginIdentifiers(loginDto);
     const monitoringContext = this.createMonitoringContext(
@@ -1258,9 +1371,12 @@ export class AuthService {
       this.anomalyMonitor.recordSuccess(monitoringContext);
       return response;
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `Login error for ${loginDto.email || loginDto.phone}: ${error.message}`,
-        error.stack,
+        `Login error for ${loginDto.email || loginDto.phone}: ${errorMessage}`,
+        errorStack,
       );
       this.anomalyMonitor.recordFailure(
         monitoringContext,
@@ -1320,6 +1436,9 @@ export class AuthService {
           userId: user.id,
           organizationId: invitation.organizationId,
           role: invitation.role,
+          canonicalRoleKey:
+            invitation.canonicalRoleKey ||
+            resolveCanonicalRoleKey(invitation.role),
           customRoleId: invitation.customRoleId,
           customRoleName: invitation.customRoleName,
           ownerCapability: invitation.ownerCapability,
@@ -1328,6 +1447,9 @@ export class AuthService {
         },
         update: {
           role: invitation.role,
+          canonicalRoleKey:
+            invitation.canonicalRoleKey ||
+            resolveCanonicalRoleKey(invitation.role),
           customRoleId: invitation.customRoleId,
           customRoleName: invitation.customRoleName,
           ownerCapability: invitation.ownerCapability,
@@ -1468,7 +1590,7 @@ export class AuthService {
   }
 
   private async generateAuthResponse(
-    user: any,
+    user: AuthUserContextInput,
     options?: { preferredOrganizationId?: string },
   ) {
     const result = await this.issueTokens(user, options);
@@ -1572,7 +1694,9 @@ export class AuthService {
           region: geography.region,
           zoneId: geography.zoneId,
           subscribedPackage: createUserDto.subscribedPackage || 'Free',
-          ownerCapability: createUserDto.ownerCapability as any,
+          ownerCapability:
+            (createUserDto.ownerCapability as StationOwnerCapability | null) ||
+            null,
           organizationId: organization.id,
         },
       });
@@ -1582,7 +1706,10 @@ export class AuthService {
           userId: user.id,
           organizationId: organization.id,
           role: requestedRole,
-          ownerCapability: createUserDto.ownerCapability as any,
+          canonicalRoleKey: resolveCanonicalRoleKey(requestedRole),
+          ownerCapability:
+            (createUserDto.ownerCapability as StationOwnerCapability | null) ||
+            null,
           status: MembershipStatus.ACTIVE,
         },
       });
@@ -1607,7 +1734,7 @@ export class AuthService {
           taxId: createUserDto.taxId,
           country: createUserDto.country || 'Unknown',
           region: geography.region,
-          accountType: orgType,
+          accounttype: orgType,
           role: requestedRole,
           subscribedPackage: createUserDto.subscribedPackage,
           status: 'PENDING',
@@ -1813,6 +1940,7 @@ export class AuthService {
           userId,
           organizationId,
           role: inviteRole,
+          canonicalRoleKey: resolveCanonicalRoleKey(inviteRole),
           customRoleId: inviteDto.customRoleId || null,
           customRoleName: inviteDto.customRoleName || null,
           ownerCapability:
@@ -1822,6 +1950,7 @@ export class AuthService {
         },
         update: {
           role: inviteRole,
+          canonicalRoleKey: resolveCanonicalRoleKey(inviteRole),
           customRoleId: inviteDto.customRoleId || null,
           customRoleName: inviteDto.customRoleName || null,
           ownerCapability:
@@ -1852,6 +1981,7 @@ export class AuthService {
           userId,
           organizationId,
           role: inviteRole,
+          canonicalRoleKey: resolveCanonicalRoleKey(inviteRole),
           customRoleId: inviteDto.customRoleId || null,
           customRoleName: inviteDto.customRoleName || null,
           ownerCapability:
@@ -2013,6 +2143,7 @@ export class AuthService {
           userId,
           organizationId,
           role: user.role,
+          canonicalRoleKey: resolveCanonicalRoleKey(user.role),
           ownerCapability: user.ownerCapability,
           status: MembershipStatus.ACTIVE,
         },
@@ -2046,6 +2177,10 @@ export class AuthService {
     return this.generateAuthResponse(user, {
       preferredOrganizationId: organizationId,
     });
+  }
+
+  async switchTenant(userId: string, tenantId: string) {
+    return this.switchOrganization(userId, tenantId);
   }
 
   async issueServiceToken(
@@ -2096,15 +2231,15 @@ export class AuthService {
             (this.config.get(
               'JWT_SERVICE_EXPIRY',
             ) as SignOptions['expiresIn']) || '1y',
-          issuer: this.config.get('JWT_SERVICE_ISSUER'),
-          audience: this.config.get('JWT_SERVICE_AUDIENCE'),
+          issuer: this.config.get<string>('JWT_SERVICE_ISSUER'),
+          audience: this.config.get<string>('JWT_SERVICE_AUDIENCE'),
         },
       );
 
       this.anomalyMonitor.recordSuccess(monitoringContext);
       return {
         accessToken: token,
-        expiresIn: this.config.get('JWT_SERVICE_EXPIRY') || '1y',
+        expiresIn: this.config.get<string>('JWT_SERVICE_EXPIRY') || '1y',
       };
     } catch (error) {
       this.anomalyMonitor.recordFailure(
@@ -2218,7 +2353,7 @@ export class AuthService {
       await this.syncOcpiTokenSafe(updatedUser);
       this.anomalyMonitor.recordSuccess(monitoringContext);
 
-      return this.issueTokens(updatedUser as any);
+      return this.issueTokens(updatedUser);
     } catch (error) {
       this.anomalyMonitor.recordFailure(
         monitoringContext,
@@ -2281,7 +2416,7 @@ export class AuthService {
   }
 
   private async buildAuthUserContext(
-    user: any,
+    user: AuthUserContextInput,
     options?: { preferredOrganizationId?: string },
   ) {
     const activeMemberships = await this.getActiveMemberships(user.id);
@@ -2306,10 +2441,11 @@ export class AuthService {
                 {
                   id: `legacy-${user.id}-${legacyOrganization.id}`,
                   organizationId: legacyOrganization.id,
-                  role: user.role as UserRole,
-                  ownerCapability:
-                    (user.ownerCapability as StationOwnerCapability | null) ||
-                    null,
+                  role: user.role,
+                  canonicalRoleKey: resolveCanonicalRoleKey(user.role),
+                  customRoleId: null,
+                  customRoleName: null,
+                  ownerCapability: user.ownerCapability || null,
                   status: MembershipStatus.ACTIVE,
                   organization: legacyOrganization,
                 },
@@ -2337,6 +2473,20 @@ export class AuthService {
       activeOrganizationId,
     );
     const effectiveRole = activeStationContext?.role || membershipRole;
+    const activeMembership =
+      memberships.find(
+        (membership) => membership.organizationId === activeOrganizationId,
+      ) || null;
+    const activeCustomRole = await this.resolveActiveCustomRoleAccess(
+      activeOrganizationId,
+      activeMembership,
+    );
+    const platformRoleKey = await this.resolveActivePlatformRoleKey(user.id);
+    const resolvedActiveCustomRole = platformRoleKey ? null : activeCustomRole;
+    const effectiveCanonicalRole =
+      platformRoleKey ||
+      resolvedActiveCustomRole?.baseRoleKey ||
+      this.resolveEffectiveCanonicalRole(activeMembership, effectiveRole);
 
     await this.syncLegacyOrganizationId(
       user.id,
@@ -2357,11 +2507,19 @@ export class AuthService {
 
     return {
       activeOrganizationId,
+      activeTenantId: activeOrganizationId,
       effectiveRole,
+      effectiveCanonicalRole,
+      activeCustomRole: resolvedActiveCustomRole,
       memberships: memberships.map((membership) => ({
         id: membership.id,
         organizationId: membership.organizationId,
         role: membership.role,
+        canonicalRoleKey:
+          membership.canonicalRoleKey ||
+          resolveCanonicalRoleKey(membership.role),
+        customRoleId: membership.customRoleId || null,
+        customRoleName: membership.customRoleName || null,
         ownerCapability: membership.ownerCapability || undefined,
         status: membership.status,
         organizationName: membership.organization?.name,
@@ -2388,7 +2546,10 @@ export class AuthService {
     },
     context: {
       activeOrganizationId: string | null;
+      activeTenantId: string | null;
       effectiveRole: UserRole;
+      effectiveCanonicalRole: CanonicalRoleKey | null;
+      activeCustomRole: ActiveCustomRoleAccessSummary | null;
       memberships: AccessMembershipSummary[];
       stationContexts: AccessStationContextSummary[];
       activeStationContext: AccessStationContextSummary | null;
@@ -2396,11 +2557,28 @@ export class AuthService {
   ) {
     const accessProfile = this.accessProfileService.buildProfile({
       activeOrganizationId: context.activeOrganizationId,
+      activeTenantId: context.activeTenantId,
       effectiveRole: context.effectiveRole,
+      effectiveCanonicalRole: context.effectiveCanonicalRole,
       memberships: context.memberships,
       stationContexts: context.stationContexts,
       activeStationContext: context.activeStationContext,
       providerId: user.providerId || null,
+      customRole: context.activeCustomRole,
+    });
+
+    const membershipSummaries = context.memberships.map((membership) => {
+      const canonicalRole =
+        membership.canonicalRoleKey || resolveCanonicalRoleKey(membership.role);
+
+      return {
+        ...membership,
+        tenantId: membership.organizationId,
+        canonicalRole,
+        roleLabel:
+          membership.customRoleName ||
+          resolveRoleLabel(canonicalRole || membership.role),
+      };
     });
 
     return {
@@ -2408,16 +2586,24 @@ export class AuthService {
       email: user.email,
       phone: user.phone,
       role: context.effectiveRole,
+      canonicalRole: accessProfile.canonicalRole,
+      roleLabel: accessProfile.canonicalRoleLabel,
+      customRoleId: accessProfile.customRoleId,
+      customRoleName: accessProfile.customRoleName,
+      permissions: accessProfile.permissions,
       providerId: user.providerId,
       name: user.name,
       status: user.status,
       region: user.region,
       zoneId: user.zoneId,
       ownerCapability: user.ownerCapability,
+      tenantId: context.activeTenantId || user.organizationId,
+      activeTenantId: context.activeTenantId,
       organizationId: context.activeOrganizationId || user.organizationId,
       orgId: context.activeOrganizationId || user.organizationId,
       activeOrganizationId: context.activeOrganizationId,
-      memberships: context.memberships,
+      memberships: membershipSummaries,
+      availableTenants: membershipSummaries,
       stationContexts: context.stationContexts,
       activeStationContext: context.activeStationContext,
       accessProfile,
@@ -2426,7 +2612,7 @@ export class AuthService {
   }
 
   private async issueTokens(
-    user: any,
+    user: AuthUserContextInput,
     options?: { preferredOrganizationId?: string },
   ) {
     const secret = this.config.get<string>('JWT_SECRET');
@@ -2435,19 +2621,25 @@ export class AuthService {
     }
 
     const context = await this.buildAuthUserContext(user, options);
+    const authenticatedUser = this.buildAuthenticatedUserPayload(user, context);
 
     const accessToken = jwt.sign(
       {
         sub: user.id,
         email: user.email,
         role: context.effectiveRole,
+        canonicalRole: authenticatedUser.canonicalRole,
+        permissions: authenticatedUser.permissions,
+        tenantId: authenticatedUser.tenantId,
+        activeTenantId: authenticatedUser.activeTenantId,
         organizationId: context.activeOrganizationId,
         activeOrganizationId: context.activeOrganizationId,
+        accessProfile: authenticatedUser.accessProfile,
       },
       secret as jwt.Secret,
       {
         expiresIn: (this.config.get<string>('JWT_ACCESS_EXPIRY') ||
-          '15m') as any,
+          '15m') as SignOptions['expiresIn'],
       } as SignOptions,
     );
 
@@ -2473,7 +2665,7 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
-      user: this.buildAuthenticatedUserPayload(user, context),
+      user: authenticatedUser,
     };
   }
 
@@ -2485,10 +2677,19 @@ export class AuthService {
     try {
       if (!secret) throw new Error('JWT_SECRET not configured');
 
-      let payload: any;
+      let payload: jwt.JwtPayload & { sub: string };
       try {
-        payload = jwt.verify(refreshToken, secret);
-      } catch (error) {
+        const verified = jwt.verify(refreshToken, secret);
+        if (
+          !verified ||
+          typeof verified !== 'object' ||
+          Array.isArray(verified) ||
+          typeof verified.sub !== 'string'
+        ) {
+          throw new UnauthorizedException('Invalid token');
+        }
+        payload = verified as jwt.JwtPayload & { sub: string };
+      } catch {
         throw new UnauthorizedException('Invalid token');
       }
 
@@ -2509,14 +2710,23 @@ export class AuthService {
       });
       if (!user) throw new UnauthorizedException('User not found');
       const authUserContext = await this.buildAuthUserContext(user);
+      const authenticatedUser = this.buildAuthenticatedUserPayload(
+        user,
+        authUserContext,
+      );
 
       const accessToken = jwt.sign(
         {
           sub: user.id,
           email: user.email,
           role: authUserContext.effectiveRole,
+          canonicalRole: authenticatedUser.canonicalRole,
+          permissions: authenticatedUser.permissions,
+          tenantId: authenticatedUser.tenantId,
+          activeTenantId: authenticatedUser.activeTenantId,
           organizationId: authUserContext.activeOrganizationId,
           activeOrganizationId: authUserContext.activeOrganizationId,
+          accessProfile: authenticatedUser.accessProfile,
         },
         secret as jwt.Secret,
         {
@@ -2536,26 +2746,7 @@ export class AuthService {
       return {
         accessToken,
         refreshToken,
-        user: {
-          id: user.id,
-          email: user.email,
-          phone: user.phone,
-          role: authUserContext.effectiveRole,
-          providerId: user.providerId,
-          name: user.name,
-          status: user.status,
-          region: user.region,
-          zoneId: user.zoneId,
-          ownerCapability: user.ownerCapability,
-          organizationId:
-            authUserContext.activeOrganizationId || user.organizationId,
-          orgId: authUserContext.activeOrganizationId || user.organizationId,
-          activeOrganizationId: authUserContext.activeOrganizationId,
-          memberships: authUserContext.memberships,
-          stationContexts: authUserContext.stationContexts,
-          activeStationContext: authUserContext.activeStationContext,
-          mustChangePassword: Boolean(user.mustChangePassword),
-        },
+        user: authenticatedUser,
       };
     } catch (error) {
       this.metrics.recordAuthMetric({
@@ -2619,7 +2810,7 @@ export class AuthService {
       { limit: 50, maxLimit: 200 },
     );
 
-    const where: any = {};
+    const where: Prisma.UserWhereInput = {};
     if (params.search) {
       where.OR = [
         { name: { contains: params.search, mode: 'insensitive' } },
@@ -2627,7 +2818,7 @@ export class AuthService {
       ];
     }
     if (params.role) {
-      where.role = params.role;
+      where.role = params.role as UserRole;
     }
     if (params.status) {
       where.status = params.status;
@@ -2643,8 +2834,13 @@ export class AuthService {
     }
     if (params.orgId || params.organizationId) {
       const scopedOrgId = params.orgId || params.organizationId;
+      const existingAndFilters = Array.isArray(where.AND)
+        ? where.AND
+        : where.AND
+          ? [where.AND]
+          : [];
       where.AND = [
-        ...(where.AND || []),
+        ...existingAndFilters,
         {
           OR: [
             { organizationId: scopedOrgId },
@@ -2868,6 +3064,8 @@ export class AuthService {
       );
       updateData.role = parsedRole;
       membershipUpdateData.role = parsedRole;
+      membershipUpdateData.canonicalRoleKey =
+        resolveCanonicalRoleKey(parsedRole);
       if (!updateDto.customRoleId) {
         membershipUpdateData.customRoleId = null;
         membershipUpdateData.customRoleName = null;
@@ -3387,11 +3585,29 @@ export class AuthService {
     );
     const effectiveRole =
       stationContextBundle.activeStationContext?.role || membershipRole;
+    const activeMembership =
+      user.memberships.find(
+        (membership) => membership.organizationId === activeOrganizationId,
+      ) || null;
+    const activeCustomRole = await this.resolveActiveCustomRoleAccess(
+      activeOrganizationId,
+      activeMembership,
+    );
+    const platformRoleKey = await this.resolveActivePlatformRoleKey(user.id);
+    const resolvedActiveCustomRole = platformRoleKey ? null : activeCustomRole;
+    const effectiveCanonicalRole =
+      platformRoleKey ||
+      resolvedActiveCustomRole?.baseRoleKey ||
+      this.resolveEffectiveCanonicalRole(activeMembership, effectiveRole);
 
     const memberships = user.memberships.map((membership) => ({
       id: membership.id,
       organizationId: membership.organizationId,
       role: membership.role,
+      canonicalRoleKey:
+        membership.canonicalRoleKey || resolveCanonicalRoleKey(membership.role),
+      customRoleId: membership.customRoleId || null,
+      customRoleName: membership.customRoleName || null,
       ownerCapability: membership.ownerCapability,
       status: membership.status,
       organizationName: membership.organization?.name,
@@ -3402,7 +3618,10 @@ export class AuthService {
       ...user,
       ...this.buildAuthenticatedUserPayload(user, {
         activeOrganizationId,
+        activeTenantId: activeOrganizationId,
         effectiveRole,
+        effectiveCanonicalRole,
+        activeCustomRole: resolvedActiveCustomRole,
         memberships,
         stationContexts: stationContextBundle.stationContexts,
         activeStationContext: stationContextBundle.activeStationContext,
@@ -3412,6 +3631,11 @@ export class AuthService {
         id: membership.id,
         organizationId: membership.organizationId,
         role: membership.role,
+        canonicalRoleKey:
+          membership.canonicalRoleKey ||
+          resolveCanonicalRoleKey(membership.role),
+        customRoleId: membership.customRoleId || null,
+        customRoleName: membership.customRoleName || null,
         ownerCapability: membership.ownerCapability,
         status: membership.status,
         organizationName: membership.organization?.name,
@@ -3435,9 +3659,24 @@ export class AuthService {
         );
       }
 
+      const safeUpdateDto: Prisma.UserUpdateInput = {};
+      if (typeof updateDto.name === 'string')
+        safeUpdateDto.name = updateDto.name;
+      if (typeof updateDto.phone === 'string')
+        safeUpdateDto.phone = updateDto.phone;
+      if (typeof updateDto.country === 'string')
+        safeUpdateDto.country = updateDto.country;
+      if (typeof updateDto.ownerCapability === 'string') {
+        safeUpdateDto.ownerCapability =
+          updateDto.ownerCapability as unknown as StationOwnerCapability;
+      }
+      if (typeof updateDto.status === 'string') {
+        safeUpdateDto.status = updateDto.status;
+      }
+
       const updated = await this.prisma.user.update({
         where: { id },
-        data: updateDto,
+        data: safeUpdateDto,
       });
       await this.syncOcpiTokenSafe(updated);
       return updated;
@@ -3459,7 +3698,7 @@ export class AuthService {
     return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
   }
 
-  private async syncOcpiTokenSafe(user: any) {
+  private async syncOcpiTokenSafe(user: AuthUserContextInput) {
     try {
       await this.ocpiTokenSync.syncUserToken(user);
     } catch (error) {

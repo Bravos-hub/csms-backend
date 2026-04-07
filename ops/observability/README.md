@@ -22,7 +22,6 @@ npm run ops:obs:smoke
 
 This validates API/worker readiness, Prometheus metric endpoints, required metric
 names, and Prometheus target health.
-
 ## Defaults
 
 - Grafana: http://localhost:3001

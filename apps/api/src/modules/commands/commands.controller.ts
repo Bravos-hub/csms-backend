@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { CommandRequest } from '../../contracts/commands';
 import { CommandsService } from './commands.service';
 
 @Controller('commands')
@@ -35,7 +36,12 @@ export class CommandsController {
   }
 
   @Post()
-  async create(@Body() payload: any) {
+  async create(
+    @Body()
+    payload: Omit<CommandRequest, 'commandId' | 'requestedAt'> & {
+      correlationId?: string;
+    },
+  ) {
     return this.commands.enqueueCommand(payload);
   }
 }

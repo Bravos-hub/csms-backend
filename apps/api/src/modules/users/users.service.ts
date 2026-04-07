@@ -1,13 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
-import { UserRole } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 
 @Injectable()
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
   async findAll(params: { search?: string; role?: UserRole }) {
-    const where: any = {};
+    const where: Prisma.UserWhereInput = {};
     if (params.search) {
       where.OR = [
         { name: { contains: params.search, mode: 'insensitive' } },

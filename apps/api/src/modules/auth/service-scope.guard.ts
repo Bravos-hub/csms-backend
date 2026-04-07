@@ -7,6 +7,13 @@ import {
 import { Reflector } from '@nestjs/core';
 import { SERVICE_SCOPES_KEY } from './service-scopes.decorator';
 
+type RequestWithService = {
+  service?: {
+    scopes?: unknown;
+    scope?: unknown;
+  };
+};
+
 @Injectable()
 export class ServiceScopeGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
@@ -22,10 +29,9 @@ export class ServiceScopeGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest();
-    const service = request.service || {};
-
-    const granted = this.normalizeScopes(service.scopes || service.scope);
+    const request = context.switchToHttp().getRequest<RequestWithService>();
+    const service = request.service;
+    const granted = this.normalizeScopes(service?.scopes ?? service?.scope);
     if (granted.length === 0) {
       throw new UnauthorizedException('Missing service scopes');
     }

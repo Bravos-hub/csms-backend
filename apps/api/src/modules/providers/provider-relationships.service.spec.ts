@@ -3,7 +3,11 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { ProviderRelationshipStatus, UserRole } from '@prisma/client';
+import { PrismaService } from '../../prisma.service';
 import { ProviderRelationshipsService } from './provider-relationships.service';
+import { ProviderAuthzService } from './provider-authz.service';
+import { ProvidersService } from './providers.service';
+import { ProviderComplianceService } from './provider-compliance.service';
 
 describe('ProviderRelationshipsService', () => {
   const prisma = {
@@ -13,24 +17,33 @@ describe('ProviderRelationshipsService', () => {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
-  } as any;
+  };
 
   const authz = {
     getActor: jest.fn(),
     assertOwnerOrgScope: jest.fn(),
     assertRelationshipScopedAccess: jest.fn(),
     requirePlatformOps: jest.fn(),
-  } as any;
+  };
 
   const providersService = {
     ensureProviderApproved: jest.fn(),
-  } as any;
+  };
+
+  const providerComplianceService = {
+    getRelationshipComplianceStatus: jest.fn(),
+  };
 
   let service: ProviderRelationshipsService;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new ProviderRelationshipsService(prisma, authz, providersService);
+    service = new ProviderRelationshipsService(
+      prisma as unknown as PrismaService,
+      authz as unknown as ProviderAuthzService,
+      providersService as unknown as ProvidersService,
+      providerComplianceService as unknown as ProviderComplianceService,
+    );
   });
 
   it('rejects duplicate open relationship requests', async () => {

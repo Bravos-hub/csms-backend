@@ -1,4 +1,8 @@
 import { MailService } from './mail.service';
+import { ConfigService } from '@nestjs/config';
+import { SubmailService } from '../../common/services/submail.service';
+import { TwilioSendgridService } from './twilio-sendgrid.service';
+import { MessagingRoutingService } from '../../common/services/messaging-routing.service';
 
 describe('MailService', () => {
   const configService = {
@@ -20,10 +24,10 @@ describe('MailService', () => {
   };
 
   const service = new MailService(
-    configService as any,
-    submailService as any,
-    twilioSendgridService as any,
-    routingService as any,
+    configService as unknown as ConfigService,
+    submailService as unknown as SubmailService,
+    twilioSendgridService as unknown as TwilioSendgridService,
+    routingService as unknown as MessagingRoutingService,
   );
 
   beforeEach(() => {

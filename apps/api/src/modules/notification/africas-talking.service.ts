@@ -7,7 +7,7 @@ export class AfricasTalkingService {
 
   constructor(private readonly configService: ConfigService) {}
 
-  async sendSms(to: string, message: string): Promise<any> {
+  async sendSms(to: string, message: string): Promise<Record<string, unknown>> {
     const username = this.configService.get<string>(
       'AFRICASTALKING_USERNAME',
       '',
@@ -43,9 +43,13 @@ export class AfricasTalkingService {
     );
 
     const text = await response.text();
-    let parsed: any;
+    let parsed: Record<string, unknown>;
     try {
-      parsed = text ? JSON.parse(text) : {};
+      const payload: unknown = text ? JSON.parse(text) : {};
+      parsed =
+        payload && typeof payload === 'object' && !Array.isArray(payload)
+          ? (payload as Record<string, unknown>)
+          : { raw: text };
     } catch {
       parsed = { raw: text };
     }

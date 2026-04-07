@@ -1,147 +1,151 @@
-
 import { PrismaClient, ZoneType } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
 async function main() {
-    console.log('Starting Geography Seeding...');
+  console.log('Starting Geography Seeding...');
 
-    // 1. Seed Continents
-    const continents = [
-        { name: 'Africa', code: 'AF' },
-        { name: 'North America', code: 'NA' },
-        { name: 'Europe', code: 'EU' },
-        { name: 'Asia', code: 'AS' },
-        { name: 'Oceania', code: 'OC' },
-        { name: 'South America', code: 'SA' },
-        { name: 'Antarctica', code: 'AN' },
-    ];
+  // 1. Seed Continents
+  const continents = [
+    { name: 'Africa', code: 'AF' },
+    { name: 'North America', code: 'NA' },
+    { name: 'Europe', code: 'EU' },
+    { name: 'Asia', code: 'AS' },
+    { name: 'Oceania', code: 'OC' },
+    { name: 'South America', code: 'SA' },
+    { name: 'Antarctica', code: 'AN' },
+  ];
 
-    const continentMap = new Map<string, string>();
+  const continentMap = new Map<string, string>();
 
-    for (const c of continents) {
-        const zone = await prisma.geographicZone.upsert({
-            where: { code: c.code },
-            update: { name: c.name, type: ZoneType.CONTINENT, isActive: true },
-            create: {
-                name: c.name,
-                code: c.code,
-                type: ZoneType.CONTINENT,
-                isActive: true,
-            }
-        });
-        continentMap.set(c.code, zone.id);
-        console.log(`Seeded Continent: ${c.name}`);
-    }
-
-    // 2. Seed Example Sub-Regions (e.g. Sub-Saharan Africa)
-    // Parent: Africa
-    const subSaharan = await prisma.geographicZone.upsert({
-        where: { code: 'SUB-SAHARAN-AFRICA' },
-        update: { name: 'Sub-Saharan Africa', type: ZoneType.SUB_REGION, parentId: continentMap.get('AF'), isActive: true },
-        create: {
-            name: 'Sub-Saharan Africa',
-            code: 'SUB-SAHARAN-AFRICA',
-            type: ZoneType.SUB_REGION,
-            parentId: continentMap.get('AF'),
-            isActive: true,
-        }
+  for (const c of continents) {
+    const zone = await prisma.geographicZone.upsert({
+      where: { code: c.code },
+      update: { name: c.name, type: ZoneType.CONTINENT, isActive: true },
+      create: {
+        name: c.name,
+        code: c.code,
+        type: ZoneType.CONTINENT,
+        isActive: true,
+      },
     });
+    continentMap.set(c.code, zone.id);
+    console.log(`Seeded Continent: ${c.name}`);
+  }
 
-    // 3. Seed Countries
-    // Kenya (in Sub-Saharan Africa)
-    const kenya = await prisma.geographicZone.upsert({
-        where: { code: 'KE' },
-        update: {
-            name: 'Kenya',
-            type: ZoneType.COUNTRY,
-            parentId: subSaharan.id,
-            currency: 'KES',
-            timezone: 'Africa/Nairobi',
-            postalCodeRegex: '^\\d{5}$',
-            isActive: true,
-        },
-        create: {
-            name: 'Kenya',
-            code: 'KE',
-            type: ZoneType.COUNTRY,
-            parentId: subSaharan.id,
-            currency: 'KES',
-            timezone: 'Africa/Nairobi',
-            postalCodeRegex: '^\\d{5}$', // 5 digits
-            isActive: true,
-        }
-    });
+  // 2. Seed Example Sub-Regions (e.g. Sub-Saharan Africa)
+  // Parent: Africa
+  const subSaharan = await prisma.geographicZone.upsert({
+    where: { code: 'SUB-SAHARAN-AFRICA' },
+    update: {
+      name: 'Sub-Saharan Africa',
+      type: ZoneType.SUB_REGION,
+      parentId: continentMap.get('AF'),
+      isActive: true,
+    },
+    create: {
+      name: 'Sub-Saharan Africa',
+      code: 'SUB-SAHARAN-AFRICA',
+      type: ZoneType.SUB_REGION,
+      parentId: continentMap.get('AF'),
+      isActive: true,
+    },
+  });
 
-    // USA (in North America)
-    const usa = await prisma.geographicZone.upsert({
-        where: { code: 'US' },
-        update: {
-            name: 'United States',
-            type: ZoneType.COUNTRY,
-            parentId: continentMap.get('NA'),
-            currency: 'USD',
-            timezone: 'America/New_York',
-            postalCodeRegex: '^\\d{5}(-\\d{4})?$',
-            isActive: true,
-        },
-        create: {
-            name: 'United States',
-            code: 'US',
-            type: ZoneType.COUNTRY,
-            parentId: continentMap.get('NA'),
-            currency: 'USD',
-            timezone: 'America/New_York',
-            postalCodeRegex: '^\\d{5}(-\\d{4})?$', // 5 or 9 digits
-            isActive: true,
-        }
-    });
+  // 3. Seed Countries
+  // Kenya (in Sub-Saharan Africa)
+  const kenya = await prisma.geographicZone.upsert({
+    where: { code: 'KE' },
+    update: {
+      name: 'Kenya',
+      type: ZoneType.COUNTRY,
+      parentId: subSaharan.id,
+      currency: 'KES',
+      timezone: 'Africa/Nairobi',
+      postalCodeRegex: '^\\d{5}$',
+      isActive: true,
+    },
+    create: {
+      name: 'Kenya',
+      code: 'KE',
+      type: ZoneType.COUNTRY,
+      parentId: subSaharan.id,
+      currency: 'KES',
+      timezone: 'Africa/Nairobi',
+      postalCodeRegex: '^\\d{5}$', // 5 digits
+      isActive: true,
+    },
+  });
 
-    // 4. Seed ADM1 (Primary Divisions)
-    // Nairobi (County in Kenya)
-    await prisma.geographicZone.upsert({
-        where: { code: 'KE-30' }, // ISO 3166-2 for Nairobi
-        update: {
-            name: 'Nairobi City',
-            type: ZoneType.ADM1,
-            parentId: kenya.id,
-            isActive: true,
-        },
-        create: {
-            name: 'Nairobi City',
-            code: 'KE-30',
-            type: ZoneType.ADM1, // County
-            parentId: kenya.id,
-            isActive: true,
-        }
-    });
+  // USA (in North America)
+  const usa = await prisma.geographicZone.upsert({
+    where: { code: 'US' },
+    update: {
+      name: 'United States',
+      type: ZoneType.COUNTRY,
+      parentId: continentMap.get('NA'),
+      currency: 'USD',
+      timezone: 'America/New_York',
+      postalCodeRegex: '^\\d{5}(-\\d{4})?$',
+      isActive: true,
+    },
+    create: {
+      name: 'United States',
+      code: 'US',
+      type: ZoneType.COUNTRY,
+      parentId: continentMap.get('NA'),
+      currency: 'USD',
+      timezone: 'America/New_York',
+      postalCodeRegex: '^\\d{5}(-\\d{4})?$', // 5 or 9 digits
+      isActive: true,
+    },
+  });
 
-    // California (State in USA)
-    await prisma.geographicZone.upsert({
-        where: { code: 'US-CA' },
-        update: {
-            name: 'California',
-            type: ZoneType.ADM1,
-            parentId: usa.id,
-            isActive: true,
-        },
-        create: {
-            name: 'California',
-            code: 'US-CA',
-            type: ZoneType.ADM1, // State
-            parentId: usa.id,
-            isActive: true,
-        }
-    });
+  // 4. Seed ADM1 (Primary Divisions)
+  // Nairobi (County in Kenya)
+  await prisma.geographicZone.upsert({
+    where: { code: 'KE-30' }, // ISO 3166-2 for Nairobi
+    update: {
+      name: 'Nairobi City',
+      type: ZoneType.ADM1,
+      parentId: kenya.id,
+      isActive: true,
+    },
+    create: {
+      name: 'Nairobi City',
+      code: 'KE-30',
+      type: ZoneType.ADM1, // County
+      parentId: kenya.id,
+      isActive: true,
+    },
+  });
 
-    console.log('Seeding completed.');
+  // California (State in USA)
+  await prisma.geographicZone.upsert({
+    where: { code: 'US-CA' },
+    update: {
+      name: 'California',
+      type: ZoneType.ADM1,
+      parentId: usa.id,
+      isActive: true,
+    },
+    create: {
+      name: 'California',
+      code: 'US-CA',
+      type: ZoneType.ADM1, // State
+      parentId: usa.id,
+      isActive: true,
+    },
+  });
+
+  console.log('Seeding completed.');
 }
 
 main()
-    .catch((e) => {
-        console.error(e);
-        process.exit(1);
-    })
-    .finally(async () => {
-        await prisma.$disconnect();
-    });
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

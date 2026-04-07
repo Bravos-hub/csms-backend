@@ -8,7 +8,7 @@ export class FinanceController {
   constructor(private readonly billingService: BillingService) {}
 
   @Get('payments')
-  async getPayments(@Query() query: any) {
+  getPayments(@Query() query: { limit?: string; offset?: string }) {
     return this.billingService.getAllPayments(query);
   }
 }

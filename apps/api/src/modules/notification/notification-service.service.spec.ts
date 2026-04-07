@@ -1,4 +1,8 @@
 import { NotificationService } from './notification-service.service';
+import { TwilioService } from './twilio.service';
+import { SubmailSmsService } from './submail-sms.service';
+import { AfricasTalkingService } from './africas-talking.service';
+import { MessagingRoutingService } from '../../common/services/messaging-routing.service';
 
 describe('NotificationService', () => {
   const twilioService = {
@@ -15,10 +19,10 @@ describe('NotificationService', () => {
   };
 
   const service = new NotificationService(
-    twilioService as any,
-    submailSmsService as any,
-    africasTalkingService as any,
-    routingService as any,
+    twilioService as unknown as TwilioService,
+    submailSmsService as unknown as SubmailSmsService,
+    africasTalkingService as unknown as AfricasTalkingService,
+    routingService as unknown as MessagingRoutingService,
   );
 
   beforeEach(() => {

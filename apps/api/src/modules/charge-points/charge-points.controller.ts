@@ -15,7 +15,8 @@ export class ChargePointsController {
   constructor(private readonly commands: CommandsService) {}
 
   @Get()
-  getAll(@Query() query: any) {
+  getAll(@Query() _query: Record<string, unknown>) {
+    void _query;
     return [];
   }
 
@@ -25,12 +26,12 @@ export class ChargePointsController {
   }
 
   @Post()
-  create(@Body() payload: any) {
+  create(@Body() payload: Record<string, unknown>) {
     return payload;
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() payload: any) {
+  update(@Param('id') id: string, @Body() payload: Record<string, unknown>) {
     return { id, ...payload };
   }
 

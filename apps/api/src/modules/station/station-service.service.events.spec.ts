@@ -1,4 +1,7 @@
 import { StationService } from './station-service.service';
+import { PrismaService } from '../../prisma.service';
+import { ChargerProvisioningService } from './provisioning/charger-provisioning.service';
+import { CommandsService } from '../commands/commands.service';
 
 describe('StationService station event normalization', () => {
   const prisma = {
@@ -21,9 +24,9 @@ describe('StationService station event normalization', () => {
   };
 
   const service = new StationService(
-    prisma as any,
-    provisioningService as any,
-    commands as any,
+    prisma as unknown as PrismaService,
+    provisioningService as unknown as ChargerProvisioningService,
+    commands as unknown as CommandsService,
   );
 
   beforeEach(() => {
@@ -51,12 +54,19 @@ describe('StationService station event normalization', () => {
     expect(prisma.chargePoint.findUnique).toHaveBeenCalledWith({
       where: { ocppId: 'CP-001' },
     });
-    expect(prisma.chargePoint.update).toHaveBeenCalledWith({
-      where: { id: 'cp-1' },
-      data: expect.objectContaining({
-        status: 'Online',
-        ocppVersion: '1.6',
-      }),
+    const updateCalls = prisma.chargePoint.update.mock.calls as unknown[][];
+    const updateArg = updateCalls[0]?.[0] as
+      | {
+          where: { id: string };
+          data: { status: string; ocppVersion: string };
+        }
+      | undefined;
+
+    expect(updateArg).toBeDefined();
+    expect(updateArg?.where).toEqual({ id: 'cp-1' });
+    expect(updateArg?.data).toMatchObject({
+      status: 'Online',
+      ocppVersion: '1.6',
     });
   });
 });

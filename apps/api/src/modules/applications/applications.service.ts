@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { ApplicationStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import {
   CreateApplicationDto,
@@ -17,16 +18,7 @@ import {
   AcceptProposalDto,
   RejectProposalDto,
 } from './dto/negotiation.dto';
-import {
-  SignLeaseDto,
-  VerifyLeaseDto,
-  RegisterLeaseDto,
-} from './dto/lease.dto';
-import {
-  ApplicationStatus,
-  DocumentCategory,
-  EntityType,
-} from '@prisma/client';
+import { SignLeaseDto, VerifyLeaseDto } from './dto/lease.dto';
 import { DocumentsService } from '../documents/documents.service';
 import {
   EntityType as DtoEntityType,
@@ -34,147 +26,85 @@ import {
 } from '../documents/dto/upload-document.dto';
 import { SignatureService } from './signature.service';
 
+const tenantApplicationWithSiteInclude =
+  Prisma.validator<Prisma.TenantApplicationInclude>()({
+    site: true,
+  });
+
+const tenantApplicationWithDetailsInclude =
+  Prisma.validator<Prisma.TenantApplicationInclude>()({
+    site: true,
+    negotiationRounds: {
+      orderBy: { createdAt: 'desc' },
+    },
+  });
+
+type TenantApplicationWithSite = Prisma.TenantApplicationGetPayload<{
+  include: typeof tenantApplicationWithSiteInclude;
+}>;
+
 @Injectable()
 export class ApplicationsService {
   constructor(
-    private prisma: PrismaService,
+    private readonly prisma: PrismaService,
     private readonly documentsService: DocumentsService,
     private readonly signatureService: SignatureService,
   ) {}
 
-  private parseArray(value?: string) {
+  private parseArray(value?: string | null): string[] {
     if (!value) return [];
     try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed : [];
+      const parsed: unknown = JSON.parse(value);
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      return parsed.filter((item): item is string => typeof item === 'string');
     } catch {
       return [];
     }
   }
 
-  private jsonArray(value?: string[]) {
+  private jsonArray(value?: string[]): string | undefined {
     if (!value) return undefined;
     return JSON.stringify(value);
   }
 
-  async create(applicantId: string, createDto: CreateApplicationDto) {
-    const site = await this.prisma.site.findUnique({
-      where: { id: createDto.siteId },
-    });
-    if (!site) throw new NotFoundException('Site not found');
-
-    const additionalServices = this.jsonArray(createDto.additionalServices);
-
-    return this.prisma.tenantApplication.create({
-      data: {
-        applicantId,
-        organizationName: createDto.organizationName,
-        businessRegistrationNumber: createDto.businessRegistrationNumber,
-        taxComplianceNumber: createDto.taxComplianceNumber,
-        contactPersonName: createDto.contactPersonName,
-        contactEmail: createDto.contactEmail,
-        contactPhone: createDto.contactPhone,
-        physicalAddress: createDto.physicalAddress,
-        companyWebsite: createDto.companyWebsite,
-        yearsInEVBusiness: createDto.yearsInEVBusiness,
-        existingStationsOperated: createDto.existingStationsOperated,
-        siteId: createDto.siteId,
-        preferredLeaseModel: createDto.preferredLeaseModel,
-        businessPlanSummary: createDto.businessPlanSummary,
-        sustainabilityCommitments: createDto.sustainabilityCommitments,
-        additionalServices: additionalServices || '[]',
-        estimatedStartDate: createDto.estimatedStartDate,
-        message: createDto.message,
-        status: ApplicationStatus.PENDING_REVIEW, // Auto-submit for now
-      },
-      include: {
-        site: true,
-      },
-    });
+  private toIso(value?: Date | null): string | undefined {
+    return value?.toISOString();
   }
 
-  async findAll(filters?: { status?: ApplicationStatus; siteId?: string }) {
-    const where: Record<string, unknown> = {};
-
-    if (filters?.status) {
-      where.status = filters.status;
-    }
-
-    if (filters?.siteId) {
-      where.siteId = filters.siteId;
-    }
-
-    const applications = await this.prisma.tenantApplication.findMany({
-      where,
-      include: {
-        site: true,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
-
-    // Map to frontend format
-    return applications.map((app: Record<string, any>) => ({
-      id: app.id,
-      applicantId: app.applicantId,
-      applicantName: app.contactPersonName,
-      organizationId: null,
-      organizationName: app.organizationName,
-      businessRegistrationNumber: app.businessRegistrationNumber,
-      taxComplianceNumber: app.taxComplianceNumber,
-      contactPersonName: app.contactPersonName,
-      contactEmail: app.contactEmail,
-      contactPhone: app.contactPhone,
-      physicalAddress: app.physicalAddress,
-      companyWebsite: app.companyWebsite,
-      yearsInEVBusiness: app.yearsInEVBusiness,
-      existingStationsOperated: app.existingStationsOperated,
-      siteId: app.siteId,
-      siteName: app.site.name,
-      site: app.site,
-      preferredLeaseModel: app.preferredLeaseModel,
-      businessPlanSummary: app.businessPlanSummary,
-      sustainabilityCommitments: app.sustainabilityCommitments,
-      additionalServices: this.parseArray(app.additionalServices),
-      estimatedStartDate: app.estimatedStartDate,
-      proposedRent: app.proposedRent,
-      proposedTerm: app.proposedTerm,
-      numberOfChargingPoints: app.numberOfChargingPoints,
-      totalPowerRequirement: app.totalPowerRequirement,
-      chargingTechnology: this.parseArray(app.chargingTechnology),
-      targetCustomerSegment: this.parseArray(app.targetCustomerSegment),
-      status: app.status,
-      message: app.message,
-      createdAt: app.createdAt.toISOString(),
-      submittedAt: app.createdAt.toISOString(),
-      respondedAt: app.respondedAt?.toISOString(),
-      responseMessage: app.responseMessage,
-      reviewedBy: app.reviewedBy,
-      reviewedAt: app.reviewedAt?.toISOString(),
-      approvalNotes: app.approvalNotes,
-      leaseAgreementUrl: app.leaseAgreementUrl,
-      leaseSignedAt: app.leaseSignedAt?.toISOString(),
-      leaseStartDate: app.leaseStartDate?.toISOString(),
-      leaseEndDate: app.leaseEndDate?.toISOString(),
-    }));
+  private isJsonObject(
+    value: Prisma.JsonValue | null | undefined,
+  ): value is Prisma.JsonObject {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 
-  async findOne(id: string) {
-    const application = await this.prisma.tenantApplication.findUnique({
-      where: { id },
-      include: {
-        site: true,
-        negotiationRounds: {
-          orderBy: { createdAt: 'desc' },
-        },
-      },
-    });
+  private getNumberField(
+    value: Prisma.JsonObject,
+    field: string,
+  ): number | undefined {
+    const raw = value[field];
+    return typeof raw === 'number' ? raw : undefined;
+  }
 
-    if (!application) {
-      throw new NotFoundException('Application not found');
+  private calculateSecurityDeposit(
+    negotiatedTerms: Prisma.JsonValue | null | undefined,
+  ): number {
+    if (!this.isJsonObject(negotiatedTerms)) {
+      return 0;
     }
+    const securityDepositMonths = this.getNumberField(
+      negotiatedTerms,
+      'securityDepositMonths',
+    );
+    const monthlyRent = this.getNumberField(negotiatedTerms, 'monthlyRent');
+    if (securityDepositMonths === undefined || monthlyRent === undefined) {
+      return 0;
+    }
+    return securityDepositMonths * monthlyRent;
+  }
 
+  private mapApplication(application: TenantApplicationWithSite) {
     return {
       id: application.id,
       applicantId: application.applicantId,
@@ -208,22 +138,93 @@ export class ApplicationsService {
       message: application.message,
       createdAt: application.createdAt.toISOString(),
       submittedAt: application.createdAt.toISOString(),
-      respondedAt: application.respondedAt?.toISOString(),
+      respondedAt: this.toIso(application.respondedAt),
       responseMessage: application.responseMessage,
       reviewedBy: application.reviewedBy,
-      reviewedAt: application.reviewedAt?.toISOString(),
+      reviewedAt: this.toIso(application.reviewedAt),
       approvalNotes: application.approvalNotes,
       leaseAgreementUrl: application.leaseAgreementUrl,
-      leaseSignedAt: application.leaseSignedAt?.toISOString(),
-      leaseStartDate: application.leaseStartDate?.toISOString(),
-      leaseEndDate: application.leaseEndDate?.toISOString(),
+      leaseSignedAt: this.toIso(application.leaseSignedAt),
+      leaseStartDate: this.toIso(application.leaseStartDate),
+      leaseEndDate: this.toIso(application.leaseEndDate),
+    };
+  }
+
+  async create(applicantId: string, createDto: CreateApplicationDto) {
+    const site = await this.prisma.site.findUnique({
+      where: { id: createDto.siteId },
+    });
+    if (!site) throw new NotFoundException('Site not found');
+
+    const additionalServices = this.jsonArray(createDto.additionalServices);
+
+    return this.prisma.tenantApplication.create({
+      data: {
+        applicantId,
+        organizationName: createDto.organizationName,
+        businessRegistrationNumber: createDto.businessRegistrationNumber,
+        taxComplianceNumber: createDto.taxComplianceNumber,
+        contactPersonName: createDto.contactPersonName,
+        contactEmail: createDto.contactEmail,
+        contactPhone: createDto.contactPhone,
+        physicalAddress: createDto.physicalAddress,
+        companyWebsite: createDto.companyWebsite,
+        yearsInEVBusiness: createDto.yearsInEVBusiness,
+        existingStationsOperated: createDto.existingStationsOperated,
+        siteId: createDto.siteId,
+        preferredLeaseModel: createDto.preferredLeaseModel,
+        businessPlanSummary: createDto.businessPlanSummary,
+        sustainabilityCommitments: createDto.sustainabilityCommitments,
+        additionalServices: additionalServices || '[]',
+        estimatedStartDate: createDto.estimatedStartDate,
+        message: createDto.message,
+        status: ApplicationStatus.PENDING_REVIEW,
+      },
+      include: tenantApplicationWithSiteInclude,
+    });
+  }
+
+  async findAll(filters?: { status?: ApplicationStatus; siteId?: string }) {
+    const where: Prisma.TenantApplicationWhereInput = {};
+
+    if (filters?.status) {
+      where.status = filters.status;
+    }
+
+    if (filters?.siteId) {
+      where.siteId = filters.siteId;
+    }
+
+    const applications = await this.prisma.tenantApplication.findMany({
+      where,
+      include: tenantApplicationWithSiteInclude,
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return applications.map((application) => this.mapApplication(application));
+  }
+
+  async findOne(id: string) {
+    const application = await this.prisma.tenantApplication.findUnique({
+      where: { id },
+      include: tenantApplicationWithDetailsInclude,
+    });
+
+    if (!application) {
+      throw new NotFoundException('Application not found');
+    }
+
+    return {
+      ...this.mapApplication(application),
       negotiationRounds: application.negotiationRounds,
       negotiatedTerms: application.negotiatedTerms,
     };
   }
 
   async updateStatus(id: string, updateDto: UpdateApplicationStatusDto) {
-    const application = await this.findOne(id);
+    await this.findOne(id);
 
     return this.prisma.tenantApplication.update({
       where: { id },
@@ -232,9 +233,7 @@ export class ApplicationsService {
         responseMessage: updateDto.message,
         respondedAt: new Date(),
       },
-      include: {
-        site: true,
-      },
+      include: tenantApplicationWithSiteInclude,
     });
   }
 
@@ -252,10 +251,8 @@ export class ApplicationsService {
         approvalNotes: reviewDto.notes,
         reviewedBy: reviewerId,
         reviewedAt: new Date(),
-        // If INFO_REQUESTED, we might want to store requiredDocuments somewhere
-        // For now, storing in notes or specific field if schema supported it
       },
-      include: { site: true },
+      include: tenantApplicationWithSiteInclude,
     });
   }
 
@@ -270,16 +267,16 @@ export class ApplicationsService {
       where: { id },
       data: {
         status: ApplicationStatus.INFO_REQUESTED,
-        responseMessage: requestDto.message, // Using responseMessage for communication
+        responseMessage: requestDto.message,
         reviewedBy: reviewerId,
         respondedAt: new Date(),
       },
-      include: { site: true },
+      include: tenantApplicationWithSiteInclude,
     });
   }
 
   async updateTerms(id: string, updateDto: UpdateApplicationTermsDto) {
-    const application = await this.findOne(id);
+    await this.findOne(id);
 
     const chargingTechnology = this.jsonArray(updateDto.chargingTechnology);
     const targetCustomerSegment = this.jsonArray(
@@ -295,22 +292,17 @@ export class ApplicationsService {
         totalPowerRequirement: updateDto.totalPowerRequirement,
         chargingTechnology: chargingTechnology || '[]',
         targetCustomerSegment: targetCustomerSegment || '[]',
-        status: ApplicationStatus.NEGOTIATING, // Auto-transition to Negotiating
+        status: ApplicationStatus.NEGOTIATING,
       },
-      include: {
-        site: true,
-      },
+      include: tenantApplicationWithSiteInclude,
     });
   }
-
-  // Negotiation Methods
 
   async getNegotiations(id: string) {
     return this.prisma.negotiationRound.findMany({
       where: { applicationId: id },
       orderBy: { createdAt: 'desc' },
       include: {
-        // @ts-ignore
         proposer: {
           select: {
             id: true,
@@ -324,19 +316,18 @@ export class ApplicationsService {
 
   async proposeTerms(id: string, dto: CreateNegotiationDto, userId: string) {
     const application = await this.findOne(id);
+    const terms = dto.terms as unknown as Prisma.InputJsonValue;
 
-    // Create negotiation round
     const round = await this.prisma.negotiationRound.create({
       data: {
         applicationId: id,
         proposedBy: userId,
-        terms: JSON.parse(JSON.stringify(dto.terms)), // Ensure JSON compatibility
+        terms,
         message: dto.message,
         status: 'PROPOSED',
       },
     });
 
-    // Update application status if needed
     if (application.status !== ApplicationStatus.NEGOTIATING) {
       await this.prisma.tenantApplication.update({
         where: { id },
@@ -356,12 +347,10 @@ export class ApplicationsService {
     const previousRound = await this.prisma.negotiationRound.findUnique({
       where: { id: roundId },
     });
-    if (!previousRound)
+    if (!previousRound) {
       throw new NotFoundException('Negotiation round not found');
+    }
 
-    // Mark previous round as responded (COUNTERED could be a status update here if we want strictly one active)
-    // For history tracking, we assume creating a NEW round is the counter.
-    // Optionally update the previous round to indicate it was countered.
     await this.prisma.negotiationRound.update({
       where: { id: roundId },
       data: {
@@ -371,14 +360,14 @@ export class ApplicationsService {
       },
     });
 
-    // Create new round with counter terms
+    const terms = dto.terms as unknown as Prisma.InputJsonValue;
     return this.prisma.negotiationRound.create({
       data: {
         applicationId: id,
         proposedBy: userId,
-        terms: JSON.parse(JSON.stringify(dto.terms)),
+        terms,
         message: dto.message,
-        status: 'PROPOSED', // It's a new proposal in the chain
+        status: 'PROPOSED',
       },
     });
   }
@@ -394,7 +383,6 @@ export class ApplicationsService {
     });
     if (!round) throw new NotFoundException('Negotiation round not found');
 
-    // Update round status
     const updatedRound = await this.prisma.negotiationRound.update({
       where: { id: roundId },
       data: {
@@ -407,7 +395,6 @@ export class ApplicationsService {
       },
     });
 
-    // Update Application to TERMS_AGREED and save final terms
     await this.prisma.tenantApplication.update({
       where: { id },
       data: {
@@ -443,13 +430,10 @@ export class ApplicationsService {
       },
     });
   }
-  // Lease Methods
 
   async generateLease(id: string) {
-    const application = await this.findOne(id);
+    await this.findOne(id);
 
-    // In a real implementation, this would generate a PDF based on application.negotiatedTerms
-    // For now, we return a mock URL or a placeholder
     const leaseUrl =
       'https://res.cloudinary.com/demo/image/upload/v1611095786/sample_lease_agreement.pdf';
 
@@ -457,9 +441,9 @@ export class ApplicationsService {
       where: { id },
       data: {
         leaseAgreementUrl: leaseUrl,
-        status: ApplicationStatus.LEASE_DRAFTING, // Or PENDING_SIGNATURE
+        status: ApplicationStatus.LEASE_DRAFTING,
       },
-      include: { site: true },
+      include: tenantApplicationWithSiteInclude,
     });
   }
 
@@ -476,15 +460,11 @@ export class ApplicationsService {
       throw new BadRequestException('Applicant contact details missing.');
     }
 
-    // Send for signature (DocuSign or Simulation)
-    // await this.signatureService.sendForSignature(
-    //     id,
-    //     application.contactEmail,
-    //     application.contactPersonName,
-    //     application.leaseAgreementUrl
-    // );
-    console.log(
-      `[Mock Signature] Sending lease to ${application.contactEmail} for signature.`,
+    this.signatureService.sendForSignature(
+      id,
+      application.contactEmail,
+      application.contactPersonName,
+      application.leaseAgreementUrl,
     );
 
     return this.prisma.tenantApplication.update({
@@ -492,7 +472,7 @@ export class ApplicationsService {
       data: {
         status: ApplicationStatus.LEASE_PENDING_SIGNATURE,
       },
-      include: { site: true },
+      include: tenantApplicationWithSiteInclude,
     });
   }
 
@@ -501,9 +481,8 @@ export class ApplicationsService {
     file: Express.Multer.File,
     userId: string = 'system',
   ) {
-    const application = await this.findOne(id);
+    await this.findOne(id);
 
-    // Upload to Cloudinary via DocumentsService
     const docRecord = await this.documentsService.uploadFile(
       file,
       {
@@ -515,7 +494,6 @@ export class ApplicationsService {
       userId,
     );
 
-    // Upload the signed lease document and update status
     return this.prisma.tenantApplication.update({
       where: { id },
       data: {
@@ -523,7 +501,7 @@ export class ApplicationsService {
         leaseSignedAt: new Date(),
         status: ApplicationStatus.LEASE_SIGNED,
       },
-      include: { site: true },
+      include: tenantApplicationWithSiteInclude,
     });
   }
 
@@ -535,7 +513,7 @@ export class ApplicationsService {
     return {
       leaseUrl: application.leaseAgreementUrl,
       status: application.status,
-      signedByOwner: !!application.leaseSignedAt, // Simplified
+      signedByOwner: !!application.leaseSignedAt,
       signedByOperator: !!application.leaseSignedAt,
     };
   }
@@ -547,9 +525,9 @@ export class ApplicationsService {
         data: {
           leaseAgreementUrl: dto.signedLeaseUrl,
         },
-        include: { site: true },
+        include: tenantApplicationWithSiteInclude,
       });
-    } catch (error) {
+    } catch {
       throw new BadRequestException('Failed to sign lease as owner');
     }
   }
@@ -563,22 +541,18 @@ export class ApplicationsService {
           leaseSignedAt: new Date(),
           status: ApplicationStatus.LEASE_SIGNED,
         },
-        include: { site: true },
+        include: tenantApplicationWithSiteInclude,
       });
-    } catch (error) {
+    } catch {
       throw new BadRequestException('Failed to sign lease as operator');
     }
   }
 
   async verifySecurityDeposit(id: string) {
     const application = await this.findOne(id);
-
-    // Ensure we have a negotiated amount
-    const terms = application.negotiatedTerms as Record<string, any>;
-    const depositAmount =
-      terms?.securityDepositMonths && terms?.monthlyRent
-        ? terms.securityDepositMonths * terms.monthlyRent
-        : 0;
+    const depositAmount = this.calculateSecurityDeposit(
+      application.negotiatedTerms,
+    );
 
     try {
       return await this.prisma.tenantApplication.update({
@@ -588,9 +562,9 @@ export class ApplicationsService {
           depositPaidAt: new Date(),
           securityDepositAmount: depositAmount,
         },
-        include: { site: true },
+        include: tenantApplicationWithSiteInclude,
       });
-    } catch (error) {
+    } catch {
       throw new BadRequestException('Failed to verify security deposit');
     }
   }
@@ -606,7 +580,7 @@ export class ApplicationsService {
               : ApplicationStatus.LEASE_DRAFTING,
         },
       });
-    } catch (error) {
+    } catch {
       throw new BadRequestException('Failed to verify lease');
     }
   }
@@ -614,35 +588,32 @@ export class ApplicationsService {
   async activate(id: string) {
     const application = await this.findOne(id);
 
-    // Ideally check status is DEPOSIT_PAID or LEASE_SIGNED
-    // if (application.status !== ApplicationStatus.DEPOSIT_PAID) ...
-
     try {
-      return await this.prisma.$transaction(async (prisma: any) => {
-        // 1. Update Application Status
-        const updatedApp = await prisma.tenantApplication.update({
-          where: { id },
-          data: {
-            status: ApplicationStatus.COMPLETED,
-            completedAt: new Date(),
-          },
-          include: { site: true },
-        });
+      return await this.prisma.$transaction(
+        async (tx: Prisma.TransactionClient) => {
+          const updatedApp = await tx.tenantApplication.update({
+            where: { id },
+            data: {
+              status: ApplicationStatus.COMPLETED,
+              completedAt: new Date(),
+            },
+            include: tenantApplicationWithSiteInclude,
+          });
 
-        // 2. Create Tenant Record
-        const tenant = await prisma.tenant.create({
-          data: {
-            name: application.organizationName,
-            type: 'CPO', // Charge Point Operator
-            status: 'Active',
-            siteId: application.siteId,
-            startDate: new Date(),
-          },
-        });
+          const tenant = await tx.siteTenant.create({
+            data: {
+              name: application.organizationName,
+              type: 'CPO',
+              status: 'Active',
+              siteId: application.siteId,
+              startDate: new Date(),
+            },
+          });
 
-        return { application: updatedApp, tenant };
-      });
-    } catch (error) {
+          return { application: updatedApp, tenant };
+        },
+      );
+    } catch {
       throw new BadRequestException('Failed to activate application');
     }
   }

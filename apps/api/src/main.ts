@@ -12,6 +12,9 @@ import {
   requestContextMiddleware,
   requestLoggingMiddleware,
 } from './common/observability/request-logging.middleware';
+import { TenantContextService } from '@app/db';
+import { TenantResolutionService } from './common/tenant/tenant-resolution.service';
+import { createTenantResolutionMiddleware } from './common/tenant/tenant-resolution.middleware';
 import { DatabaseConnectivityExceptionFilter } from './common/filters/database-connectivity-exception.filter';
 import { validateKafkaTopicsOrThrow } from './contracts/kafka-topics';
 import cookieParser from 'cookie-parser';
@@ -59,6 +62,9 @@ async function bootstrap() {
 
     const bodyLimit = process.env.API_BODY_LIMIT || '1mb';
     app.use(requestContextMiddleware);
+    const tenantContext = app.get(TenantContextService);
+    const tenantResolution = app.get(TenantResolutionService);
+    app.use(createTenantResolutionMiddleware(tenantContext, tenantResolution));
     app.use(requestLoggingMiddleware);
     app.use(json({ limit: bodyLimit }));
     app.use(urlencoded({ extended: true, limit: bodyLimit }));

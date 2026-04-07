@@ -1,14 +1,14 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post } from '@nestjs/common';
 
 @Controller('notices')
 export class NoticesController {
   @Post()
-  create(@Body() payload: any) {
+  create(@Body() payload: unknown) {
     return payload;
   }
 
   @Get()
-  getAll(@Query() query: any) {
+  getAll() {
     return [];
   }
 }

@@ -3,9 +3,37 @@ import {
   ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { MembershipStatus, UserRole } from '@prisma/client';
+import { PrismaService } from '../../prisma.service';
+import { MetricsService } from '../../common/services/metrics.service';
+import { OcpiTokenSyncService } from '../../common/services/ocpi-token-sync.service';
+import { NotificationService } from '../notification/notification-service.service';
+import { MailService } from '../mail/mail.service';
+import { AdminApprovalService } from './admin-approval.service';
 import { AccessProfileService } from './access-profile.service';
+import { AuthAnomalyMonitorService } from './auth-anomaly-monitor.service';
+import {
+  InviteUserDto,
+  TeamInviteUserDto,
+  UpdateUserDto,
+} from './dto/auth.dto';
 import { AuthService } from './auth-service.service';
+
+type AuthServicePrivateTestHandle = AuthService & {
+  ensureEvzoneOrganization: () => Promise<{ id: string }>;
+  getTeamManagerScope: (actorId: string) => Promise<{
+    organizationId: string | null;
+    managerRole: UserRole;
+  }>;
+  ensureTeamMemberInScope: (
+    targetUserId: string,
+    actorId: string,
+  ) => Promise<{
+    id: string;
+    ownerCapability: string | null;
+  }>;
+};
 
 function createService() {
   const prisma = {
@@ -22,17 +50,30 @@ function createService() {
     userInvitation: {
       updateMany: jest.fn(),
     },
-  } as any;
+  };
+  const config = {
+    get: jest.fn(),
+  };
+  const metrics = {
+    recordAuthMetric: jest.fn(),
+  };
+  const anomalyMonitor = {
+    recordFailure: jest.fn(),
+    recordSuccess: jest.fn(),
+  };
+  const ocpiTokenSync = {
+    syncUserToken: jest.fn(),
+  };
 
   const service = new AuthService(
-    prisma,
-    {} as any,
-    {} as any,
-    { get: jest.fn() } as any,
-    { recordAuthMetric: jest.fn() } as any,
-    { recordFailure: jest.fn(), recordSuccess: jest.fn() } as any,
-    { syncUserToken: jest.fn() } as any,
-    {} as any,
+    prisma as unknown as PrismaService,
+    {} as NotificationService,
+    {} as MailService,
+    config as unknown as ConfigService,
+    metrics as unknown as MetricsService,
+    anomalyMonitor as unknown as AuthAnomalyMonitorService,
+    ocpiTokenSync as unknown as OcpiTokenSyncService,
+    {} as AdminApprovalService,
     new AccessProfileService(),
   );
 
@@ -42,11 +83,20 @@ function createService() {
 describe('AuthService EVZONE guardrails', () => {
   it('enforces EVZONE WORLD assignment for EVZONE roles', async () => {
     const { service, prisma } = createService();
+    const authService = service as unknown as AuthServicePrivateTestHandle;
     jest
-      .spyOn(service as any, 'ensureEvzoneOrganization')
+      .spyOn(authService, 'ensureEvzoneOrganization')
       .mockResolvedValue({ id: 'evzone-org' });
+    const enforceEvzoneOrganizationAssignment = Reflect.get(
+      service,
+      'enforceEvzoneOrganizationAssignment',
+    ) as (input: {
+      userId: string;
+      role: UserRole;
+      membershipStatus?: MembershipStatus;
+    }) => Promise<{ organizationId: string } | null>;
 
-    const result = await (service as any).enforceEvzoneOrganizationAssignment({
+    const result = await enforceEvzoneOrganizationAssignment.call(service, {
       userId: 'user-1',
       role: UserRole.EVZONE_ADMIN,
       membershipStatus: MembershipStatus.ACTIVE,
@@ -71,9 +121,18 @@ describe('AuthService EVZONE guardrails', () => {
 
   it('does nothing for non-EVZONE roles', async () => {
     const { service, prisma } = createService();
-    const ensureSpy = jest.spyOn(service as any, 'ensureEvzoneOrganization');
+    const authService = service as unknown as AuthServicePrivateTestHandle;
+    const ensureSpy = jest.spyOn(authService, 'ensureEvzoneOrganization');
+    const enforceEvzoneOrganizationAssignment = Reflect.get(
+      service,
+      'enforceEvzoneOrganizationAssignment',
+    ) as (input: {
+      userId: string;
+      role: UserRole;
+      membershipStatus?: MembershipStatus;
+    }) => Promise<{ organizationId: string } | null>;
 
-    const result = await (service as any).enforceEvzoneOrganizationAssignment({
+    const result = await enforceEvzoneOrganizationAssignment.call(service, {
       userId: 'user-2',
       role: UserRole.SITE_OWNER,
     });
@@ -86,39 +145,36 @@ describe('AuthService EVZONE guardrails', () => {
 
   it('blocks non-platform actors from assigning EVZONE role in team invite', async () => {
     const { service } = createService();
-    jest.spyOn(service as any, 'getTeamManagerScope').mockResolvedValue({
+    const authService = service as unknown as AuthServicePrivateTestHandle;
+    jest.spyOn(authService, 'getTeamManagerScope').mockResolvedValue({
       organizationId: 'org-1',
       managerRole: UserRole.STATION_OWNER,
     });
+    const inviteDto: TeamInviteUserDto = {
+      email: 'invitee@evzone.app',
+      role: UserRole.EVZONE_OPERATOR,
+    };
 
     await expect(
-      service.inviteTeamMember(
-        {
-          email: 'invitee@evzone.app',
-          role: UserRole.EVZONE_OPERATOR,
-        } as any,
-        'actor-1',
-      ),
+      service.inviteTeamMember(inviteDto, 'actor-1'),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('blocks non-platform actors from assigning EVZONE role in team member update', async () => {
     const { service } = createService();
-    jest.spyOn(service as any, 'getTeamManagerScope').mockResolvedValue({
+    const authService = service as unknown as AuthServicePrivateTestHandle;
+    jest.spyOn(authService, 'getTeamManagerScope').mockResolvedValue({
       organizationId: 'org-1',
       managerRole: UserRole.STATION_OWNER,
     });
-    jest.spyOn(service as any, 'ensureTeamMemberInScope').mockResolvedValue({
+    jest.spyOn(authService, 'ensureTeamMemberInScope').mockResolvedValue({
       id: 'target-1',
       ownerCapability: null,
     });
+    const updateDto: UpdateUserDto = { role: UserRole.EVZONE_ADMIN };
 
     await expect(
-      service.updateTeamMember(
-        'target-1',
-        { role: UserRole.EVZONE_ADMIN } as any,
-        'actor-1',
-      ),
+      service.updateTeamMember('target-1', updateDto, 'actor-1'),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -133,14 +189,13 @@ describe('AuthService EVZONE guardrails', () => {
       country: null,
     });
 
+    const inviteDto: InviteUserDto = {
+      email: 'invitee@evzone.app',
+      role: UserRole.EVZONE_ADMIN,
+    };
+
     await expect(
-      service.inviteUser(
-        {
-          email: 'invitee@evzone.app',
-          role: UserRole.EVZONE_ADMIN,
-        } as any,
-        'inviter-1',
-      ),
+      service.inviteUser(inviteDto, 'inviter-1'),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -155,14 +210,13 @@ describe('AuthService EVZONE guardrails', () => {
       country: null,
     });
 
+    const inviteDto: InviteUserDto = {
+      email: 'invitee@evzone.app',
+      role: UserRole.STATION_OWNER,
+    };
+
     await expect(
-      service.inviteUser(
-        {
-          email: 'invitee@evzone.app',
-          role: UserRole.STATION_OWNER,
-        } as any,
-        'inviter-1',
-      ),
+      service.inviteUser(inviteDto, 'inviter-1'),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
@@ -191,22 +245,22 @@ describe('AuthService EVZONE guardrails', () => {
       status: MembershipStatus.ACTIVE,
     });
 
+    const inviteDto: InviteUserDto = {
+      email: 'existing@evzone.app',
+      role: UserRole.STATION_OWNER,
+    };
+
     await expect(
-      service.inviteUser(
-        {
-          email: 'existing@evzone.app',
-          role: UserRole.STATION_OWNER,
-        } as any,
-        'inviter-1',
-      ),
+      service.inviteUser(inviteDto, 'inviter-1'),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('rejects generic user role updates', async () => {
     const { service, prisma } = createService();
+    const updateDto: UpdateUserDto = { role: UserRole.EVZONE_ADMIN };
 
     await expect(
-      service.updateUser('user-1', { role: UserRole.EVZONE_ADMIN } as any),
+      service.updateUser('user-1', updateDto),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.user.update).not.toHaveBeenCalled();
   });

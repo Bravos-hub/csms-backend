@@ -7,6 +7,9 @@ jest.mock('./provisioning/charger-provisioning.service', () => ({
 }));
 
 import { StationService } from './station-service.service';
+import { PrismaService } from '../../prisma.service';
+import { ChargerProvisioningService } from './provisioning/charger-provisioning.service';
+import { CommandsService } from '../commands/commands.service';
 
 describe('StationService bounds filtering', () => {
   const prisma = {
@@ -24,9 +27,9 @@ describe('StationService bounds filtering', () => {
   };
 
   const service = new StationService(
-    prisma as any,
-    provisioningService as any,
-    commands as any,
+    prisma as unknown as PrismaService,
+    provisioningService as unknown as ChargerProvisioningService,
+    commands as unknown as CommandsService,
   );
 
   const stationEntity = {

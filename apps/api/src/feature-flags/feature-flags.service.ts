@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 
 @Injectable()
@@ -13,7 +14,7 @@ export class FeatureFlagsService {
     key: string;
     description?: string;
     isEnabled?: boolean;
-    rules?: any;
+    rules?: Prisma.InputJsonValue;
   }) {
     return this.prisma.featureFlag.create({
       data: {
@@ -25,14 +26,20 @@ export class FeatureFlagsService {
     });
   }
 
-  async update(key: string, data: { isEnabled?: boolean; rules?: any }) {
+  async update(
+    key: string,
+    data: {
+      isEnabled?: boolean;
+      rules?: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput;
+    },
+  ) {
     return this.prisma.featureFlag.update({
       where: { key },
       data,
     });
   }
 
-  async isEnabled(key: string, context?: any): Promise<boolean> {
+  async isEnabled(key: string): Promise<boolean> {
     const flag = await this.prisma.featureFlag.findUnique({ where: { key } });
     if (!flag) return false;
     if (!flag.isEnabled) return false;

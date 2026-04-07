@@ -10,7 +10,6 @@ import { StationService } from './station-service.service';
 import { CommandsModule } from '../commands/commands.module';
 // import { Station } from './stations/entities/station.entity'; (Removed)
 // import { ChargePoint } from './stations/entities/charge-point.entity'; (Removed)
-import { PrismaService } from '../../prisma.service';
 
 import { ChargerProvisioningService } from './provisioning/charger-provisioning.service';
 
@@ -37,6 +36,6 @@ import { ChargerProvisioningService } from './provisioning/charger-provisioning.
     ]),
   ],
   controllers: [StationController, ChargePointController],
-  providers: [StationService, PrismaService, ChargerProvisioningService],
+  providers: [StationService, ChargerProvisioningService],
 })
 export class StationServiceModule {}

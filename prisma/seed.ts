@@ -3,6 +3,7 @@ import {
   SitePurpose,
   LeaseType,
   Footfall,
+  PermissionScope,
   ZoneType,
   MembershipStatus,
 } from '@prisma/client';
@@ -11,6 +12,11 @@ import * as bcrypt from 'bcrypt';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 import { URL } from 'url';
+import {
+  ALL_PERMISSION_CODES,
+  CANONICAL_ROLE_DEFINITIONS,
+  CANONICAL_ROLE_KEYS,
+} from '../packages/domain/src/rbac';
 
 // Load environment variables
 dotenv.config();
@@ -70,6 +76,95 @@ async function ensureEvzoneOrganization(client: PrismaClient) {
   });
 }
 
+function permissionLabel(code: string) {
+  return code
+    .split('.')
+    .map((segment) => segment.replace(/_/g, ' '))
+    .join(' / ');
+}
+
+async function syncCanonicalRbacCatalog(client: PrismaClient) {
+  const permissionIdByCode = new Map<string, string>();
+
+  for (const code of ALL_PERMISSION_CODES) {
+    const permission = await client.permissionDefinition.upsert({
+      where: { code },
+      update: {
+        label: permissionLabel(code),
+        scope: code.startsWith('platform.')
+          ? PermissionScope.PLATFORM
+          : PermissionScope.TENANT,
+        resource: code.split('.')[0] || null,
+        action: code.split('.').slice(1).join('.') || null,
+        isSystem: true,
+      },
+      create: {
+        code,
+        label: permissionLabel(code),
+        scope: code.startsWith('platform.')
+          ? PermissionScope.PLATFORM
+          : PermissionScope.TENANT,
+        resource: code.split('.')[0] || null,
+        action: code.split('.').slice(1).join('.') || null,
+        isSystem: true,
+      },
+    });
+
+    permissionIdByCode.set(code, permission.id);
+  }
+
+  for (const roleKey of CANONICAL_ROLE_KEYS) {
+    const definition = CANONICAL_ROLE_DEFINITIONS[roleKey];
+    const template = await client.systemRoleTemplate.upsert({
+      where: { key: roleKey },
+      update: {
+        label: definition.label,
+        description: definition.description,
+        family: definition.family,
+        scope:
+          definition.permissionScope === 'PLATFORM'
+            ? PermissionScope.PLATFORM
+            : PermissionScope.TENANT,
+        isPlatformRole: definition.permissionScope === 'PLATFORM',
+        customizable: definition.customizable,
+      },
+      create: {
+        key: roleKey,
+        label: definition.label,
+        description: definition.description,
+        family: definition.family,
+        scope:
+          definition.permissionScope === 'PLATFORM'
+            ? PermissionScope.PLATFORM
+            : PermissionScope.TENANT,
+        isPlatformRole: definition.permissionScope === 'PLATFORM',
+        customizable: definition.customizable,
+      },
+    });
+
+    for (const permissionCode of definition.permissions) {
+      const permissionId = permissionIdByCode.get(permissionCode);
+      if (!permissionId) {
+        continue;
+      }
+
+      await client.systemRoleTemplatePermission.upsert({
+        where: {
+          roleTemplateId_permissionId: {
+            roleTemplateId: template.id,
+            permissionId,
+          },
+        },
+        update: {},
+        create: {
+          roleTemplateId: template.id,
+          permissionId,
+        },
+      });
+    }
+  }
+}
+
 async function main() {
   // Initialize Prisma client with pg adapter (same as PrismaService)
   const connectionString = process.env.DATABASE_URL;
@@ -91,6 +186,7 @@ async function main() {
 
   console.log('Seeding database...');
   const evzoneOrganization = await ensureEvzoneOrganization(prisma);
+  await syncCanonicalRbacCatalog(prisma);
 
   // 1. Create Super Admin User
   const superAdminPassword = await bcrypt.hash('Password123.', 10);
@@ -135,7 +231,7 @@ async function main() {
 
   // 2. Create Mock User
   const mockUserId = 'mock-id';
-  const mockUser = await prisma.user.upsert({
+  await prisma.user.upsert({
     where: { id: mockUserId },
     update: {
       region: 'Africa',
@@ -299,7 +395,7 @@ async function main() {
 
   // 2. Create Site
   const siteId = 'default-site-id';
-  const site = await prisma.site.upsert({
+  await prisma.site.upsert({
     where: { id: siteId },
     update: {},
     create: {
@@ -455,7 +551,7 @@ async function main() {
 
   // 4. Create Site for the station (using the same ID the frontend is requesting)
   const frontendSiteId = '0b0817eb-fc2a-413c-94f7-c8826ad57967';
-  const frontendSite = await prisma.site.upsert({
+  await prisma.site.upsert({
     where: { id: frontendSiteId },
     update: {},
     create: {
@@ -596,7 +692,7 @@ async function main() {
   console.log('Seeding subscription plans...');
 
   // Station Owner Plans
-  const ownerStarter = await prisma.subscriptionPlan.upsert({
+  await prisma.subscriptionPlan.upsert({
     where: { code: 'owner-starter' },
     update: {},
     create: {
@@ -649,7 +745,7 @@ async function main() {
     },
   });
 
-  const ownerGrowth = await prisma.subscriptionPlan.upsert({
+  await prisma.subscriptionPlan.upsert({
     where: { code: 'owner-growth' },
     update: {},
     create: {
@@ -705,7 +801,7 @@ async function main() {
     },
   });
 
-  const ownerEnterprise = await prisma.subscriptionPlan.upsert({
+  await prisma.subscriptionPlan.upsert({
     where: { code: 'owner-enterprise' },
     update: {},
     create: {
@@ -761,7 +857,7 @@ async function main() {
   });
 
   // Operator Plans
-  const operatorBasic = await prisma.subscriptionPlan.upsert({
+  await prisma.subscriptionPlan.upsert({
     where: { code: 'op-basic' },
     update: {},
     create: {
@@ -807,7 +903,7 @@ async function main() {
     },
   });
 
-  const operatorPlus = await prisma.subscriptionPlan.upsert({
+  await prisma.subscriptionPlan.upsert({
     where: { code: 'op-plus' },
     update: {},
     create: {
@@ -871,7 +967,7 @@ async function main() {
   });
 
   // Technician Plans
-  const techFree = await prisma.subscriptionPlan.upsert({
+  await prisma.subscriptionPlan.upsert({
     where: { code: 'tech-free' },
     update: {},
     create: {
@@ -907,7 +1003,7 @@ async function main() {
     },
   });
 
-  const techPro = await prisma.subscriptionPlan.upsert({
+  await prisma.subscriptionPlan.upsert({
     where: { code: 'tech-pro' },
     update: {},
     create: {
@@ -956,7 +1052,7 @@ async function main() {
   });
 
   // Site Owner Plans
-  const siteBasic = await prisma.subscriptionPlan.upsert({
+  await prisma.subscriptionPlan.upsert({
     where: { code: 'so-basic' },
     update: {},
     create: {
@@ -1005,7 +1101,7 @@ async function main() {
     },
   });
 
-  const sitePro = await prisma.subscriptionPlan.upsert({
+  await prisma.subscriptionPlan.upsert({
     where: { code: 'so-pro' },
     update: {},
     create: {
@@ -1251,7 +1347,7 @@ async function main() {
     },
   });
 
-  const provider3 = await prisma.swapProvider.upsert({
+  await prisma.swapProvider.upsert({
     where: { id: 'provider-pending-1' },
     update: {
       name: 'SwapLink Transit',

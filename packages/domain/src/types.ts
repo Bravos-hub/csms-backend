@@ -1,3 +1,5 @@
+import type { SupportedRoleKey } from './rbac';
+
 export type RegionId =
   | 'AFRICA'
   | 'EUROPE'
@@ -5,31 +7,16 @@ export type RegionId =
   | 'ASIA'
   | 'MIDDLE_EAST';
 
-export type Role =
-  | 'SUPER_ADMIN'
-  | 'EVZONE_ADMIN'
-  | 'EVZONE_OPERATOR'
-  | 'SWAP_PROVIDER_ADMIN'
-  | 'SWAP_PROVIDER_OPERATOR'
-  | 'SITE_OWNER'
-  | 'STATION_OWNER'
-  | 'OWNER'
-  | 'STATION_OPERATOR'
-  | 'STATION_ADMIN'
-  | 'MANAGER'
-  | 'ATTENDANT'
-  | 'CASHIER'
-  | 'TECHNICIAN_ORG'
-  | 'TECHNICIAN_PUBLIC';
+export type Role = SupportedRoleKey;
 
 export type OwnerCapability = 'CHARGE' | 'SWAP' | 'BOTH';
 export type DateRange = 'TODAY' | '7D' | '30D' | 'CUSTOM';
 
 export type Scope = {
   region: RegionId | 'ALL';
-  orgId: string | 'ALL';
-  stationId: string | 'ALL';
-  siteId?: string | 'ALL';
+  orgId: string;
+  stationId: string;
+  siteId?: string;
   dateRange: DateRange;
 };
 
@@ -41,13 +28,7 @@ export type UserProfile = {
   avatarUrl?: string;
 };
 
-import {
-  IsString,
-  IsOptional,
-  IsEmail,
-  IsEnum,
-  IsArray,
-} from 'class-validator';
+import { IsString, IsOptional, IsEmail, IsArray } from 'class-validator';
 
 // Auth Types
 export class LoginRequest {
@@ -114,10 +95,15 @@ export interface AuthResponse {
     name: string;
     email?: string;
     role: string;
+    canonicalRole?: string;
+    roleLabel?: string;
+    tenantId?: string;
+    activeTenantId?: string;
     orgId?: string;
     organizationId?: string;
     assignedStations?: string[];
     ownerCapability?: OwnerCapability;
+    accessProfile?: Record<string, unknown>;
   };
 }
 
@@ -132,9 +118,12 @@ export interface User {
   email?: string;
   phone?: string;
   role: Role;
+  canonicalRole?: string;
+  roleLabel?: string;
   orgId?: string;
   organizationId?: string;
   tenantId?: string;
+  activeTenantId?: string;
   region?: string;
   ownerCapability?: OwnerCapability;
   status?: 'Active' | 'Pending' | 'Suspended' | 'Inactive' | 'Invited';
@@ -543,7 +532,7 @@ export interface PaymentHistoryEntry {
   status: 'completed' | 'pending' | 'failed';
 }
 
-export interface Tenant {
+export interface SiteTenant {
   id: string;
   name: string;
   type: 'Operator' | 'Owner' | 'Fleet';
@@ -566,6 +555,8 @@ export interface Tenant {
   phone?: string;
   organizationId?: string;
 }
+
+export type Tenant = SiteTenant;
 
 export interface TenantApplication {
   id: string;

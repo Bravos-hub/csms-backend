@@ -68,8 +68,9 @@ export class ServiceManagerService {
           message: `Service ${serviceName} restarted successfully`,
         };
       } catch (dockerError) {
+        const dockerMessage = this.errorMessage(dockerError);
         this.logger.warn(
-          `Docker restart failed, service may not be containerized: ${dockerError.message}`,
+          `Docker restart failed, service may not be containerized: ${dockerMessage}`,
         );
 
         // Return a simulated success for demo purposes
@@ -85,19 +86,18 @@ export class ServiceManagerService {
         };
       }
     } catch (error) {
-      this.logger.error(
-        `Failed to restart service ${serviceName}: ${error.message}`,
-      );
+      const message = this.errorMessage(error);
+      this.logger.error(`Failed to restart service ${serviceName}: ${message}`);
 
       this.addEvent({
         severity: 'error',
-        message: `Failed to restart ${serviceName}: ${error.message}`,
+        message: `Failed to restart ${serviceName}: ${message}`,
         service: serviceName,
       });
 
       return {
         success: false,
-        message: `Failed to restart ${serviceName}: ${error.message}`,
+        message: `Failed to restart ${serviceName}: ${message}`,
       };
     }
   }
@@ -129,7 +129,7 @@ export class ServiceManagerService {
       return this.parseLogs(stdout);
     } catch (error) {
       this.logger.warn(
-        `Could not fetch Docker logs for ${serviceName}: ${error.message}`,
+        `Could not fetch Docker logs for ${serviceName}: ${this.errorMessage(error)}`,
       );
       // Return mock logs as fallback
       return this.getMockLogs(serviceName, lines);
@@ -191,7 +191,7 @@ export class ServiceManagerService {
 
       logs.push({
         timestamp: timestampMatch?.[1] || new Date().toISOString(),
-        level: (levelMatch?.[1]?.toLowerCase() as any) || 'info',
+        level: this.normalizeLogLevel(levelMatch?.[1]),
         message: line,
       });
     }
@@ -217,5 +217,20 @@ export class ServiceManagerService {
     }
 
     return logs;
+  }
+
+  private normalizeLogLevel(level: unknown): ServiceLog['level'] {
+    const normalized = typeof level === 'string' ? level.toLowerCase() : '';
+    if (normalized === 'error') return 'error';
+    if (normalized === 'warn' || normalized === 'warning') return 'warn';
+    if (normalized === 'debug') return 'debug';
+    return 'info';
+  }
+
+  private errorMessage(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return String(error);
   }
 }
