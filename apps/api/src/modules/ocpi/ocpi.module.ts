@@ -6,5 +6,6 @@ import { PrismaService } from '../../prisma.service';
 @Module({
   controllers: [OcpiPartnersController],
   providers: [OcpiService, PrismaService],
+  exports: [OcpiService],
 })
 export class OcpiModule {}

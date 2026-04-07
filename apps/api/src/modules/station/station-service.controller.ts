@@ -18,6 +18,8 @@ import {
   UpdateStationDto,
   CreateChargePointDto,
   UpdateChargePointDto,
+  ConfirmChargePointIdentityDto,
+  SetChargePointPublicationDto,
   BindChargePointCertificateDto,
   UpdateChargePointBootstrapDto,
   RemoteStartChargePointCommandDto,
@@ -198,6 +200,27 @@ export class ChargePointController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateDto: UpdateChargePointDto) {
     return this.stationService.updateChargePoint(id, updateDto);
+  }
+
+  @Post(':id/identity/confirm')
+  confirmIdentity(
+    @Param('id') id: string,
+    @Body() dto: ConfirmChargePointIdentityDto,
+  ) {
+    return this.stationService.confirmChargePointIdentity(id, dto);
+  }
+
+  @Get(':id/publication')
+  getPublication(@Param('id') id: string) {
+    return this.stationService.getChargePointPublication(id);
+  }
+
+  @Put(':id/publication')
+  setPublication(
+    @Param('id') id: string,
+    @Body() dto: SetChargePointPublicationDto,
+  ) {
+    return this.stationService.setChargePointPublication(id, dto.published);
   }
 
   @Delete(':id')

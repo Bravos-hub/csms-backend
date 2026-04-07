@@ -22,11 +22,16 @@ describe('StationService bounds filtering', () => {
   const commands = {
     enqueueCommand: jest.fn(),
   };
+  const ocpiService = {
+    getChargePointRoamingPublication: jest.fn(),
+    setChargePointRoamingPublication: jest.fn(),
+  };
 
   const service = new StationService(
     prisma as any,
     provisioningService as any,
     commands as any,
+    ocpiService as any,
   );
 
   const stationEntity = {

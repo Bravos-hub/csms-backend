@@ -12,6 +12,9 @@ describe('StationService firmware commands and history', () => {
     firmwareUpdateEvent: {
       findMany: jest.fn(),
     },
+    ocpiPartnerLocation: {
+      findMany: jest.fn(),
+    },
     station: {
       findFirst: jest.fn(),
       create: jest.fn(),
@@ -26,11 +29,17 @@ describe('StationService firmware commands and history', () => {
     enqueueCommand: jest.fn(),
   };
 
+  const ocpiService = {
+    getChargePointRoamingPublication: jest.fn(),
+    setChargePointRoamingPublication: jest.fn(),
+  };
+
   const createService = () =>
     new StationService(
       prisma as any,
       provisioningService as any,
       commands as any,
+      ocpiService as any,
     );
 
   beforeEach(() => {
@@ -38,7 +47,11 @@ describe('StationService firmware commands and history', () => {
       previousFirmwareCommandFlag;
     prisma.chargePoint.findUnique.mockReset();
     prisma.firmwareUpdateEvent.findMany.mockReset();
+    prisma.ocpiPartnerLocation.findMany.mockReset();
+    prisma.ocpiPartnerLocation.findMany.mockResolvedValue([]);
     commands.enqueueCommand.mockReset();
+    ocpiService.getChargePointRoamingPublication.mockReset();
+    ocpiService.setChargePointRoamingPublication.mockReset();
   });
 
   afterAll(() => {

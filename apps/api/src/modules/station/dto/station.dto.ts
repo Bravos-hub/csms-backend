@@ -207,6 +207,10 @@ export class UpdateChargePointDto {
 
   @IsString()
   @IsOptional()
+  manufacturer?: string;
+
+  @IsString()
+  @IsOptional()
   firmwareVersion?: string;
 
   @IsString()
@@ -216,6 +220,25 @@ export class UpdateChargePointDto {
   @IsNumber()
   @IsOptional()
   power?: number;
+}
+
+export class ConfirmChargePointIdentityDto {
+  @IsString()
+  @IsNotEmpty()
+  model: string;
+
+  @IsString()
+  @IsNotEmpty()
+  manufacturer: string;
+
+  @IsString()
+  @IsNotEmpty()
+  firmwareVersion: string;
+}
+
+export class SetChargePointPublicationDto {
+  @IsBoolean()
+  published: boolean;
 }
 
 export class BindChargePointCertificateDto {

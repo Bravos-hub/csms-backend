@@ -27,11 +27,17 @@ describe('StationService station event normalization', () => {
     enqueueCommand: jest.fn(),
   };
 
+  const ocpiService = {
+    getChargePointRoamingPublication: jest.fn(),
+    setChargePointRoamingPublication: jest.fn(),
+  };
+
   const createService = () =>
     new StationService(
       prisma as any,
       provisioningService as any,
       commands as any,
+      ocpiService as any,
     );
 
   beforeEach(() => {

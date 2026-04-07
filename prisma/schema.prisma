@@ -585,6 +585,9 @@ model ChargePoint {
   model           String?
   vendor          String?
   firmwareVersion String?
+  bootNotificationAt      DateTime? @map("boot_notification_at")
+  bootNotificationPayload Json?     @map("boot_notification_payload")
+  identityConfirmedAt     DateTime? @map("identity_confirmed_at")
   firmwareUpdateStatus    String?   @map("firmware_update_status")
   firmwareUpdateRequestId Int?      @map("firmware_update_request_id")
   firmwareStatusUpdatedAt DateTime? @map("firmware_status_updated_at")

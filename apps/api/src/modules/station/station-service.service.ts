@@ -12,6 +12,7 @@ import {
   UpdateStationDto,
   CreateChargePointDto,
   UpdateChargePointDto,
+  ConfirmChargePointIdentityDto,
   BindChargePointCertificateDto,
   UpdateChargePointBootstrapDto,
   RemoteStartChargePointCommandDto,
@@ -22,6 +23,7 @@ import {
 import { ChargerProvisioningService } from './provisioning/charger-provisioning.service';
 import { parsePaginationOptions } from '../../common/utils/pagination';
 import { CommandsService } from '../commands/commands.service';
+import { OcpiService } from '../ocpi/ocpi.service';
 
 type StationBounds = {
   north: number;
@@ -55,6 +57,7 @@ export class StationService {
     private readonly prisma: PrismaService,
     private readonly provisioningService: ChargerProvisioningService,
     private readonly commands: CommandsService,
+    private readonly ocpiService: OcpiService,
   ) {
     this.enableNoAuthBootstrap =
       process.env.OCPP_ENABLE_NOAUTH_BOOTSTRAP === 'true';
@@ -445,7 +448,7 @@ export class StationService {
       where.status = { in: this.statusFilterValues(filter.status) };
     }
 
-    return this.prisma.chargePoint.findMany({
+    const chargePoints = await this.prisma.chargePoint.findMany({
       where: Object.keys(where).length > 0 ? where : undefined,
       take: pagination.limit,
       skip: pagination.offset,
@@ -458,20 +461,26 @@ export class StationService {
         },
       },
     });
+
+    return this.attachRoamingPublicationList(chargePoints);
   }
 
   async findChargePointById(id: string) {
-    return this.prisma.chargePoint.findUnique({
+    const chargePoint = await this.prisma.chargePoint.findUnique({
       where: { id },
       include: { station: true },
     });
+    if (!chargePoint) return null;
+    return this.attachRoamingPublication(chargePoint);
   }
 
   async findChargePointByOcppId(ocppId: string) {
-    return this.prisma.chargePoint.findUnique({
+    const chargePoint = await this.prisma.chargePoint.findUnique({
       where: { ocppId },
       include: { station: true },
     });
+    if (!chargePoint) return null;
+    return this.attachRoamingPublication(chargePoint);
   }
 
   async createChargePoint(createDto: CreateChargePointDto) {
@@ -533,8 +542,10 @@ export class StationService {
         ? new Date(Date.now() + bootstrapTtlMinutes * 60_000).toISOString()
         : undefined;
 
+    const withPublication = await this.attachRoamingPublication(cp);
+
     return {
-      ...cp,
+      ...withPublication,
       ocppCredentials: {
         username: cp.ocppId,
         password: oneTimePassword,
@@ -646,10 +657,94 @@ export class StationService {
   }
 
   async updateChargePoint(id: string, updateDto: UpdateChargePointDto) {
-    return this.prisma.chargePoint.update({
-      where: { id },
-      data: updateDto,
+    const existing = await this.getExistingChargePoint(id);
+    const published = await this.isChargePointPublished(id);
+    if (published) {
+      const attemptedIdentityUpdate = Boolean(
+        updateDto.model !== undefined ||
+        updateDto.manufacturer !== undefined ||
+        updateDto.firmwareVersion !== undefined,
+      );
+      if (attemptedIdentityUpdate) {
+        throw new BadRequestException(
+          'Identity fields are locked after publication.',
+        );
+      }
+    }
+
+    const updated = await this.prisma.chargePoint.update({
+      where: { id: existing.id },
+      data: {
+        ...(updateDto.model !== undefined ? { model: updateDto.model } : {}),
+        ...(updateDto.manufacturer !== undefined
+          ? { vendor: updateDto.manufacturer }
+          : {}),
+        ...(updateDto.firmwareVersion !== undefined
+          ? { firmwareVersion: updateDto.firmwareVersion }
+          : {}),
+        ...(updateDto.type !== undefined ? { type: updateDto.type } : {}),
+        ...(updateDto.power !== undefined ? { power: updateDto.power } : {}),
+      },
     });
+
+    return this.attachRoamingPublication(updated);
+  }
+
+  async confirmChargePointIdentity(
+    id: string,
+    dto: ConfirmChargePointIdentityDto,
+  ) {
+    const existing = await this.getExistingChargePoint(id);
+    if (await this.isChargePointPublished(id)) {
+      throw new BadRequestException(
+        'Identity fields are locked after publication.',
+      );
+    }
+
+    const model = dto.model?.trim();
+    const manufacturer = dto.manufacturer?.trim();
+    const firmwareVersion = dto.firmwareVersion?.trim();
+
+    if (!model || !manufacturer || !firmwareVersion) {
+      throw new BadRequestException(
+        'model, manufacturer, and firmwareVersion are required.',
+      );
+    }
+
+    const updated = await this.prisma.chargePoint.update({
+      where: { id: existing.id },
+      data: {
+        model,
+        vendor: manufacturer,
+        firmwareVersion,
+        identityConfirmedAt: new Date(),
+      },
+      include: { station: true },
+    });
+
+    return this.attachRoamingPublication(updated);
+  }
+
+  async getChargePointPublication(id: string) {
+    await this.getExistingChargePoint(id);
+    const publication =
+      await this.ocpiService.getChargePointRoamingPublication(id);
+    return {
+      chargePointId: publication.chargePointId,
+      published: publication.published,
+      updatedAt:
+        (publication as any).updatedAt ??
+        (publication as any).lastUpdatedAt ??
+        null,
+    };
+  }
+
+  async setChargePointPublication(id: string, published: boolean) {
+    const chargePoint = await this.getExistingChargePoint(id);
+    if (published) {
+      this.assertPublishPreconditions(chargePoint);
+    }
+    return this.ocpiService.setChargePointRoamingPublication(id, published);
   }
 
   async removeChargePoint(id: string) {
@@ -756,7 +851,9 @@ export class StationService {
       throw new BadRequestException('installAt must be a valid ISO datetime');
     }
     if (installAt && installAt.getTime() < retrieveAt.getTime()) {
-      throw new BadRequestException('installAt must be greater than retrieveAt');
+      throw new BadRequestException(
+        'installAt must be greater than retrieveAt',
+      );
     }
 
     const response = await this.commands.enqueueCommand({
@@ -790,7 +887,10 @@ export class StationService {
     };
   }
 
-  async getFirmwareEvents(id: string, query: FirmwareEventHistoryQueryDto = {}) {
+  async getFirmwareEvents(
+    id: string,
+    query: FirmwareEventHistoryQueryDto = {},
+  ) {
     const cp = await this.getExistingChargePoint(id);
     const limit = Math.min(Math.max(query.limit || 50, 1), 200);
     const from = query.from ? new Date(query.from) : undefined;
@@ -826,6 +926,7 @@ export class StationService {
     ocppVersion?: string,
   ) {
     const normalizedVersion = this.normalizeOcppVersion(ocppVersion);
+    const bootNotificationAt = new Date();
     const model =
       payload?.chargingStation?.model || payload?.chargePointModel || undefined;
     const vendor =
@@ -858,6 +959,8 @@ export class StationService {
           model,
           vendor,
           firmwareVersion,
+          bootNotificationAt,
+          bootNotificationPayload: payload || {},
           lastHeartbeat: new Date(),
         },
         include: { station: { include: { site: true } } },
@@ -865,14 +968,21 @@ export class StationService {
 
       await this.provisioningService.provision(createdCp, createdCp.station);
     } else {
+      const shouldApplyBootIdentity = !cp.identityConfirmedAt;
       const updatedCp = await this.prisma.chargePoint.update({
         where: { id: cp.id },
         data: {
           status: 'Online',
           ocppVersion: normalizedVersion,
-          model: model || cp.model,
-          vendor: vendor || cp.vendor,
-          firmwareVersion: firmwareVersion || cp.firmwareVersion,
+          ...(shouldApplyBootIdentity
+            ? {
+                model: model || cp.model,
+                vendor: vendor || cp.vendor,
+                firmwareVersion: firmwareVersion || cp.firmwareVersion,
+              }
+            : {}),
+          bootNotificationAt,
+          bootNotificationPayload: payload || {},
           lastHeartbeat: new Date(),
         },
         include: { station: { include: { site: true } } },
@@ -941,7 +1051,9 @@ export class StationService {
     if (!status) return;
     const requestId = this.normalizeNonNegativeInt(payload?.requestId);
     const occurredAt = this.parseOptionalDate(occurredAtRaw) || new Date();
-    const normalizedVersion = this.normalizeOcppVersion(ocppVersion || cp.ocppVersion);
+    const normalizedVersion = this.normalizeOcppVersion(
+      ocppVersion || cp.ocppVersion,
+    );
     const resolvedGatewayEventId =
       this.readString(gatewayEventId) ||
       this.deriveFirmwareGatewayEventId(
@@ -972,7 +1084,7 @@ export class StationService {
           ocppVersion: normalizedVersion,
           requestId: requestId ?? null,
           status,
-          payload: (payload || {}) as any,
+          payload: payload || {},
           occurredAt,
         },
       });
@@ -1027,6 +1139,88 @@ export class StationService {
     const chargePoint = await this.findChargePointById(id);
     if (!chargePoint) throw new NotFoundException('Charge Point not found');
     return chargePoint;
+  }
+
+  private async attachRoamingPublicationList<T extends { id: string }>(
+    chargePoints: T[],
+  ): Promise<Array<T & { roamingPublished: boolean }>> {
+    if (chargePoints.length === 0) return [];
+
+    const publishedRows = await this.prisma.ocpiPartnerLocation.findMany({
+      where: {
+        countryCode: this.defaultOcpiCountryCode(),
+        partyId: this.defaultOcpiPartyId(),
+        locationId: { in: chargePoints.map((chargePoint) => chargePoint.id) },
+      },
+      select: { locationId: true },
+    });
+    const publishedLocationIds = new Set(
+      publishedRows.map((row) => row.locationId),
+    );
+
+    return chargePoints.map((chargePoint) => ({
+      ...chargePoint,
+      roamingPublished: publishedLocationIds.has(chargePoint.id),
+    }));
+  }
+
+  private async attachRoamingPublication<T extends { id: string }>(
+    chargePoint: T,
+  ): Promise<T & { roamingPublished: boolean }> {
+    const [mapped] = await this.attachRoamingPublicationList([chargePoint]);
+    return mapped;
+  }
+
+  private async isChargePointPublished(
+    chargePointId: string,
+  ): Promise<boolean> {
+    const publication =
+      await this.ocpiService.getChargePointRoamingPublication(chargePointId);
+    return publication.published;
+  }
+
+  private assertPublishPreconditions(chargePoint: {
+    bootNotificationAt?: Date | null;
+    identityConfirmedAt?: Date | null;
+    model?: string | null;
+    vendor?: string | null;
+    firmwareVersion?: string | null;
+  }) {
+    if (!chargePoint.bootNotificationAt) {
+      throw new BadRequestException(
+        'BootNotification is required before publication.',
+      );
+    }
+    if (!chargePoint.identityConfirmedAt) {
+      throw new BadRequestException(
+        'Identity must be confirmed before publication.',
+      );
+    }
+    if (!this.hasCompleteIdentity(chargePoint)) {
+      throw new BadRequestException(
+        'Complete identity (model, manufacturer, firmwareVersion) is required before publication.',
+      );
+    }
+  }
+
+  private hasCompleteIdentity(chargePoint: {
+    model?: string | null;
+    vendor?: string | null;
+    firmwareVersion?: string | null;
+  }): boolean {
+    return Boolean(
+      chargePoint.model?.trim() &&
+      chargePoint.vendor?.trim() &&
+      chargePoint.firmwareVersion?.trim(),
+    );
+  }
+
+  private defaultOcpiCountryCode(): string {
+    return (process.env.OCPI_COUNTRY_CODE || 'US').trim().toUpperCase();
+  }
+
+  private defaultOcpiPartyId(): string {
+    return (process.env.OCPI_PARTY_ID || 'EVZ').trim().toUpperCase();
   }
 
   private normalizePositiveInt(value: unknown): number | undefined {
