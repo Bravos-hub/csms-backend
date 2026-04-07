@@ -449,6 +449,14 @@ export class StationService {
       where: Object.keys(where).length > 0 ? where : undefined,
       take: pagination.limit,
       skip: pagination.offset,
+      include: {
+        station: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
     });
   }
 
