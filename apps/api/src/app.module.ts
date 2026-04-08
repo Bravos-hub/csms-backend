@@ -21,6 +21,7 @@ import { ApplicationsModule } from './modules/applications/applications.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { MailModule } from './modules/mail/mail.module';
 import { EnergyManagementModule } from './modules/energy-management/energy-management.module';
+import { EnergyOptimizationModule } from './modules/energy-optimization/energy-optimization.module';
 
 // Imported Modules from cpms-api
 import { CommandsModule } from './modules/commands/commands.module';
@@ -84,6 +85,7 @@ import { PlatformModule } from './modules/platform/platform.module';
     DocumentsModule,
     MailModule,
     EnergyManagementModule,
+    EnergyOptimizationModule,
 
     // Imported
     CommandsModule,

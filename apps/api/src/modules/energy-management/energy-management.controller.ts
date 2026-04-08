@@ -203,6 +203,64 @@ export class EnergyManagementController {
     );
   }
 
+  @Get('schedules')
+  @RequirePermissions('smart_charging.read')
+  listSchedules(
+    @Query('stationId') stationId?: string,
+    @Query('groupId') groupId?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.energyManagement.listSchedules({ stationId, groupId, status });
+  }
+
+  @Post('schedules')
+  @RequirePermissions('smart_charging.write')
+  createSchedule(
+    @Body() body: Record<string, unknown>,
+    @Req() request: RequestWithUser,
+  ) {
+    return this.energyManagement.createSchedule(
+      body,
+      this.resolveActorId(request),
+    );
+  }
+
+  @Post('schedules/:id/approve')
+  @RequirePermissions('smart_charging.write')
+  approveSchedule(
+    @Param('id') id: string,
+    @Body() body: Record<string, unknown>,
+    @Req() request: RequestWithUser,
+  ) {
+    return this.energyManagement.approveSchedule(
+      id,
+      body,
+      this.resolveActorId(request),
+    );
+  }
+
+  @Get('plan-runs')
+  @RequirePermissions('smart_charging.read')
+  listPlanRuns(
+    @Query('stationId') stationId?: string,
+    @Query('groupId') groupId?: string,
+    @Query('planId') planId?: string,
+  ) {
+    return this.energyManagement.listPlanRuns({ stationId, groupId, planId });
+  }
+
+  @Post('plan-runs')
+  @RequirePermissions('smart_charging.write')
+  createPlanRun(
+    @Body() body: Record<string, unknown>,
+    @Req() request: RequestWithUser,
+  ) {
+    return this.energyManagement.createPlanRun(
+      body,
+      this.resolveActorId(request),
+    );
+  }
+
   private resolveActorId(request: RequestWithUser): string | undefined {
     return request.user?.sub || request.user?.userId || undefined;
   }

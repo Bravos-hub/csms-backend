@@ -972,6 +972,104 @@ model EnergyManualOverride {
   @@index([groupId, status, expiresAt])
 }
 
+model TariffCalendar {
+  id            String   @id @default(uuid())
+  tenantId      String
+  siteId        String?
+  name          String
+  version       Int      @default(1)
+  currency      String   @default("USD")
+  timezone      String   @default("UTC")
+  status        String   @default("DRAFT")
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  bands         Json
+  metadata      Json?
+  createdBy     String?
+  approvedBy    String?
+  approvedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("tariff_calendars")
+  @@unique([tenantId, siteId, name, version])
+  @@index([tenantId, siteId, status])
+  @@index([tenantId, updatedAt])
+}
+
+model EnergyOptimizationPlan {
+  id              String   @id @default(uuid())
+  tenantId        String
+  stationId       String
+  groupId         String?
+  tariffCalendarId String?
+  state           String   @default("DRAFT")
+  fallbackReason  String?
+  windowStart     DateTime
+  windowEnd       DateTime
+  constraints     Json?
+  summary         Json?
+  schedule        Json?
+  diagnostics     Json?
+  createdBy       String?
+  approvedBy      String?
+  approvedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("energy_optimization_plans")
+  @@index([tenantId, stationId, createdAt])
+  @@index([tenantId, state, updatedAt])
+}
+
+model EnergyManagementSchedule {
+  id            String   @id @default(uuid())
+  tenantId      String
+  stationId     String
+  groupId       String?
+  planId        String?
+  status        String   @default("DRAFT")
+  source        String   @default("TARIFF_OPTIMIZER")
+  startsAt      DateTime
+  endsAt        DateTime
+  entries       Json
+  fallbackToDlm Boolean  @default(false)
+  notes         String?
+  approvedBy    String?
+  approvedAt    DateTime?
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("energy_management_schedules")
+  @@index([tenantId, stationId, status])
+  @@index([tenantId, groupId, status])
+  @@index([planId])
+}
+
+model EnergyPlanRun {
+  id          String   @id @default(uuid())
+  tenantId    String
+  planId      String?
+  scheduleId  String?
+  stationId   String?
+  groupId     String?
+  trigger     String   @default("manual")
+  state       String   @default("DRY_RUN")
+  message     String?
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+  metrics     Json?
+  output      Json?
+  initiatedBy String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("energy_plan_runs")
+  @@index([tenantId, stationId, startedAt])
+  @@index([tenantId, state, startedAt])
+}
+
 model Booking {
   id            String   @id @default(uuid())
   userId        String

@@ -4,7 +4,13 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { EnergyMeterPlacement, Prisma } from '@prisma/client';
+import {
+  EnergyOptimizationPlan,
+  EnergyManagementSchedule,
+  EnergyMeterPlacement,
+  EnergyPlanRun,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { TenantContextService } from '@app/db';
 import { CommandsService } from '../commands/commands.service';
@@ -30,6 +36,18 @@ type RecalculateInput = {
   trigger?: string;
   reason?: string;
 };
+type ScheduleQuery = {
+  stationId?: string;
+  groupId?: string;
+  status?: string;
+};
+type PlanRunQuery = {
+  stationId?: string;
+  groupId?: string;
+  planId?: string;
+};
+type ScheduleInput = Record<string, unknown>;
+type PlanRunInput = Record<string, unknown>;
 
 type GroupBundle = Prisma.EnergyLoadGroupGetPayload<{
   include: {
@@ -668,6 +686,324 @@ export class EnergyManagementService {
     });
   }
 
+  async listSchedules(query: ScheduleQuery = {}) {
+    const tenantId = this.resolveTenantId();
+    const where: Prisma.EnergyManagementScheduleWhereInput = { tenantId };
+    if (query.stationId?.trim()) where.stationId = query.stationId.trim();
+    if (query.groupId?.trim()) where.groupId = query.groupId.trim();
+    const normalizedStatus = this.normalizeScheduleStatus(query.status);
+    if (normalizedStatus) where.status = normalizedStatus;
+
+    const rows = await this.prisma.energyManagementSchedule.findMany({
+      where,
+      orderBy: [{ startsAt: 'desc' }, { createdAt: 'desc' }],
+    });
+    return rows.map((row) => this.toScheduleResponse(row));
+  }
+
+  async createSchedule(input: ScheduleInput, actorId?: string) {
+    const tenantId = this.resolveTenantId();
+    const planId = this.readOptionalString(input.planId);
+    const notes = this.readOptionalString(input.notes);
+    let plan: EnergyOptimizationPlan | null = null;
+    let stationId = this.readOptionalString(input.stationId);
+    let groupId = this.readOptionalString(input.groupId);
+    let startsAt = this.parseDate(input.startsAt);
+    let endsAt = this.parseDate(input.endsAt);
+    let entries = Array.isArray(input.entries) ? input.entries : [];
+    let fallbackToDlm = this.readBoolean(input.fallbackToDlm) ?? false;
+
+    if (planId) {
+      plan = await this.prisma.energyOptimizationPlan.findUnique({
+        where: { id: planId },
+      });
+      if (!plan || plan.tenantId !== tenantId) {
+        throw new NotFoundException('Optimization plan not found');
+      }
+      stationId = plan.stationId;
+      groupId = plan.groupId || groupId;
+      startsAt = plan.windowStart;
+      endsAt = plan.windowEnd;
+      entries = Array.isArray(plan.schedule) ? plan.schedule : entries;
+      fallbackToDlm = fallbackToDlm || plan.state === 'FALLBACK_DLM';
+    }
+
+    if (!stationId) {
+      throw new BadRequestException('stationId is required');
+    }
+    await this.assertStationExists(stationId);
+
+    if (groupId) {
+      const group = await this.prisma.energyLoadGroup.findUnique({
+        where: { id: groupId },
+        select: { id: true, tenantId: true, stationId: true },
+      });
+      if (!group || group.tenantId !== tenantId) {
+        throw new NotFoundException('Energy load group not found');
+      }
+      if (group.stationId !== stationId) {
+        throw new BadRequestException(
+          'groupId does not belong to the provided station',
+        );
+      }
+    }
+
+    const windowStart = startsAt || new Date();
+    const windowEnd =
+      endsAt || new Date(windowStart.getTime() + 4 * 3600 * 1000);
+    if (windowEnd.getTime() <= windowStart.getTime()) {
+      throw new BadRequestException('endsAt must be after startsAt');
+    }
+    if (!Array.isArray(entries)) {
+      throw new BadRequestException('entries must be an array');
+    }
+
+    const requestedStatus = this.normalizeScheduleStatus(input.status);
+    const status = fallbackToDlm
+      ? 'FALLBACK_DLM'
+      : requestedStatus || 'PENDING_APPROVAL';
+
+    const created = await this.prisma.energyManagementSchedule.create({
+      data: {
+        tenantId,
+        stationId,
+        groupId: groupId || null,
+        planId: plan?.id || planId || null,
+        status,
+        startsAt: windowStart,
+        endsAt: windowEnd,
+        entries: entries as unknown as Prisma.InputJsonValue,
+        fallbackToDlm,
+        notes: notes || null,
+        createdBy: actorId || null,
+      },
+    });
+
+    await this.prisma.energyPlanRun.create({
+      data: {
+        tenantId,
+        planId: created.planId || null,
+        scheduleId: created.id,
+        stationId: created.stationId,
+        groupId: created.groupId,
+        trigger: 'schedule-create',
+        state: fallbackToDlm ? 'FALLBACK_DLM' : 'PREVIEW',
+        message: fallbackToDlm
+          ? 'Tariff plan fallback applied; EMS remains in DLM control.'
+          : 'Schedule created and awaiting approval.',
+        startedAt: new Date(),
+        completedAt: new Date(),
+        metrics: {
+          entryCount: entries.length,
+          fallbackToDlm,
+        } as Prisma.InputJsonValue,
+        output: {
+          scheduleId: created.id,
+          status: created.status,
+        } as Prisma.InputJsonValue,
+        initiatedBy: actorId || null,
+      },
+    });
+
+    if (created.planId) {
+      await this.prisma.energyOptimizationPlan.updateMany({
+        where: {
+          id: created.planId,
+          tenantId,
+          state: { in: ['DRAFT', 'READY_FOR_APPROVAL'] },
+        },
+        data: {
+          state: fallbackToDlm ? 'FALLBACK_DLM' : 'SCHEDULED',
+        },
+      });
+    }
+
+    return this.toScheduleResponse(created);
+  }
+
+  async approveSchedule(
+    id: string,
+    input: ScheduleInput = {},
+    actorId?: string,
+  ) {
+    const tenantId = this.resolveTenantId();
+    const schedule = await this.prisma.energyManagementSchedule.findUnique({
+      where: { id },
+    });
+    if (!schedule || schedule.tenantId !== tenantId) {
+      throw new NotFoundException('Schedule not found');
+    }
+
+    const notes = this.readOptionalString(input.notes);
+    const forceFallback = this.readBoolean(input.fallbackToDlm) ?? false;
+    const nextStatus =
+      schedule.fallbackToDlm ||
+      forceFallback ||
+      schedule.status === 'FALLBACK_DLM'
+        ? 'FALLBACK_DLM'
+        : 'ACTIVE';
+
+    const approved = await this.prisma.$transaction(async (tx) => {
+      if (nextStatus === 'ACTIVE') {
+        if (schedule.groupId) {
+          await tx.energyManagementSchedule.updateMany({
+            where: {
+              tenantId,
+              groupId: schedule.groupId,
+              id: { not: schedule.id },
+              status: 'ACTIVE',
+            },
+            data: { status: 'SUPERSEDED' },
+          });
+        } else {
+          await tx.energyManagementSchedule.updateMany({
+            where: {
+              tenantId,
+              stationId: schedule.stationId,
+              id: { not: schedule.id },
+              status: 'ACTIVE',
+            },
+            data: { status: 'SUPERSEDED' },
+          });
+        }
+      }
+
+      const updated = await tx.energyManagementSchedule.update({
+        where: { id: schedule.id },
+        data: {
+          status: nextStatus,
+          fallbackToDlm: nextStatus === 'FALLBACK_DLM',
+          approvedBy: actorId || schedule.approvedBy,
+          approvedAt: new Date(),
+          notes: notes || schedule.notes,
+        },
+      });
+
+      await tx.energyPlanRun.create({
+        data: {
+          tenantId,
+          planId: updated.planId,
+          scheduleId: updated.id,
+          stationId: updated.stationId,
+          groupId: updated.groupId,
+          trigger: 'schedule-approve',
+          state: nextStatus === 'ACTIVE' ? 'APPLIED' : 'FALLBACK_DLM',
+          message:
+            nextStatus === 'ACTIVE'
+              ? 'Schedule approved and marked active.'
+              : 'Schedule approved in fallback mode; EMS remains in DLM control.',
+          startedAt: new Date(),
+          completedAt: new Date(),
+          initiatedBy: actorId || null,
+          metrics: {
+            fallbackToDlm: nextStatus !== 'ACTIVE',
+          } as Prisma.InputJsonValue,
+          output: {
+            scheduleId: updated.id,
+            status: updated.status,
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      if (updated.planId) {
+        await tx.energyOptimizationPlan.updateMany({
+          where: { id: updated.planId, tenantId },
+          data: {
+            state: nextStatus === 'ACTIVE' ? 'APPROVED' : 'FALLBACK_DLM',
+            approvedBy: actorId || undefined,
+            approvedAt: new Date(),
+          },
+        });
+      }
+
+      return updated;
+    });
+
+    return this.toScheduleResponse(approved);
+  }
+
+  async listPlanRuns(query: PlanRunQuery = {}) {
+    const tenantId = this.resolveTenantId();
+    const where: Prisma.EnergyPlanRunWhereInput = { tenantId };
+    if (query.stationId?.trim()) where.stationId = query.stationId.trim();
+    if (query.groupId?.trim()) where.groupId = query.groupId.trim();
+    if (query.planId?.trim()) where.planId = query.planId.trim();
+
+    const rows = await this.prisma.energyPlanRun.findMany({
+      where,
+      orderBy: [{ startedAt: 'desc' }],
+      take: 200,
+    });
+    return rows.map((row) => this.toPlanRunResponse(row));
+  }
+
+  async createPlanRun(input: PlanRunInput, actorId?: string) {
+    const tenantId = this.resolveTenantId();
+    let planId = this.readOptionalString(input.planId);
+    const scheduleId = this.readOptionalString(input.scheduleId);
+    let stationId = this.readOptionalString(input.stationId);
+    let groupId = this.readOptionalString(input.groupId);
+
+    if (planId) {
+      const plan = await this.prisma.energyOptimizationPlan.findUnique({
+        where: { id: planId },
+      });
+      if (!plan || plan.tenantId !== tenantId) {
+        throw new NotFoundException('Optimization plan not found');
+      }
+      stationId = stationId || plan.stationId;
+      groupId = groupId || plan.groupId || undefined;
+    }
+
+    if (scheduleId) {
+      const schedule = await this.prisma.energyManagementSchedule.findUnique({
+        where: { id: scheduleId },
+      });
+      if (!schedule || schedule.tenantId !== tenantId) {
+        throw new NotFoundException('Schedule not found');
+      }
+      planId = planId || schedule.planId || undefined;
+      stationId = stationId || schedule.stationId;
+      groupId = groupId || schedule.groupId || undefined;
+    }
+
+    if (!stationId && !groupId && !planId && !scheduleId) {
+      throw new BadRequestException(
+        'At least one of stationId, groupId, planId, or scheduleId is required',
+      );
+    }
+
+    const trigger = this.readString(input.trigger) || 'manual';
+    const dryRun = this.readBoolean(input.dryRun) ?? true;
+    const requestedState = this.normalizePlanRunState(input.state);
+    const state = requestedState || (dryRun ? 'DRY_RUN' : 'QUEUED');
+    const now = new Date();
+
+    const created = await this.prisma.energyPlanRun.create({
+      data: {
+        tenantId,
+        planId: planId || null,
+        scheduleId: scheduleId || null,
+        stationId: stationId || null,
+        groupId: groupId || null,
+        trigger,
+        state,
+        message: this.readOptionalString(input.message) || null,
+        startedAt: now,
+        completedAt: dryRun ? now : null,
+        metrics: this.readRecord(input.metrics)
+          ? (this.readRecord(input.metrics) as Prisma.InputJsonValue)
+          : undefined,
+        output: this.readRecord(input.output)
+          ? (this.readRecord(input.output) as Prisma.InputJsonValue)
+          : undefined,
+        initiatedBy: actorId || null,
+      },
+    });
+
+    return this.toPlanRunResponse(created);
+  }
+
   async getHistory(id: string, limit = 25) {
     const group = await this.loadGroupOrThrow(id);
     const rows = await this.prisma.energyAllocationDecision.findMany({
@@ -688,6 +1024,49 @@ export class EnergyManagementService {
       inputSnapshot: row.inputSnapshot,
       outputSnapshot: row.outputSnapshot,
     }));
+  }
+
+  private toScheduleResponse(row: EnergyManagementSchedule) {
+    return {
+      id: row.id,
+      tenantId: row.tenantId,
+      stationId: row.stationId,
+      groupId: row.groupId,
+      planId: row.planId,
+      status: row.status,
+      source: row.source,
+      startsAt: row.startsAt.toISOString(),
+      endsAt: row.endsAt.toISOString(),
+      entries: row.entries,
+      fallbackToDlm: row.fallbackToDlm,
+      notes: row.notes,
+      approvedBy: row.approvedBy,
+      approvedAt: row.approvedAt ? row.approvedAt.toISOString() : null,
+      createdBy: row.createdBy,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  private toPlanRunResponse(row: EnergyPlanRun) {
+    return {
+      id: row.id,
+      tenantId: row.tenantId,
+      planId: row.planId,
+      scheduleId: row.scheduleId,
+      stationId: row.stationId,
+      groupId: row.groupId,
+      trigger: row.trigger,
+      state: row.state,
+      message: row.message,
+      startedAt: row.startedAt.toISOString(),
+      completedAt: row.completedAt ? row.completedAt.toISOString() : null,
+      metrics: row.metrics,
+      output: row.output,
+      initiatedBy: row.initiatedBy,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
   }
 
   private async applyPlan(
@@ -1178,6 +1557,47 @@ export class EnergyManagementService {
       normalized === 'MAIN' ||
       normalized === 'SUB_FEEDER' ||
       normalized === 'DERIVED'
+    ) {
+      return normalized;
+    }
+    return null;
+  }
+
+  private normalizeScheduleStatus(value: unknown): string | null {
+    const normalized = this.readString(value)
+      ?.replace(/[\s-]+/g, '_')
+      .toUpperCase();
+    if (!normalized) return null;
+    if (
+      [
+        'DRAFT',
+        'PENDING_APPROVAL',
+        'APPROVED',
+        'ACTIVE',
+        'SUPERSEDED',
+        'CANCELLED',
+        'FALLBACK_DLM',
+      ].includes(normalized)
+    ) {
+      return normalized;
+    }
+    return null;
+  }
+
+  private normalizePlanRunState(value: unknown): string | null {
+    const normalized = this.readString(value)
+      ?.replace(/[\s-]+/g, '_')
+      .toUpperCase();
+    if (!normalized) return null;
+    if (
+      [
+        'PREVIEW',
+        'DRY_RUN',
+        'QUEUED',
+        'APPLIED',
+        'FAILED',
+        'FALLBACK_DLM',
+      ].includes(normalized)
     ) {
       return normalized;
     }
