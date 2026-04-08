@@ -184,6 +184,13 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
       connectorId: command.connectorId
         ? Number(command.connectorId)
         : undefined,
+      dedupeKey: command.correlationId || command.id,
+      idempotencyTtlSec:
+        typeof command.idempotencyTtlSec === 'number' &&
+        Number.isFinite(command.idempotencyTtlSec) &&
+        command.idempotencyTtlSec > 0
+          ? command.idempotencyTtlSec
+          : undefined,
       payload: (command.payload as Record<string, unknown>) || {},
       requestedBy: command.requestedBy
         ? { userId: command.requestedBy }

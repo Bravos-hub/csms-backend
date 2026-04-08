@@ -5,6 +5,7 @@ import { NotificationService } from '../notification/notification-service.servic
 import { StopSessionDto, SessionFilterDto } from './dto/session.dto';
 import { OcpiTokenSyncService } from '../../common/services/ocpi-token-sync.service';
 import { parsePaginationOptions } from '../../common/utils/pagination';
+import { EnergyManagementService } from '../energy-management/energy-management.service';
 
 type OcppSessionPayload = Record<string, unknown>;
 
@@ -16,6 +17,7 @@ export class SessionService {
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
     private readonly ocpiTokenSync: OcpiTokenSyncService,
+    private readonly energyManagement: EnergyManagementService,
   ) {}
 
   async getActiveSessions(limit?: unknown, offset?: unknown) {
@@ -74,6 +76,11 @@ export class SessionService {
         totalEnergy: updatedSession.totalEnergy,
       });
     }
+
+    await this.syncEnergyManagementStation(
+      updatedSession.stationId,
+      'Session stopped',
+    );
 
     return updatedSession;
   }
@@ -202,6 +209,10 @@ export class SessionService {
     });
 
     await this.syncIdTagTokenSafe(idTag);
+    await this.syncEnergyManagementStation(
+      chargePoint.stationId,
+      'Session started',
+    );
   }
 
   private async handleStopTransaction(
@@ -236,6 +247,11 @@ export class SessionService {
       if (updated.userId) {
         await this.notifyUserOfStop(updated.userId, updated);
       }
+
+      await this.syncEnergyManagementStation(
+        session.stationId,
+        'Session stopped',
+      );
     } else {
       this.logger.warn(`Session not found for transaction ${txId}`);
     }
@@ -300,6 +316,10 @@ export class SessionService {
           totalEnergy: Math.max(0, meterWh - session.meterStart),
         },
       });
+      await this.syncEnergyManagementStation(
+        session.stationId,
+        'Session telemetry updated',
+      );
       return;
     }
 
@@ -318,6 +338,10 @@ export class SessionService {
       if (updated.userId) {
         await this.notifyUserOfStop(updated.userId, updated);
       }
+      await this.syncEnergyManagementStation(
+        session.stationId,
+        'Session ended',
+      );
     }
   }
 
@@ -485,6 +509,21 @@ export class SessionService {
       }
     }
     return undefined;
+  }
+
+  private async syncEnergyManagementStation(
+    stationId: string,
+    reason: string,
+  ): Promise<void> {
+    try {
+      await this.energyManagement.recalculateStation(stationId, reason);
+    } catch (error) {
+      this.logger.warn(
+        `Energy management recalculation skipped for station ${stationId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   private async syncIdTagTokenSafe(idTag?: string) {

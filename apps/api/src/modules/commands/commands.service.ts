@@ -72,7 +72,13 @@ export class CommandsService {
         requestedAt: now,
         sentAt: null,
         completedAt: null,
-        correlationId: input.correlationId || commandId,
+        correlationId: input.correlationId || input.dedupeKey || commandId,
+        idempotencyTtlSec:
+          typeof input.idempotencyTtlSec === 'number' &&
+          Number.isFinite(input.idempotencyTtlSec) &&
+          input.idempotencyTtlSec > 0
+            ? Math.floor(input.idempotencyTtlSec)
+            : null,
         error: null,
       },
     });

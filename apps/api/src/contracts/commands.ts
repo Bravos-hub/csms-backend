@@ -6,6 +6,8 @@ export interface CommandRequest {
   chargePointId?: string;
   connectorId?: number;
   ocppVersion?: '1.6J' | '2.0.1' | '2.1';
+  dedupeKey?: string;
+  idempotencyTtlSec?: number;
   commandType: string;
   payload: Record<string, unknown>;
   requestedBy?: {

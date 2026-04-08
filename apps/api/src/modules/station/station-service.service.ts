@@ -26,6 +26,7 @@ import { ChargerProvisioningService } from './provisioning/charger-provisioning.
 import { parsePaginationOptions } from '../../common/utils/pagination';
 import { CommandsService } from '../commands/commands.service';
 import { OcpiService } from '../ocpi/ocpi.service';
+import { EnergyManagementService } from '../energy-management/energy-management.service';
 
 type StationBounds = {
   north: number;
@@ -80,6 +81,7 @@ export class StationService {
     private readonly provisioningService: ChargerProvisioningService,
     private readonly commands: CommandsService,
     private readonly ocpiService: OcpiService,
+    private readonly energyManagement: EnergyManagementService,
   ) {
     this.enableNoAuthBootstrap =
       process.env.OCPP_ENABLE_NOAUTH_BOOTSTRAP === 'true';
@@ -692,7 +694,12 @@ export class StationService {
       },
     });
 
-    return this.attachRoamingPublication(updated);
+    const withPublication = await this.attachRoamingPublication(updated);
+    await this.syncEnergyManagementStation(
+      existing.stationId,
+      'Charge point updated',
+    );
+    return withPublication;
   }
 
   async confirmChargePointIdentity(
@@ -750,7 +757,13 @@ export class StationService {
   }
 
   async removeChargePoint(id: string) {
-    return this.prisma.chargePoint.delete({ where: { id } });
+    const existing = await this.getExistingChargePoint(id);
+    const deleted = await this.prisma.chargePoint.delete({ where: { id } });
+    await this.syncEnergyManagementStation(
+      existing.stationId,
+      'Charge point removed',
+    );
+    return deleted;
   }
 
   async rebootChargePoint(id: string) {
@@ -1035,6 +1048,10 @@ export class StationService {
       });
 
       await this.provisioningService.provision(createdCp, createdCp.station);
+      await this.syncEnergyManagementStation(
+        createdCp.stationId,
+        'Boot notification received',
+      );
     } else {
       const shouldApplyBootIdentity = !cp.identityConfirmedAt;
       const updatedCp = await this.prisma.chargePoint.update({
@@ -1057,6 +1074,10 @@ export class StationService {
       });
 
       await this.provisioningService.provision(updatedCp, updatedCp.station);
+      await this.syncEnergyManagementStation(
+        updatedCp.stationId,
+        'Boot notification received',
+      );
     }
   }
 
@@ -1096,6 +1117,11 @@ export class StationService {
         ocppVersion: this.normalizeOcppVersion(ocppVersion || cp.ocppVersion),
       },
     });
+
+    await this.syncEnergyManagementStation(
+      cp.stationId,
+      'Connector status changed',
+    );
   }
 
   private async handleFirmwareStatusNotification(
@@ -1170,6 +1196,11 @@ export class StationService {
         ocppVersion: this.normalizeOcppVersion(ocppVersion || cp.ocppVersion),
       },
     });
+
+    await this.syncEnergyManagementStation(
+      cp.stationId,
+      'Charge point disconnected',
+    );
   }
 
   getStatusHistory(_stationId: string) {
@@ -1508,6 +1539,21 @@ export class StationService {
     if (!raw) return fallback;
     const parsed = parseInt(raw, 10);
     return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  private async syncEnergyManagementStation(
+    stationId: string,
+    reason: string,
+  ): Promise<void> {
+    try {
+      await this.energyManagement.recalculateStation(stationId, reason);
+    } catch (error) {
+      this.logger.warn(
+        `Energy management recalculation skipped for station ${stationId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   private normalizeChargePointStatus(value: string | undefined): string {

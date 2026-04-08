@@ -142,6 +142,49 @@ enum MembershipStatus {
   REVOKED
 }
 
+enum EnergyControlMode {
+  OBSERVE_ONLY
+  ACTIVE
+  DISABLED
+}
+
+enum EnergyAllocationMethod {
+  EQUAL
+  PRIORITY
+}
+
+enum EnergyMeterPlacement {
+  MAIN
+  SUB_FEEDER
+  DERIVED
+}
+
+enum EnergyAlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum EnergyAlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum EnergyDecisionState {
+  APPLIED
+  DRY_RUN
+  NO_CHANGE
+  BLOCKED
+  FAILED
+}
+
+enum EnergyOverrideStatus {
+  ACTIVE
+  CLEARED
+  EXPIRED
+}
+
 enum InvitationStatus {
   PENDING
   ACCEPTED
@@ -755,6 +798,178 @@ model Session {
   updatedAt DateTime @updatedAt
 
   @@map("sessions")
+}
+
+model EnergyLoadGroup {
+  id                      String                @id @default(uuid())
+  tenantId                String                @map("tenant_id")
+  stationId               String                @map("station_id")
+  name                    String
+  description             String?
+  controlMode             EnergyControlMode     @default(OBSERVE_ONLY) @map("control_mode")
+  allocationMethod        EnergyAllocationMethod @default(EQUAL) @map("allocation_method")
+  meterSource             String?               @map("meter_source")
+  meterPlacement          EnergyMeterPlacement  @default(MAIN) @map("meter_placement")
+  siteLimitAmpsPhase1     Int                   @default(0) @map("site_limit_amps_phase_1")
+  siteLimitAmpsPhase2     Int                   @default(0) @map("site_limit_amps_phase_2")
+  siteLimitAmpsPhase3     Int                   @default(0) @map("site_limit_amps_phase_3")
+  dynamicBufferAmpsPhase1  Int                   @default(0) @map("dynamic_buffer_amps_phase_1")
+  dynamicBufferAmpsPhase2  Int                   @default(0) @map("dynamic_buffer_amps_phase_2")
+  dynamicBufferAmpsPhase3  Int                   @default(0) @map("dynamic_buffer_amps_phase_3")
+  failSafeAmpsPhase1      Int                   @default(0) @map("fail_safe_amps_phase_1")
+  failSafeAmpsPhase2      Int                   @default(0) @map("fail_safe_amps_phase_2")
+  failSafeAmpsPhase3      Int                   @default(0) @map("fail_safe_amps_phase_3")
+  deadbandAmps            Int                   @default(1) @map("deadband_amps")
+  staleWarningAfterSec    Int                   @default(30) @map("stale_warning_after_sec")
+  failSafeAfterSec        Int                   @default(60) @map("fail_safe_after_sec")
+  commandRefreshSec       Int                   @default(300) @map("command_refresh_sec")
+  isActive                Boolean               @default(false) @map("is_active")
+  observeOnly             Boolean               @default(true) @map("observe_only")
+  latestTelemetryAt       DateTime?             @map("latest_telemetry_at")
+  latestDecisionAt        DateTime?             @map("latest_decision_at")
+  latestDecisionHash      String?               @map("latest_decision_hash")
+  latestAppliedAt         DateTime?             @map("latest_applied_at")
+  latestReasonCode        String?               @map("latest_reason_code")
+  lastMeterFreshnessSec   Int?                  @map("last_meter_freshness_sec")
+  lastSiteLoadAmpsPhase1  Int?                  @map("last_site_load_amps_phase_1")
+  lastSiteLoadAmpsPhase2  Int?                  @map("last_site_load_amps_phase_2")
+  lastSiteLoadAmpsPhase3  Int?                  @map("last_site_load_amps_phase_3")
+  lastNonEvLoadAmpsPhase1 Int?                  @map("last_non_ev_load_amps_phase_1")
+  lastNonEvLoadAmpsPhase2 Int?                  @map("last_non_ev_load_amps_phase_2")
+  lastNonEvLoadAmpsPhase3 Int?                  @map("last_non_ev_load_amps_phase_3")
+  lastHeadroomAmpsPhase1  Int?                  @map("last_headroom_amps_phase_1")
+  lastHeadroomAmpsPhase2  Int?                  @map("last_headroom_amps_phase_2")
+  lastHeadroomAmpsPhase3  Int?                  @map("last_headroom_amps_phase_3")
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+
+  memberships             EnergyLoadGroupMembership[]
+  telemetrySnapshots      EnergyTelemetrySnapshot[]
+  allocationDecisions     EnergyAllocationDecision[]
+  alerts                  EnergyAlert[]
+  manualOverrides         EnergyManualOverride[]
+
+  @@map("energy_load_groups")
+  @@unique([tenantId, stationId, name])
+  @@index([tenantId, stationId, isActive])
+  @@index([tenantId, stationId, controlMode])
+}
+
+model EnergyLoadGroupMembership {
+  id                     String             @id @default(uuid())
+  groupId                String             @map("group_id")
+  chargePointId          String             @map("charge_point_id")
+  priority               Int                @default(0)
+  enabled                Boolean            @default(true)
+  smartChargingEnabled   Boolean            @default(false) @map("smart_charging_enabled")
+  maxAmps                Int?               @map("max_amps")
+  lastAppliedAmps        Int?               @map("last_applied_amps")
+  lastAppliedDecisionHash String?           @map("last_applied_decision_hash")
+  lastCommandAt          DateTime?          @map("last_command_at")
+  lastCommandId          String?            @map("last_command_id")
+  lastCommandStatus      String?            @map("last_command_status")
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  group                  EnergyLoadGroup    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@map("energy_load_group_memberships")
+  @@unique([groupId, chargePointId])
+  @@index([chargePointId])
+  @@index([groupId, priority])
+}
+
+model EnergyTelemetrySnapshot {
+  id                     String             @id @default(uuid())
+  groupId                String             @map("group_id")
+  stationId              String             @map("station_id")
+  sampledAt              DateTime           @map("sampled_at")
+  meterSource            String?            @map("meter_source")
+  meterPlacement         EnergyMeterPlacement @default(MAIN) @map("meter_placement")
+  siteLoadAmpsPhase1     Int                @default(0) @map("site_load_amps_phase_1")
+  siteLoadAmpsPhase2     Int                @default(0) @map("site_load_amps_phase_2")
+  siteLoadAmpsPhase3     Int                @default(0) @map("site_load_amps_phase_3")
+  nonEvLoadAmpsPhase1    Int                @default(0) @map("non_ev_load_amps_phase_1")
+  nonEvLoadAmpsPhase2    Int                @default(0) @map("non_ev_load_amps_phase_2")
+  nonEvLoadAmpsPhase3    Int                @default(0) @map("non_ev_load_amps_phase_3")
+  availableAmpsPhase1    Int                @default(0) @map("available_amps_phase_1")
+  availableAmpsPhase2    Int                @default(0) @map("available_amps_phase_2")
+  availableAmpsPhase3    Int                @default(0) @map("available_amps_phase_3")
+  headroomAmpsPhase1     Int                @default(0) @map("headroom_amps_phase_1")
+  headroomAmpsPhase2     Int                @default(0) @map("headroom_amps_phase_2")
+  headroomAmpsPhase3     Int                @default(0) @map("headroom_amps_phase_3")
+  freshnessSec           Int                @default(0) @map("freshness_sec")
+  rawTelemetry           Json?              @map("raw_telemetry")
+  reasonCode             String?            @map("reason_code")
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  group                  EnergyLoadGroup    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@map("energy_telemetry_snapshots")
+  @@index([groupId, sampledAt])
+  @@index([stationId, sampledAt])
+}
+
+model EnergyAllocationDecision {
+  id                     String             @id @default(uuid())
+  groupId                String             @map("group_id")
+  decisionHash           String             @map("decision_hash")
+  triggeredBy            String             @map("triggered_by")
+  reasonCode             String             @map("reason_code")
+  state                  EnergyDecisionState @default(DRY_RUN)
+  inputSnapshot          Json               @map("input_snapshot")
+  outputSnapshot         Json               @map("output_snapshot")
+  commandCount           Int                @default(0) @map("command_count")
+  appliedAt              DateTime?          @map("applied_at")
+  relatedOverrideId      String?            @map("related_override_id")
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  group                  EnergyLoadGroup    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@map("energy_allocation_decisions")
+  @@index([groupId, createdAt])
+  @@index([decisionHash])
+}
+
+model EnergyAlert {
+  id                     String             @id @default(uuid())
+  groupId                String             @map("group_id")
+  code                   String
+  severity               EnergyAlertSeverity
+  status                 EnergyAlertStatus  @default(OPEN)
+  title                  String
+  message                String
+  metadata               Json?
+  acknowledgedAt         DateTime?          @map("acknowledged_at")
+  acknowledgedBy         String?            @map("acknowledged_by")
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  group                  EnergyLoadGroup    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@map("energy_alerts")
+  @@index([groupId, status, createdAt])
+  @@index([code, status])
+}
+
+model EnergyManualOverride {
+  id                     String             @id @default(uuid())
+  groupId                String             @map("group_id")
+  status                 EnergyOverrideStatus @default(ACTIVE)
+  reason                 String
+  requestedBy            String?            @map("requested_by")
+  capAmps                Int                @map("cap_amps")
+  expiresAt              DateTime           @map("expires_at")
+  clearedAt              DateTime?          @map("cleared_at")
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  group                  EnergyLoadGroup    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@map("energy_manual_overrides")
+  @@index([groupId, status, expiresAt])
 }
 
 model Booking {
@@ -1461,6 +1676,7 @@ model Command {
   sentAt        DateTime? @map("sent_at")
   completedAt   DateTime? @map("completed_at")
   correlationId String?   @map("correlation_id")
+  idempotencyTtlSec Int?   @map("idempotency_ttl_sec")
   error         String?
   outboxEntries CommandOutbox[]
   events        CommandEvent[]

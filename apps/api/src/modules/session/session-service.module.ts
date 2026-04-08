@@ -5,11 +5,13 @@ import { SessionController } from './session-service.controller';
 import { SessionService } from './session-service.service';
 import { NotificationServiceModule } from '../notification/notification-service.module';
 import { OcpiTokenSyncService } from '../../common/services/ocpi-token-sync.service';
+import { EnergyManagementModule } from '../energy-management/energy-management.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
     NotificationServiceModule,
+    EnergyManagementModule,
     ClientsModule.register([
       {
         name: 'SESSION_SERVICE',

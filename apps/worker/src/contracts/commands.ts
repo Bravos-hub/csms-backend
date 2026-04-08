@@ -15,6 +15,8 @@ export type CommandRequest = {
   chargePointId?: string;
   connectorId?: number;
   ocppVersion?: '1.6J' | '2.0.1' | '2.1';
+  dedupeKey?: string;
+  idempotencyTtlSec?: number;
   requestedBy?: {
     userId?: string;
     role?: string;
@@ -107,6 +109,26 @@ export function validateCommandRequestContract(
     (!isRecord(input.requestedBy) || Array.isArray(input.requestedBy))
   ) {
     return { ok: false, reason: 'requestedBy must be an object when provided' };
+  }
+  if (
+    input.dedupeKey !== undefined &&
+    (typeof input.dedupeKey !== 'string' || input.dedupeKey.trim().length === 0)
+  ) {
+    return {
+      ok: false,
+      reason: 'dedupeKey must be a non-empty string when provided',
+    };
+  }
+  if (
+    input.idempotencyTtlSec !== undefined &&
+    (typeof input.idempotencyTtlSec !== 'number' ||
+      !Number.isInteger(input.idempotencyTtlSec) ||
+      input.idempotencyTtlSec <= 0)
+  ) {
+    return {
+      ok: false,
+      reason: 'idempotencyTtlSec must be a positive integer when provided',
+    };
   }
 
   return {
