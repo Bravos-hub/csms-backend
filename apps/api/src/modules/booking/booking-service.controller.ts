@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { BookingService } from './booking-service.service';
 import {
   BookingActionDto,
+  BookingDispatchDto,
   CreateBookingDto,
   UpdateBookingDto,
 } from './dto/booking.dto';
@@ -25,6 +26,11 @@ export class BookingController {
     return this.bookingService.findById(id);
   }
 
+  @Get(':id/events')
+  listEvents(@Param('id') id: string) {
+    return this.bookingService.listEvents(id);
+  }
+
   @Post()
   create(@Body() createDto: CreateBookingDto) {
     return this.bookingService.create(createDto);
@@ -33,6 +39,19 @@ export class BookingController {
   @Post(':id/checkin')
   checkin(@Param('id') id: string) {
     return this.bookingService.checkin(id);
+  }
+
+  @Post(':id/dispatch-reserve')
+  dispatchReserve(
+    @Param('id') id: string,
+    @Body() payload: BookingDispatchDto,
+  ) {
+    return this.bookingService.dispatchReserveCommand(id, payload);
+  }
+
+  @Post(':id/dispatch-cancel')
+  dispatchCancel(@Param('id') id: string, @Body() payload: BookingDispatchDto) {
+    return this.bookingService.dispatchCancelCommand(id, payload);
   }
 
   @Patch(':id/cancel')

@@ -295,6 +295,16 @@ export class CommandEventsConsumer implements OnModuleInit {
         },
       });
 
+      await this.syncBookingReservationState(tx, {
+        commandId: command.id,
+        commandType: command.commandType,
+        status: nextStatus,
+        correlationId: command.correlationId || null,
+        payload,
+        errorMessage,
+        occurredAt,
+      });
+
       applied = true;
       if (isTerminalStatus(nextStatus)) {
         enqueueToFinalMs = Math.max(
@@ -344,5 +354,124 @@ export class CommandEventsConsumer implements OnModuleInit {
     if (typeof value !== 'string') return null;
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private async syncBookingReservationState(
+    tx: Prisma.TransactionClient,
+    input: {
+      commandId: string;
+      commandType: string;
+      status: CommandStatus;
+      correlationId: string | null;
+      payload: Record<string, unknown>;
+      errorMessage: string | null;
+      occurredAt: Date;
+    },
+  ): Promise<void> {
+    const normalizedCommandType = this.normalizeCommandType(input.commandType);
+    if (
+      normalizedCommandType !== 'RESERVE_NOW' &&
+      normalizedCommandType !== 'CANCEL_RESERVATION'
+    ) {
+      return;
+    }
+
+    const reservationId = this.extractReservationId(input.payload);
+    if (!reservationId) return;
+
+    const booking = await tx.booking.findFirst({
+      where: { reservationId },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+    if (!booking) return;
+
+    const bookingUpdate: Prisma.BookingUpdateInput = {
+      reservationCommandId: input.commandId,
+      reservationCommandStatus: input.status,
+      reservationCommandUpdatedAt: input.occurredAt,
+      ...(input.correlationId
+        ? { commandCorrelationId: input.correlationId }
+        : {}),
+    };
+
+    if (normalizedCommandType === 'RESERVE_NOW') {
+      if (
+        input.status === 'Rejected' ||
+        input.status === 'Failed' ||
+        input.status === 'Timeout' ||
+        input.status === 'Duplicate'
+      ) {
+        if (booking.status !== 'CANCELLED') {
+          bookingUpdate.status = 'CANCELLED';
+        }
+        bookingUpdate.cancelledAt = input.occurredAt;
+        bookingUpdate.autoCancelReason =
+          input.errorMessage || `Reserve command ${input.status.toLowerCase()}`;
+      }
+    }
+
+    if (normalizedCommandType === 'CANCEL_RESERVATION') {
+      if (input.status === 'Accepted' && booking.status !== 'CANCELLED') {
+        bookingUpdate.status = 'CANCELLED';
+        bookingUpdate.cancelledAt = input.occurredAt;
+        bookingUpdate.autoCancelReason =
+          input.errorMessage || 'Cancelled by reservation command';
+      }
+    }
+
+    await tx.booking.update({
+      where: { id: booking.id },
+      data: bookingUpdate,
+    });
+
+    await tx.bookingEvent.create({
+      data: {
+        bookingId: booking.id,
+        eventType: `${normalizedCommandType}_${input.status.toUpperCase()}`,
+        source: 'worker.command.event',
+        status: input.status,
+        occurredAt: input.occurredAt,
+        details: {
+          commandId: input.commandId,
+          correlationId: input.correlationId,
+          error: input.errorMessage,
+        } as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  private normalizeCommandType(commandType: string): string {
+    return commandType
+      .trim()
+      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+      .replace(/[\s-]+/g, '_')
+      .toUpperCase();
+  }
+
+  private extractReservationId(
+    payload: Record<string, unknown>,
+  ): number | null {
+    const direct = this.readNumber(payload.reservationId ?? payload.id);
+    if (direct) return direct;
+
+    const ocpi = this.ensureObject(payload.ocpi);
+    const originalRequest = this.ensureObject(ocpi.originalRequest);
+    return this.readNumber(
+      originalRequest.reservation_id ??
+        originalRequest.reservationId ??
+        originalRequest.id,
+    );
+  }
+
+  private readNumber(value: unknown): number | null {
+    if (value === undefined || value === null || value === '') return null;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return null;
+    const normalized = Math.floor(parsed);
+    return normalized > 0 ? normalized : null;
   }
 }

@@ -671,6 +671,8 @@ export class OcpiInternalController {
       select: {
         id: true,
         status: true,
+        commandType: true,
+        correlationId: true,
         payload: true,
       },
     });
@@ -734,6 +736,16 @@ export class OcpiInternalController {
           } as Prisma.InputJsonValue,
           occurredAt,
         },
+      });
+
+      await this.syncBookingFromCommandResult(tx, {
+        commandId: command.id,
+        commandType: command.commandType,
+        status: mappedStatus,
+        correlationId: command.correlationId || payload.requestId,
+        payload: nextPayload,
+        error,
+        occurredAt,
       });
     });
 
@@ -1535,6 +1547,120 @@ export class OcpiInternalController {
       this.extractString(result, 'error_description');
     if (!message) return null;
     return message.trim().length > 0 ? message.trim() : null;
+  }
+
+  private async syncBookingFromCommandResult(
+    tx: Prisma.TransactionClient,
+    input: {
+      commandId: string;
+      commandType: string;
+      status: 'Accepted' | 'Rejected' | 'Failed' | 'Timeout';
+      correlationId: string;
+      payload: Record<string, unknown>;
+      error: string | null;
+      occurredAt: Date;
+    },
+  ): Promise<void> {
+    const normalizedCommandType = this.normalizeCommandType(input.commandType);
+    if (
+      normalizedCommandType !== 'RESERVE_NOW' &&
+      normalizedCommandType !== 'CANCEL_RESERVATION'
+    ) {
+      return;
+    }
+
+    const reservationId = this.extractReservationIdFromPayload(input.payload);
+    if (!reservationId) return;
+
+    const booking = await tx.booking.findFirst({
+      where: { reservationId },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+    if (!booking) return;
+
+    const update: Prisma.BookingUpdateInput = {
+      reservationCommandId: input.commandId,
+      reservationCommandStatus: input.status,
+      reservationCommandUpdatedAt: input.occurredAt,
+      commandCorrelationId: input.correlationId,
+    };
+
+    if (
+      normalizedCommandType === 'RESERVE_NOW' &&
+      (input.status === 'Rejected' ||
+        input.status === 'Failed' ||
+        input.status === 'Timeout')
+    ) {
+      if (booking.status !== 'CANCELLED') {
+        update.status = 'CANCELLED';
+      }
+      update.cancelledAt = input.occurredAt;
+      update.autoCancelReason =
+        input.error || `Reserve command ${input.status.toLowerCase()}`;
+    }
+
+    if (
+      normalizedCommandType === 'CANCEL_RESERVATION' &&
+      input.status === 'Accepted'
+    ) {
+      if (booking.status !== 'CANCELLED') {
+        update.status = 'CANCELLED';
+      }
+      update.cancelledAt = input.occurredAt;
+      update.autoCancelReason =
+        input.error || 'Cancelled by OCPI command callback';
+    }
+
+    await tx.booking.update({
+      where: { id: booking.id },
+      data: update,
+    });
+
+    await tx.bookingEvent.create({
+      data: {
+        bookingId: booking.id,
+        eventType: `${normalizedCommandType}_${input.status.toUpperCase()}`,
+        status: input.status,
+        source: 'ocpi.command.result',
+        occurredAt: input.occurredAt,
+        details: {
+          commandId: input.commandId,
+          correlationId: input.correlationId,
+          error: input.error,
+        } as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  private normalizeCommandType(commandType: string): string {
+    return commandType
+      .trim()
+      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+      .replace(/[\s-]+/g, '_')
+      .toUpperCase();
+  }
+
+  private extractReservationIdFromPayload(
+    payload: Record<string, unknown>,
+  ): number | null {
+    return (
+      this.extractNumber(payload, 'reservationId') ||
+      this.extractNumber(payload, 'reservation_id') ||
+      this.extractNumber(payload, 'id') ||
+      this.extractNumber(this.ensureObject(payload.ocpi), 'reservationId') ||
+      this.extractNumber(
+        this.ensureObject(this.ensureObject(payload.ocpi).originalRequest),
+        'reservation_id',
+      ) ||
+      this.extractNumber(
+        this.ensureObject(this.ensureObject(payload.ocpi).originalRequest),
+        'reservationId',
+      )
+    );
   }
 
   private async resolveChargePointForOcpiCommand(

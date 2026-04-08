@@ -266,6 +266,7 @@ model User {
   reviewedUserApplications  UserApplication[]   @relation("ReviewedBy")
 
   bookings                   Booking[]
+  fleetDrivers               FleetDriver[]
   wallets                    Wallet[]
   invoices                   Invoice[]
   paymentMethods             PaymentMethod[]
@@ -311,6 +312,10 @@ model Organization {
   memberships OrganizationMembership[]
   invitations UserInvitation[]
   sites       Site[]
+  fleetAccounts FleetAccount[]
+  fleetDriverGroups FleetDriverGroup[]
+  fleetDrivers FleetDriver[]
+  fleetDriverTokens FleetDriverToken[]
   wallets     Wallet[]
   paymentMethods PaymentMethod[]
   paymentIntents PaymentIntent[]
@@ -1080,6 +1085,12 @@ model Booking {
   userId        String
   stationId     String
   chargePointId String?
+  reservationId Int?     @map("reservation_id")
+  reservationCommandId String? @map("reservation_command_id")
+  reservationCommandStatus String? @map("reservation_command_status")
+  reservationCommandUpdatedAt DateTime? @map("reservation_command_updated_at")
+  reservationSource String? @default("LOCAL") @map("reservation_source")
+  commandCorrelationId String? @map("command_correlation_id")
   startTime     DateTime
   endTime       DateTime
   status        String   @default("PENDING")
@@ -1093,16 +1104,147 @@ model Booking {
   feeCurrency          String  @default("UGX")
   autoCancelAt         DateTime?
   autoCancelReason     String?
+  checkedInAt          DateTime? @map("checked_in_at")
+  cancelledAt          DateTime? @map("cancelled_at")
+  noShowAt             DateTime? @map("no_show_at")
+  expiredAt            DateTime? @map("expired_at")
   historyLabel         String?
 
   user User @relation(fields: [userId], references: [id])
   station Station @relation(fields: [stationId], references: [id])
   receiptTransactions ChargingReceiptTransaction[]
+  events BookingEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("bookings")
+  @@index([reservationId])
+  @@index([reservationCommandId])
+  @@index([status, startTime])
+}
+
+model BookingEvent {
+  id         String   @id @default(uuid())
+  bookingId  String   @map("booking_id")
+  eventType  String   @map("event_type")
+  status     String?
+  source     String?
+  details    Json?
+  occurredAt DateTime @default(now()) @map("occurred_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("booking_events")
+  @@index([bookingId, occurredAt])
+  @@index([eventType, occurredAt])
+}
+
+model FleetAccount {
+  id                String   @id @default(uuid())
+  organizationId    String   @map("organization_id")
+  name              String
+  code              String?
+  status            String   @default("ACTIVE")
+  currency          String   @default("UGX")
+  monthlySpendLimit Float?   @map("monthly_spend_limit")
+  dailySpendLimit   Float?   @map("daily_spend_limit")
+  metadata          Json?
+  createdBy         String?  @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  driverGroups  FleetDriverGroup[]
+  drivers       FleetDriver[]
+
+  @@map("fleet_accounts")
+  @@unique([organizationId, name])
+  @@index([organizationId, status])
+}
+
+model FleetDriverGroup {
+  id                String   @id @default(uuid())
+  organizationId    String   @map("organization_id")
+  fleetAccountId    String   @map("fleet_account_id")
+  name              String
+  description       String?
+  status            String   @default("ACTIVE")
+  tariffIds         String[] @default([]) @map("tariff_ids")
+  locationIds       String[] @default([]) @map("location_ids")
+  monthlySpendLimit Float?   @map("monthly_spend_limit")
+  dailySpendLimit   Float?   @map("daily_spend_limit")
+  metadata          Json?
+  createdBy         String?  @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  fleetAccount FleetAccount @relation(fields: [fleetAccountId], references: [id], onDelete: Cascade)
+  drivers      FleetDriver[]
+
+  @@map("fleet_driver_groups")
+  @@unique([fleetAccountId, name])
+  @@index([organizationId, status])
+  @@index([fleetAccountId, status])
+}
+
+model FleetDriver {
+  id                String   @id @default(uuid())
+  organizationId    String   @map("organization_id")
+  fleetAccountId    String   @map("fleet_account_id")
+  groupId           String?  @map("group_id")
+  userId            String?  @map("user_id")
+  displayName       String   @map("display_name")
+  email             String?
+  phone             String?
+  externalRef       String?  @map("external_ref")
+  status            String   @default("ACTIVE")
+  monthlySpendLimit Float?   @map("monthly_spend_limit")
+  dailySpendLimit   Float?   @map("daily_spend_limit")
+  metadata          Json?
+  createdBy         String?  @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  fleetAccount FleetAccount   @relation(fields: [fleetAccountId], references: [id], onDelete: Cascade)
+  group        FleetDriverGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  user         User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  tokens       FleetDriverToken[]
+
+  @@map("fleet_drivers")
+  @@index([organizationId, status])
+  @@index([fleetAccountId, status])
+  @@index([groupId, status])
+  @@index([userId])
+}
+
+model FleetDriverToken {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  driverId       String   @map("driver_id")
+  tokenUid       String   @map("token_uid")
+  tokenType      String   @default("RFID") @map("token_type")
+  status         String   @default("ACTIVE")
+  assignedAt     DateTime @default(now()) @map("assigned_at")
+  revokedAt      DateTime? @map("revoked_at")
+  metadata       Json?
+  createdBy      String?  @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  driver       FleetDriver  @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@map("fleet_driver_tokens")
+  @@unique([organizationId, tokenUid, tokenType])
+  @@index([driverId, status])
+  @@index([organizationId, status])
 }
 
 model AttendantAssignment {

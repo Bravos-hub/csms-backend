@@ -55,6 +55,7 @@ import { BmsModule } from './modules/bms/bms.module';
 import { TenantRbacModule } from './modules/tenant-rbac/tenant-rbac.module';
 import { TenantProvisioningModule } from './modules/tenant-provisioning/tenant-provisioning.module';
 import { PlatformModule } from './modules/platform/platform.module';
+import { FleetModule } from './modules/fleet/fleet.module';
 
 @Module({
   imports: [
@@ -116,6 +117,7 @@ import { PlatformModule } from './modules/platform/platform.module';
     BmsModule,
     TenantRbacModule,
     PlatformModule,
+    FleetModule,
   ],
   controllers: [AppController],
   providers: [

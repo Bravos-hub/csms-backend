@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsString,
   IsNotEmpty,
   IsOptional,
@@ -59,6 +60,38 @@ export class CreateBookingDto {
   @IsOptional()
   @IsString()
   feeCurrency?: string;
+
+  @IsOptional()
+  @IsNumber()
+  reservationId?: number;
+
+  @IsOptional()
+  @IsEnum(['LOCAL', 'OCPI'])
+  source?: 'LOCAL' | 'OCPI';
+
+  @IsOptional()
+  @IsString()
+  idTag?: string;
+
+  @IsOptional()
+  @IsString()
+  authorizationReference?: string;
+
+  @IsOptional()
+  @IsString()
+  responseUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  partnerId?: string;
+
+  @IsOptional()
+  @IsString()
+  correlationId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  dispatchCommand?: boolean;
 }
 
 export class UpdateBookingDto {
@@ -80,6 +113,24 @@ export class UpdateBookingDto {
 }
 
 export class BookingActionDto {
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class BookingDispatchDto {
+  @IsOptional()
+  @IsString()
+  correlationId?: string;
+
+  @IsOptional()
+  @IsString()
+  responseUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  partnerId?: string;
+
   @IsOptional()
   @IsString()
   reason?: string;
