@@ -863,59 +863,368 @@ export class OcpiInternalController {
     return this.prisma.ocpiPartner.findUnique({ where: { id } });
   }
 
-  // Non-core modules are intentionally disabled for core v1 rollout.
+  // Charging Profiles
   @Get('charging-profiles/:sessionId')
   @ServiceScopes('ocpi:read')
-  getChargingProfile(@Param('sessionId') sessionId: string) {
-    void sessionId;
-    this.throwModuleNotSupported('ChargingProfiles');
+  async getChargingProfile(@Param('sessionId') sessionId: string) {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) {
+      throw new BadRequestException('sessionId is required');
+    }
+
+    const session = await this.prisma.ocpiPartnerSession.findFirst({
+      where: { sessionId: normalizedSessionId },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    if (!session) {
+      return {
+        sessionId: normalizedSessionId,
+        result: 'NOT_FOUND',
+        chargingProfile: null,
+      };
+    }
+
+    const data = this.ensureObject(session.data);
+    const profile = this.ensureObject(
+      data.chargingProfile ?? data.charging_profile,
+    );
+
+    return {
+      sessionId: normalizedSessionId,
+      countryCode: session.countryCode,
+      partyId: session.partyId,
+      version: session.version,
+      chargingProfile: Object.keys(profile).length > 0 ? profile : null,
+      lastUpdated: session.lastUpdated.toISOString(),
+    };
   }
 
   @Put('charging-profiles/set')
   @ServiceScopes('ocpi:write')
-  setChargingProfile(@Body() payload: Record<string, unknown>) {
-    void payload;
-    this.throwModuleNotSupported('ChargingProfiles');
+  async setChargingProfile(@Body() payload: Record<string, unknown>) {
+    const sessionId =
+      this.extractString(payload, 'sessionId') ||
+      this.extractString(payload, 'session_id');
+    if (!sessionId) {
+      throw new BadRequestException('sessionId is required');
+    }
+
+    const profile = this.ensureObject(
+      payload.chargingProfile || payload.charging_profile || payload.profile,
+    );
+    if (!Object.keys(profile).length) {
+      throw new BadRequestException('chargingProfile is required');
+    }
+
+    const now = new Date();
+    const existing = await this.prisma.ocpiPartnerSession.findFirst({
+      where: { sessionId },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    if (existing) {
+      const existingData = this.ensureObject(existing.data);
+      const merged = {
+        ...existingData,
+        chargingProfile: profile,
+        charging_profile: profile,
+        chargingProfileUpdatedAt: now.toISOString(),
+      };
+
+      const updated = await this.prisma.ocpiPartnerSession.update({
+        where: { id: existing.id },
+        data: {
+          data: merged as Prisma.InputJsonValue,
+          lastUpdated: now,
+        },
+      });
+
+      return {
+        accepted: true,
+        action: 'SET',
+        sessionId,
+        version: updated.version,
+        countryCode: updated.countryCode,
+        partyId: updated.partyId,
+        updatedAt: now.toISOString(),
+      };
+    }
+
+    const created = await this.prisma.ocpiPartnerSession.create({
+      data: {
+        sessionId,
+        countryCode:
+          this.extractString(payload, 'countryCode') ||
+          this.extractString(payload, 'country_code') ||
+          this.defaultCountryCode(),
+        partyId:
+          this.extractString(payload, 'partyId') ||
+          this.extractString(payload, 'party_id') ||
+          this.defaultPartyId(),
+        version: this.extractString(payload, 'version') || '2.2.1',
+        data: {
+          id: sessionId,
+          chargingProfile: profile,
+          charging_profile: profile,
+          chargingProfileUpdatedAt: now.toISOString(),
+        } as Prisma.InputJsonValue,
+        lastUpdated: now,
+      },
+    });
+
+    return {
+      accepted: true,
+      action: 'SET',
+      sessionId,
+      version: created.version,
+      countryCode: created.countryCode,
+      partyId: created.partyId,
+      updatedAt: now.toISOString(),
+    };
   }
 
   @Post('charging-profiles/clear')
   @ServiceScopes('ocpi:write')
-  clearChargingProfile(@Body() payload: Record<string, unknown>) {
-    void payload;
-    this.throwModuleNotSupported('ChargingProfiles');
+  async clearChargingProfile(@Body() payload: Record<string, unknown>) {
+    const sessionId =
+      this.extractString(payload, 'sessionId') ||
+      this.extractString(payload, 'session_id');
+    if (!sessionId) {
+      throw new BadRequestException('sessionId is required');
+    }
+
+    const existing = await this.prisma.ocpiPartnerSession.findFirst({
+      where: { sessionId },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (!existing) {
+      return {
+        accepted: true,
+        action: 'CLEAR',
+        sessionId,
+        updated: false,
+      };
+    }
+
+    const now = new Date();
+    const existingData = this.ensureObject(existing.data);
+    const next = {
+      ...existingData,
+      chargingProfile: null,
+      charging_profile: null,
+      chargingProfileClearedAt: now.toISOString(),
+    };
+
+    await this.prisma.ocpiPartnerSession.update({
+      where: { id: existing.id },
+      data: {
+        data: next as Prisma.InputJsonValue,
+        lastUpdated: now,
+      },
+    });
+
+    return {
+      accepted: true,
+      action: 'CLEAR',
+      sessionId,
+      updated: true,
+      updatedAt: now.toISOString(),
+    };
   }
 
   @Post('charging-profiles/results')
   @ServiceScopes('ocpi:write')
-  chargingProfileResult(@Body() payload: Record<string, unknown>) {
-    void payload;
-    this.throwModuleNotSupported('ChargingProfiles');
+  async chargingProfileResult(@Body() payload: Record<string, unknown>) {
+    const sessionId =
+      this.extractString(payload, 'sessionId') ||
+      this.extractString(payload, 'session_id');
+    if (!sessionId) {
+      throw new BadRequestException('sessionId is required');
+    }
+
+    const existing = await this.prisma.ocpiPartnerSession.findFirst({
+      where: { sessionId },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (!existing) {
+      return {
+        accepted: false,
+        sessionId,
+        updated: false,
+      };
+    }
+
+    const now = new Date();
+    const existingData = this.ensureObject(existing.data);
+    const currentResults = Array.isArray(existingData.chargingProfileResults)
+      ? existingData.chargingProfileResults.filter(
+          (entry): entry is Record<string, unknown> =>
+            Boolean(entry) &&
+            typeof entry === 'object' &&
+            !Array.isArray(entry),
+        )
+      : [];
+    const nextResults = [
+      ...currentResults.slice(-24),
+      {
+        status:
+          this.extractString(payload, 'status') ||
+          this.extractString(payload, 'result') ||
+          'UNKNOWN',
+        message: this.extractString(payload, 'message'),
+        at: now.toISOString(),
+      },
+    ];
+
+    await this.prisma.ocpiPartnerSession.update({
+      where: { id: existing.id },
+      data: {
+        data: {
+          ...existingData,
+          chargingProfileResults: nextResults,
+          chargingProfileResultAt: now.toISOString(),
+        } as Prisma.InputJsonValue,
+        lastUpdated: now,
+      },
+    });
+
+    return {
+      accepted: true,
+      sessionId,
+      updated: true,
+      updatedAt: now.toISOString(),
+    };
   }
 
   @Put('charging-profiles/active')
   @ServiceScopes('ocpi:write')
-  activeChargingProfile(@Body() payload: Record<string, unknown>) {
-    void payload;
-    this.throwModuleNotSupported('ChargingProfiles');
+  async activeChargingProfile(@Body() payload: Record<string, unknown>) {
+    const sessionId =
+      this.extractString(payload, 'sessionId') ||
+      this.extractString(payload, 'session_id');
+    if (!sessionId) {
+      throw new BadRequestException('sessionId is required');
+    }
+    const existing = await this.prisma.ocpiPartnerSession.findFirst({
+      where: { sessionId },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (!existing) {
+      return {
+        accepted: false,
+        sessionId,
+        updated: false,
+      };
+    }
+
+    const now = new Date();
+    const existingData = this.ensureObject(existing.data);
+    const rawActive = payload.active;
+    const isActive =
+      typeof rawActive === 'boolean'
+        ? rawActive
+        : typeof rawActive === 'string'
+          ? rawActive.trim().toLowerCase() === 'true'
+          : typeof rawActive === 'number'
+            ? rawActive === 1
+            : false;
+
+    await this.prisma.ocpiPartnerSession.update({
+      where: { id: existing.id },
+      data: {
+        data: {
+          ...existingData,
+          chargingProfileActive: isActive,
+          chargingProfileActiveAt: now.toISOString(),
+        } as Prisma.InputJsonValue,
+        lastUpdated: now,
+      },
+    });
+
+    return {
+      accepted: true,
+      sessionId,
+      active: isActive,
+      updated: true,
+      updatedAt: now.toISOString(),
+    };
   }
 
+  // Hub Client Info
   @Get('hub-client-info')
   @ServiceScopes('ocpi:read')
-  listHubClientInfo() {
-    this.throwModuleNotSupported('HubClientInfo');
+  async listHubClientInfo() {
+    const partners = await this.prisma.ocpiPartner.findMany({
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    return partners
+      .map((partner) => {
+        const endpoints = this.ensureObject(partner.endpoints);
+        const info = this.ensureObject(endpoints.hubClientInfo);
+        if (!Object.keys(info).length) {
+          return null;
+        }
+        return {
+          partnerId: partner.id,
+          countryCode: partner.countryCode,
+          partyId: partner.partyId,
+          role: partner.role,
+          info,
+          updatedAt: partner.updatedAt.toISOString(),
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
   }
 
   @Get('hub-client-info/object')
   @ServiceScopes('ocpi:read')
-  getHubClientInfoObject() {
-    this.throwModuleNotSupported('HubClientInfo');
+  async getHubClientInfoObject() {
+    const entries = await this.listHubClientInfo();
+    return entries[0] || null;
   }
 
   @Put('hub-client-info')
   @ServiceScopes('ocpi:write')
-  updateHubClientInfo(@Body() payload: Record<string, unknown>) {
-    void payload;
-    this.throwModuleNotSupported('HubClientInfo');
+  async updateHubClientInfo(@Body() payload: Record<string, unknown>) {
+    const partnerId = this.extractString(payload, 'partnerId');
+    if (!partnerId) {
+      throw new BadRequestException('partnerId is required');
+    }
+
+    const partner = await this.prisma.ocpiPartner.findUnique({
+      where: { id: partnerId },
+    });
+    if (!partner) {
+      throw new NotFoundException('Partner not found');
+    }
+
+    const existingEndpoints = this.ensureObject(partner.endpoints);
+    const infoPayload = this.ensureObject(
+      payload.info || payload.hubClientInfo || payload,
+    );
+
+    const updated = await this.prisma.ocpiPartner.update({
+      where: { id: partner.id },
+      data: {
+        endpoints: {
+          ...existingEndpoints,
+          hubClientInfo: infoPayload,
+          hubClientInfoUpdatedAt: new Date().toISOString(),
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    const updatedEndpoints = this.ensureObject(updated.endpoints);
+    return {
+      partnerId: updated.id,
+      countryCode: updated.countryCode,
+      partyId: updated.partyId,
+      role: updated.role,
+      info: this.ensureObject(updatedEndpoints.hubClientInfo),
+      updatedAt: updated.updatedAt.toISOString(),
+    };
   }
 
   private async upsertLocation(

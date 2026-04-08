@@ -8,6 +8,14 @@ import {
 } from 'class-validator';
 
 export class CreateBookingDto {
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @IsOptional()
+  @IsString()
+  stationId?: string;
+
   @IsString()
   @IsNotEmpty()
   chargePointId: string;
@@ -23,10 +31,56 @@ export class CreateBookingDto {
   @IsNumber()
   @IsOptional()
   durationMinutes?: number; // expiry = start + duration
+
+  @IsOptional()
+  @IsString()
+  customerNameSnapshot?: string;
+
+  @IsOptional()
+  @IsString()
+  customerRefSnapshot?: string;
+
+  @IsOptional()
+  @IsString()
+  vehicleModelSnapshot?: string;
+
+  @IsOptional()
+  @IsString()
+  vehiclePlateSnapshot?: string;
+
+  @IsOptional()
+  @IsNumber()
+  requiredKwh?: number;
+
+  @IsOptional()
+  @IsNumber()
+  feeAmount?: number;
+
+  @IsOptional()
+  @IsString()
+  feeCurrency?: string;
 }
 
 export class UpdateBookingDto {
-  @IsEnum(['CANCELLED', 'EXTENDED']) // Simplified for now
+  @IsEnum(['PENDING', 'CONFIRMED', 'CANCELLED', 'NO_SHOW', 'EXPIRED'])
   @IsOptional()
-  action?: 'CANCEL' | 'EXTEND';
+  status?: 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'NO_SHOW' | 'EXPIRED';
+
+  @IsOptional()
+  @IsDateString()
+  startAt?: string;
+
+  @IsOptional()
+  @IsNumber()
+  durationMinutes?: number;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class BookingActionDto {
+  @IsOptional()
+  @IsString()
+  reason?: string;
 }

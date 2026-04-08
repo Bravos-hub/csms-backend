@@ -1,16 +1,36 @@
-import { Controller, Get, Post, Body, Req, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import type { Request } from 'express';
 import { BillingService } from './billing-service.service';
 import { TopUpDto, GenerateInvoiceDto } from './dto/billing.dto';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { CommerceService } from './commerce.service';
+import { WalletTransactionQueryDto } from '../wallet/dto/wallet.dto';
 
-type BillingRequest = {
-  headers?: Record<string, string | string[] | undefined>;
-};
+type BillingRequest = Request & { user?: { sub?: string } };
 
 @Controller()
+@UseGuards(JwtAuthGuard)
 export class BillingController {
-  constructor(private readonly billingService: BillingService) {}
+  constructor(
+    private readonly billingService: BillingService,
+    private readonly commerceService: CommerceService,
+  ) {}
 
   private resolveUserId(req: BillingRequest): string {
+    const fromToken = req.user?.sub;
+    if (typeof fromToken === 'string' && fromToken.trim().length > 0) {
+      return fromToken;
+    }
+
     const headerValue = req.headers?.['x-user-id'];
     if (typeof headerValue === 'string' && headerValue.trim().length > 0) {
       return headerValue;
@@ -23,30 +43,29 @@ export class BillingController {
     ) {
       return headerValue[0];
     }
-    return 'mock-user-id';
+    throw new BadRequestException('Authenticated user is required');
   }
 
   // Wallet
   @Get('wallet/balance')
   getBalance(@Req() req: BillingRequest) {
     const userId = this.resolveUserId(req);
-    return this.billingService.getWalletBalance(userId);
+    return this.commerceService.getWallet(userId);
   }
 
   @Get('wallet/transactions')
   getTransactions(
     @Req() req: BillingRequest,
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string,
+    @Query() query: WalletTransactionQueryDto,
   ) {
     const userId = this.resolveUserId(req);
-    return this.billingService.getTransactions(userId, limit, offset);
+    return this.commerceService.getWalletTransactions(userId, query);
   }
 
   @Post('wallet/topup')
   topUp(@Req() req: BillingRequest, @Body() dto: TopUpDto) {
     const userId = this.resolveUserId(req);
-    return this.billingService.topUp(userId, dto);
+    return this.commerceService.topUp(userId, dto);
   }
 
   // Billing

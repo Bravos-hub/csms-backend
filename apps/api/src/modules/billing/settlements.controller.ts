@@ -12,7 +12,7 @@ export interface SettlementRecord {
   currency?: string;
   status?: string;
   startedAt?: string;
-  finishedAt?: string;
+  finishedAt?: string | null;
   note?: string | null;
 }
 

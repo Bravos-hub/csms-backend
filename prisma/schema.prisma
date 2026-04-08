@@ -268,6 +268,8 @@ model User {
   bookings                   Booking[]
   wallets                    Wallet[]
   invoices                   Invoice[]
+  paymentMethods             PaymentMethod[]
+  paymentIntents             PaymentIntent[]
   ownedSites                 Site[]
   reviewedTenantApplications TenantApplication[] @relation("ReviewedApplications")
   emailVerificationTokens    EmailVerificationToken[]
@@ -309,6 +311,9 @@ model Organization {
   memberships OrganizationMembership[]
   invitations UserInvitation[]
   sites       Site[]
+  wallets     Wallet[]
+  paymentMethods PaymentMethod[]
+  paymentIntents PaymentIntent[]
   swapProviders SwapProvider[] @relation("ProviderOrganization")
   ownerProviderRelationships ProviderRelationship[] @relation("OwnerOrganization")
   
@@ -1264,48 +1269,142 @@ model AttendantNotification {
 }
 
 model Wallet {
-  id       String @id @default(uuid())
-  userId   String @unique
-  balance  Float  @default(0)
-  currency String @default("USD")
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  organizationId String?
+  balance        Float    @default(0)
+  currency       String   @default("USD")
+  isLocked       Boolean  @default(false)
+  lockedAt       DateTime?
+  lockReason     String?
 
-  user         User          @relation(fields: [userId], references: [id])
-  transactions Transaction[]
+  user           User           @relation(fields: [userId], references: [id])
+  organization   Organization?  @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  transactions   Transaction[]
+  paymentIntents PaymentIntent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("wallets")
+  @@index([organizationId, updatedAt], map: "wallets_organization_id_updated_at_idx")
 }
 
 model Transaction {
-  id          String  @id @default(uuid())
-  walletId    String
-  amount      Float
-  type        String
-  description String?
-  reference   String?
+  id                  String   @id @default(uuid())
+  walletId            String
+  paymentIntentId     String?
+  amount              Float
+  type                String
+  status              String   @default("POSTED")
+  reconciliationState String   @default("UNRECONCILED")
+  description         String?
+  reference           String?
+  correlationId       String?
+  idempotencyKey      String?
+  occurredAt          DateTime @default(now())
 
-  wallet Wallet @relation(fields: [walletId], references: [id])
+  wallet        Wallet         @relation(fields: [walletId], references: [id])
+  paymentIntent PaymentIntent? @relation(fields: [paymentIntentId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
 
   @@map("transactions")
+  @@index([walletId, createdAt], map: "transactions_wallet_id_created_at_idx")
+  @@index([correlationId], map: "transactions_correlation_id_idx")
+  @@index([idempotencyKey], map: "transactions_idempotency_key_idx")
+  @@index([reconciliationState, createdAt], map: "transactions_reconciliation_state_created_at_idx")
+  @@index([status, createdAt], map: "transactions_status_created_at_idx")
 }
 
 model Invoice {
-  id          String   @id @default(uuid())
-  userId      String
-  totalAmount Float
-  status      String
-  dueDate     DateTime
+  id                String   @id @default(uuid())
+  userId            String
+  totalAmount       Float
+  currency          String   @default("USD")
+  status            String   @default("ISSUED")
+  settlementStatus  String   @default("RECONCILING")
+  correlationId     String?
+  billingPeriodFrom DateTime?
+  billingPeriodTo   DateTime?
+  dueDate           DateTime
+  issuedAt          DateTime @default(now())
+  paidAt            DateTime?
+  sourceSessionCount Int      @default(0)
 
-  user User @relation(fields: [userId], references: [id])
+  user           User            @relation(fields: [userId], references: [id])
+  paymentIntents PaymentIntent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("invoices")
+  @@index([userId, createdAt], map: "invoices_user_id_created_at_idx")
+  @@index([status, dueDate], map: "invoices_status_due_date_idx")
+  @@index([settlementStatus, createdAt], map: "invoices_settlement_status_created_at_idx")
+}
+
+model PaymentMethod {
+  id             String   @id @default(uuid())
+  userId         String
+  organizationId String?
+  type           String
+  provider       String?
+  label          String
+  tokenRef       String
+  last4          String?
+  expiryMonth    Int?
+  expiryYear     Int?
+  isDefault      Boolean  @default(false)
+  status         String   @default("ACTIVE")
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization?   @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  paymentIntents PaymentIntent[]
+
+  @@map("payment_methods")
+  @@index([userId, status], map: "payment_methods_user_id_status_idx")
+  @@index([organizationId, status], map: "payment_methods_organization_id_status_idx")
+}
+
+model PaymentIntent {
+  id                  String   @id @default(uuid())
+  userId              String?
+  organizationId      String?
+  walletId            String?
+  paymentMethodId     String?
+  invoiceId           String?
+  sessionId           String?
+  amount              Float
+  currency            String   @default("USD")
+  status              String   @default("PENDING")
+  idempotencyKey      String   @unique
+  correlationId       String?
+  reconciliationState String   @default("UNRECONCILED")
+  checkoutUrl         String?
+  checkoutQrPayload   String?
+  providerReference   String?
+  expiresAt           DateTime?
+  settledAt           DateTime?
+  metadata            Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user          User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  organization  Organization?  @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  wallet        Wallet?        @relation(fields: [walletId], references: [id], onDelete: SetNull)
+  paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  invoice       Invoice?       @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  transactions  Transaction[]
+
+  @@map("payment_intents")
+  @@index([organizationId, status, createdAt], map: "payment_intents_organization_id_status_created_at_idx")
+  @@index([userId, status, createdAt], map: "payment_intents_user_id_status_created_at_idx")
+  @@index([correlationId], map: "payment_intents_correlation_id_idx")
+  @@index([reconciliationState, createdAt], map: "payment_intents_reconciliation_state_created_at_idx")
 }
 
 model Incident {
