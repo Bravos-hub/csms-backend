@@ -20,7 +20,7 @@
     "prestart:dev": "npm run prisma:check",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/apps/api/main",
+    "start:prod": "node dist/apps/api/apps/api/src/main.js",
     "start:api": "nest start api",
     "start:ocpp": "nest start ocpp-gateway",
     "start:worker": "nest start worker",

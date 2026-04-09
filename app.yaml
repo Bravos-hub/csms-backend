@@ -13,7 +13,7 @@ services:
       metrics:
         cpu:
           percent: 70
-    run_command: node dist/apps/api/main
+    run_command: node dist/apps/api/apps/api/src/main.js
     routes:
       - path: /
     health_check:
@@ -71,7 +71,7 @@ services:
       metrics:
         cpu:
           percent: 65
-    run_command: node dist/apps/worker/main
+    run_command: node dist/apps/worker/apps/worker/src/main.js
     health_check:
       http_path: /health/ready
       initial_delay_seconds: 20

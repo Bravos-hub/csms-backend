@@ -46,4 +46,4 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/certs ./certs
 
 # The actual command to run will be overridden in docker-compose.yml for each service
-CMD ["node", "dist/apps/api/main"]
+CMD ["node", "dist/apps/api/apps/api/src/main.js"]
