@@ -50,7 +50,7 @@ jobs:
           port: ${{ secrets.DROPLET_SSH_PORT || '22' }}
           envs: API_PUBLIC_DOMAIN,PORTAL_ORIGIN
           script_stop: true
-          command_timeout: 45m
+          command_timeout: 90m
           script: |
             set -euo pipefail
             DEPLOY_DIR="${{ secrets.DROPLET_DEPLOY_PATH }}"
