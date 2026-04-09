@@ -1,5 +1,6 @@
 services:
   api:
+    image: csms-backend-app:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -12,9 +13,7 @@ services:
     restart: always
 
   worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: csms-backend-app:latest
     command: node dist/apps/worker/main
     env_file: .env
     environment:
@@ -22,9 +21,8 @@ services:
     restart: always
 
   db-migrate:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: csms-backend-app:latest
     command: npx prisma@5.22.0 migrate deploy
     env_file: .env
     restart: "no"
+

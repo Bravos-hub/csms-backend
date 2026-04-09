@@ -7,8 +7,8 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 cd "${REPO_ROOT}"
 
-echo "Building images (api, worker, db-migrate)..."
-docker compose build api worker db-migrate
+echo "Building backend image (shared by api, worker, db-migrate)..."
+docker compose build api
 
 echo "Applying Prisma migrations..."
 docker compose run --rm db-migrate
@@ -17,3 +17,4 @@ echo "Starting services (api, worker)..."
 docker compose up -d api worker
 
 echo "Deployment completed successfully."
+
