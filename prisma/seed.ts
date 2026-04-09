@@ -229,6 +229,98 @@ async function main() {
   });
   console.log('Super admin user seeded:', superAdmin.email);
 
+  // 1.5 Create deterministic role-based test accounts for platform validation
+  const sharedTestAccountPassword = await bcrypt.hash('Tests@2099', 10);
+  const roleTestAccounts = [
+    {
+      name: 'Test Platform Super Admin',
+      email: 'test@evzonecharging.com',
+      role: 'SUPER_ADMIN',
+    },
+    {
+      name: 'Test EVZONE Admin',
+      email: 'test1@evzonecharging.com',
+      role: 'EVZONE_ADMIN',
+    },
+    {
+      name: 'Test Tenant Admin',
+      email: 'test2@evzonecharging.com',
+      role: 'STATION_ADMIN',
+    },
+    {
+      name: 'Test Operations Manager',
+      email: 'test3@evzonecharging.com',
+      role: 'MANAGER',
+    },
+    {
+      name: 'Test Station Owner',
+      email: 'test4@evzonecharging.com',
+      role: 'STATION_OWNER',
+      ownerCapability: 'BOTH',
+    },
+    {
+      name: 'Test Station Operator',
+      email: 'test5@evzonecharging.com',
+      role: 'STATION_OPERATOR',
+    },
+    {
+      name: 'Test Driver Account',
+      email: 'test6@evzonecharging.com',
+      role: 'DRIVER',
+    },
+  ] as const;
+
+  for (const account of roleTestAccounts) {
+    const normalizedEmail = account.email.toLowerCase();
+    const user = await prisma.user.upsert({
+      where: { email: normalizedEmail },
+      update: {
+        name: account.name,
+        role: account.role,
+        status: 'Active',
+        region: 'Africa',
+        organizationId: evzoneOrganization.id,
+        ownerCapability: account.ownerCapability ?? null,
+        passwordHash: sharedTestAccountPassword,
+        emailVerifiedAt: new Date(),
+      },
+      create: {
+        name: account.name,
+        email: normalizedEmail,
+        role: account.role,
+        status: 'Active',
+        region: 'Africa',
+        organizationId: evzoneOrganization.id,
+        ownerCapability: account.ownerCapability ?? null,
+        passwordHash: sharedTestAccountPassword,
+        emailVerifiedAt: new Date(),
+      },
+    });
+
+    await prisma.organizationMembership.upsert({
+      where: {
+        userId_organizationId: {
+          userId: user.id,
+          organizationId: evzoneOrganization.id,
+        },
+      },
+      create: {
+        userId: user.id,
+        organizationId: evzoneOrganization.id,
+        role: account.role,
+        status: MembershipStatus.ACTIVE,
+      },
+      update: {
+        role: account.role,
+        status: MembershipStatus.ACTIVE,
+      },
+    });
+
+    console.log(
+      `Role test account seeded: ${normalizedEmail} (${account.role})`,
+    );
+  }
+
   // 2. Create Mock User
   const mockUserId = 'mock-id';
   await prisma.user.upsert({
