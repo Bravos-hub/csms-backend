@@ -2634,7 +2634,6 @@ export class AuthService {
         activeTenantId: authenticatedUser.activeTenantId,
         organizationId: context.activeOrganizationId,
         activeOrganizationId: context.activeOrganizationId,
-        accessProfile: authenticatedUser.accessProfile,
       },
       secret as jwt.Secret,
       {
@@ -2726,7 +2725,6 @@ export class AuthService {
           activeTenantId: authenticatedUser.activeTenantId,
           organizationId: authUserContext.activeOrganizationId,
           activeOrganizationId: authUserContext.activeOrganizationId,
-          accessProfile: authenticatedUser.accessProfile,
         },
         secret as jwt.Secret,
         {

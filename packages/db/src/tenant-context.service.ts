@@ -18,12 +18,15 @@ export class TenantContextService {
   }
 
   set(patch: Partial<TenantRequestContext>): TenantRequestContext {
-    const current = this.storage.getStore() || {};
+    const current = this.storage.getStore();
+    if (current) {
+      Object.assign(current, patch);
+      return current;
+    }
+
     const next: TenantRequestContext = {
-      ...current,
       ...patch,
     };
-
     this.storage.enterWith(next);
     return next;
   }
