@@ -20,9 +20,8 @@ COPY . .
 # Generate Prisma client
 RUN npx prisma generate
 
-# Build the apps
-RUN npm run build api
-RUN npm run build worker
+# Build the apps once (api + worker) to avoid redundant compilation
+RUN npm run build
 
 # Stage 2: Runtime
 FROM node:20-alpine AS runner
