@@ -77,6 +77,8 @@ type ResolvedBundle = {
   chargePointMap: Map<string, BundleChargePoint>;
 };
 
+const DER_PROFILE_STATUS = new Set(['ACTIVE', 'DISABLED', 'DRAFT']);
+
 @Injectable()
 export class EnergyManagementService {
   private readonly logger = new Logger(EnergyManagementService.name);
@@ -106,6 +108,194 @@ export class EnergyManagementService {
 
   async getGroup(id: string) {
     return this.decorateGroup(id, true);
+  }
+
+  async getStationDerProfile(stationId: string) {
+    const tenantId = this.resolveTenantId();
+    const station = await this.assertStationExists(stationId);
+
+    const profile = await this.prisma.energyDerProfile.findUnique({
+      where: {
+        tenantId_stationId: {
+          tenantId,
+          stationId: station.id,
+        },
+      },
+    });
+
+    return {
+      stationId: station.id,
+      siteId: station.siteId,
+      organizationId: station.organizationId,
+      profile: profile ? this.toDerProfileResponse(profile) : null,
+      constraints: this.buildDerConstraintSummary(profile),
+      note: profile
+        ? 'DER orchestration profile is active for EMS planning.'
+        : 'No DER profile configured for this station.',
+    };
+  }
+
+  async upsertStationDerProfile(
+    stationId: string,
+    input: Record<string, unknown>,
+    actorId?: string,
+  ) {
+    const tenantId = this.resolveTenantId();
+    const station = await this.assertStationExists(stationId);
+    const current = await this.prisma.energyDerProfile.findUnique({
+      where: {
+        tenantId_stationId: {
+          tenantId,
+          stationId: station.id,
+        },
+      },
+    });
+
+    const statusInput = this.normalizeDerStatus(input.status);
+    const maxGridImportKwInput = this.readOptionalNonNegativeFloatInput(
+      input.maxGridImportKw,
+      'maxGridImportKw',
+    );
+    const reserveGridKwInput = this.readOptionalNonNegativeFloatInput(
+      input.reserveGridKw,
+      'reserveGridKw',
+    );
+    const solarEnabledInput = this.readOptionalBooleanInput(
+      input.solarEnabled,
+      'solarEnabled',
+    );
+    const maxSolarContributionKwInput = this.readOptionalNonNegativeFloatInput(
+      input.maxSolarContributionKw,
+      'maxSolarContributionKw',
+    );
+    const bessEnabledInput = this.readOptionalBooleanInput(
+      input.bessEnabled,
+      'bessEnabled',
+    );
+    const maxBessDischargeKwInput = this.readOptionalNonNegativeFloatInput(
+      input.maxBessDischargeKw,
+      'maxBessDischargeKw',
+    );
+    const bessSocPercentInput = this.readOptionalPercentInput(
+      input.bessSocPercent,
+      'bessSocPercent',
+    );
+    const bessReserveSocPercentInput = this.readOptionalPercentInput(
+      input.bessReserveSocPercent,
+      'bessReserveSocPercent',
+    );
+    const forecastInput = this.normalizeOptionalJsonInput(
+      input.forecast,
+      'forecast',
+    );
+    const metadataInput = this.normalizeOptionalJsonInput(
+      input.metadata,
+      'metadata',
+    );
+
+    const status = statusInput ?? current?.status ?? 'ACTIVE';
+    const maxGridImportKw =
+      maxGridImportKwInput !== undefined
+        ? maxGridImportKwInput
+        : (current?.maxGridImportKw ?? null);
+    const reserveGridKw =
+      reserveGridKwInput !== undefined
+        ? reserveGridKwInput
+        : (current?.reserveGridKw ?? null);
+    if (
+      maxGridImportKw !== null &&
+      reserveGridKw !== null &&
+      reserveGridKw > maxGridImportKw
+    ) {
+      throw new BadRequestException(
+        'reserveGridKw cannot exceed maxGridImportKw',
+      );
+    }
+
+    const solarEnabled = solarEnabledInput ?? current?.solarEnabled ?? false;
+    let maxSolarContributionKw =
+      maxSolarContributionKwInput !== undefined
+        ? maxSolarContributionKwInput
+        : (current?.maxSolarContributionKw ?? null);
+    if (!solarEnabled) {
+      maxSolarContributionKw = null;
+    }
+
+    const bessEnabled = bessEnabledInput ?? current?.bessEnabled ?? false;
+    let maxBessDischargeKw =
+      maxBessDischargeKwInput !== undefined
+        ? maxBessDischargeKwInput
+        : (current?.maxBessDischargeKw ?? null);
+    if (!bessEnabled) {
+      maxBessDischargeKw = null;
+    }
+
+    const bessSocPercent =
+      bessSocPercentInput !== undefined
+        ? bessSocPercentInput
+        : (current?.bessSocPercent ?? null);
+    const bessReserveSocPercent =
+      bessReserveSocPercentInput !== undefined
+        ? bessReserveSocPercentInput
+        : (current?.bessReserveSocPercent ?? null);
+
+    const forecast =
+      forecastInput !== undefined ? forecastInput : (current?.forecast ?? null);
+    const metadata =
+      metadataInput !== undefined ? metadataInput : (current?.metadata ?? null);
+    const forecastValue = forecast === null ? Prisma.JsonNull : forecast;
+    const metadataValue = metadata === null ? Prisma.JsonNull : metadata;
+
+    const profile = await this.prisma.energyDerProfile.upsert({
+      where: {
+        tenantId_stationId: {
+          tenantId,
+          stationId: station.id,
+        },
+      },
+      create: {
+        tenantId,
+        organizationId: station.organizationId,
+        stationId: station.id,
+        siteId: station.siteId,
+        status,
+        maxGridImportKw,
+        reserveGridKw,
+        solarEnabled,
+        maxSolarContributionKw,
+        bessEnabled,
+        maxBessDischargeKw,
+        bessSocPercent,
+        bessReserveSocPercent,
+        forecast: forecastValue,
+        metadata: metadataValue,
+        createdBy: actorId || null,
+        updatedBy: actorId || null,
+      },
+      update: {
+        status,
+        maxGridImportKw,
+        reserveGridKw,
+        solarEnabled,
+        maxSolarContributionKw,
+        bessEnabled,
+        maxBessDischargeKw,
+        bessSocPercent,
+        bessReserveSocPercent,
+        forecast: forecastValue,
+        metadata: metadataValue,
+        updatedBy: actorId || current?.updatedBy || null,
+      },
+    });
+
+    return {
+      stationId: station.id,
+      siteId: station.siteId,
+      organizationId: station.organizationId,
+      profile: this.toDerProfileResponse(profile),
+      constraints: this.buildDerConstraintSummary(profile),
+      note: 'DER orchestration profile updated successfully.',
+    };
   }
 
   async createGroup(input: GroupInput) {
@@ -1497,14 +1687,17 @@ export class EnergyManagementService {
     return tenantId;
   }
 
-  private async assertStationExists(
-    stationId: string,
-  ): Promise<{ id: string }> {
+  private async assertStationExists(stationId: string): Promise<{
+    id: string;
+    siteId: string | null;
+    organizationId: string;
+  }> {
     const tenantId = this.resolveTenantId();
     const station = await this.prisma.station.findUnique({
       where: { id: stationId },
       select: {
         id: true,
+        siteId: true,
         orgId: true,
         site: { select: { organizationId: true } },
       },
@@ -1520,7 +1713,181 @@ export class EnergyManagementService {
       throw new NotFoundException('Station not found');
     }
 
-    return { id: station.id };
+    return {
+      id: station.id,
+      siteId: station.siteId ?? null,
+      organizationId: stationTenantId || tenantId,
+    };
+  }
+
+  private normalizeDerStatus(value: unknown): string | null {
+    const normalized = this.readString(value)?.toUpperCase();
+    if (!normalized) return null;
+    if (!DER_PROFILE_STATUS.has(normalized)) {
+      throw new BadRequestException(
+        `Invalid DER profile status "${String(value)}". Allowed values: ${Array.from(DER_PROFILE_STATUS).join(', ')}`,
+      );
+    }
+    return normalized;
+  }
+
+  private buildDerConstraintSummary(
+    profile: {
+      status: string;
+      maxGridImportKw: number | null;
+      reserveGridKw: number | null;
+      solarEnabled: boolean;
+      maxSolarContributionKw: number | null;
+      bessEnabled: boolean;
+      maxBessDischargeKw: number | null;
+      bessSocPercent: number | null;
+      bessReserveSocPercent: number | null;
+    } | null,
+  ): Record<string, unknown> {
+    if (!profile || profile.status !== 'ACTIVE') {
+      return {
+        profileActive: false,
+        gridHeadroomKw: null,
+        solarContributionKw: 0,
+        bessContributionKw: 0,
+        totalAvailableKw: null,
+        effectiveMaxChargingAmps: null,
+        bessDischargeAllowed: false,
+      };
+    }
+
+    const gridHeadroomKw =
+      profile.maxGridImportKw === null
+        ? null
+        : Math.max(0, profile.maxGridImportKw - (profile.reserveGridKw ?? 0));
+    const solarContributionKw = profile.solarEnabled
+      ? Math.max(0, profile.maxSolarContributionKw ?? 0)
+      : 0;
+    const bessDischargeAllowed =
+      profile.bessEnabled &&
+      (profile.bessSocPercent ?? 100) > (profile.bessReserveSocPercent ?? 0);
+    const bessContributionKw = bessDischargeAllowed
+      ? Math.max(0, profile.maxBessDischargeKw ?? 0)
+      : 0;
+
+    const totalAvailableKw =
+      (gridHeadroomKw ?? 0) + solarContributionKw + bessContributionKw;
+    const effectiveMaxChargingAmps = Math.max(
+      0,
+      Math.floor((totalAvailableKw * 1000) / (3 * 230)),
+    );
+
+    return {
+      profileActive: true,
+      gridHeadroomKw,
+      solarContributionKw,
+      bessContributionKw,
+      totalAvailableKw: Number(totalAvailableKw.toFixed(4)),
+      effectiveMaxChargingAmps,
+      bessDischargeAllowed,
+    };
+  }
+
+  private toDerProfileResponse(profile: {
+    id: string;
+    tenantId: string;
+    organizationId: string;
+    stationId: string;
+    siteId: string | null;
+    status: string;
+    maxGridImportKw: number | null;
+    reserveGridKw: number | null;
+    solarEnabled: boolean;
+    maxSolarContributionKw: number | null;
+    bessEnabled: boolean;
+    maxBessDischargeKw: number | null;
+    bessSocPercent: number | null;
+    bessReserveSocPercent: number | null;
+    forecast: Prisma.JsonValue | null;
+    metadata: Prisma.JsonValue | null;
+    createdBy: string | null;
+    updatedBy: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }): Record<string, unknown> {
+    return {
+      id: profile.id,
+      tenantId: profile.tenantId,
+      organizationId: profile.organizationId,
+      stationId: profile.stationId,
+      siteId: profile.siteId,
+      status: profile.status,
+      maxGridImportKw: profile.maxGridImportKw,
+      reserveGridKw: profile.reserveGridKw,
+      solarEnabled: profile.solarEnabled,
+      maxSolarContributionKw: profile.maxSolarContributionKw,
+      bessEnabled: profile.bessEnabled,
+      maxBessDischargeKw: profile.maxBessDischargeKw,
+      bessSocPercent: profile.bessSocPercent,
+      bessReserveSocPercent: profile.bessReserveSocPercent,
+      forecast: profile.forecast,
+      metadata: profile.metadata,
+      createdBy: profile.createdBy,
+      updatedBy: profile.updatedBy,
+      createdAt: profile.createdAt.toISOString(),
+      updatedAt: profile.updatedAt.toISOString(),
+    };
+  }
+
+  private readOptionalBooleanInput(
+    value: unknown,
+    field: string,
+  ): boolean | undefined {
+    if (value === undefined) return undefined;
+    const parsed = this.readBoolean(value);
+    if (parsed === undefined) {
+      throw new BadRequestException(`${field} must be a boolean value`);
+    }
+    return parsed;
+  }
+
+  private readOptionalNonNegativeFloatInput(
+    value: unknown,
+    field: string,
+  ): number | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null || value === '') return null;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      throw new BadRequestException(
+        `${field} must be a non-negative numeric value`,
+      );
+    }
+    return Number(parsed.toFixed(4));
+  }
+
+  private readOptionalPercentInput(
+    value: unknown,
+    field: string,
+  ): number | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null || value === '') return null;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
+      throw new BadRequestException(
+        `${field} must be a numeric percentage between 0 and 100`,
+      );
+    }
+    return Number(parsed.toFixed(2));
+  }
+
+  private normalizeOptionalJsonInput(
+    value: unknown,
+    field: string,
+  ): Prisma.InputJsonValue | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    if (typeof value !== 'object') {
+      throw new BadRequestException(
+        `${field} must be a JSON object or array when provided`,
+      );
+    }
+    return value as Prisma.InputJsonValue;
   }
 
   private normalizeControlMode(value: unknown): EnergyControlMode | null {

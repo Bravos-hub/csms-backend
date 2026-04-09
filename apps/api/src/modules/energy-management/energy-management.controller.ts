@@ -49,6 +49,26 @@ export class EnergyManagementController {
     return this.energyManagement.listGroups({ stationId });
   }
 
+  @Get('stations/:stationId/der-profile')
+  @RequirePermissions('smart_charging.read')
+  getStationDerProfile(@Param('stationId') stationId: string) {
+    return this.energyManagement.getStationDerProfile(stationId);
+  }
+
+  @Put('stations/:stationId/der-profile')
+  @RequirePermissions('smart_charging.write')
+  upsertStationDerProfile(
+    @Param('stationId') stationId: string,
+    @Body() body: Record<string, unknown>,
+    @Req() request: RequestWithUser,
+  ) {
+    return this.energyManagement.upsertStationDerProfile(
+      stationId,
+      body,
+      this.resolveActorId(request),
+    );
+  }
+
   @Get('groups/:id')
   @RequirePermissions('smart_charging.read')
   getGroup(@Param('id') id: string) {

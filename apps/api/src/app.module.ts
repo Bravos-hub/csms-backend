@@ -56,6 +56,9 @@ import { TenantRbacModule } from './modules/tenant-rbac/tenant-rbac.module';
 import { TenantProvisioningModule } from './modules/tenant-provisioning/tenant-provisioning.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { FleetModule } from './modules/fleet/fleet.module';
+import { PncModule } from './modules/pnc/pnc.module';
+import { EnterpriseIamModule } from './modules/enterprise-iam/enterprise-iam.module';
+import { DeveloperPlatformModule } from './modules/developer-platform/developer-platform.module';
 
 @Module({
   imports: [
@@ -118,6 +121,9 @@ import { FleetModule } from './modules/fleet/fleet.module';
     TenantRbacModule,
     PlatformModule,
     FleetModule,
+    PncModule,
+    EnterpriseIamModule,
+    DeveloperPlatformModule,
   ],
   controllers: [AppController],
   providers: [

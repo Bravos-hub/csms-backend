@@ -96,6 +96,26 @@ export class EnergyOptimizationService {
       station.id,
       this.readOptionalString(input.groupId),
     );
+    const derProfile = await this.prisma.energyDerProfile.findUnique({
+      where: {
+        tenantId_stationId: {
+          tenantId,
+          stationId: station.id,
+        },
+      },
+      select: {
+        status: true,
+        maxGridImportKw: true,
+        reserveGridKw: true,
+        solarEnabled: true,
+        maxSolarContributionKw: true,
+        bessEnabled: true,
+        maxBessDischargeKw: true,
+        bessSocPercent: true,
+        bessReserveSocPercent: true,
+      },
+    });
+    const derConstraint = this.computeDerConstraint(derProfile);
 
     const windowStart = this.readDate(input.windowStart) || new Date();
     const requestedEnd = this.readDate(input.windowEnd);
@@ -125,9 +145,16 @@ export class EnergyOptimizationService {
           group.siteLimitAmpsPhase3,
         ])
       : null;
-    const maxChargeAmps = capacityFromGroup
-      ? Math.max(1, Math.min(maxChargeAmpsInput, capacityFromGroup))
-      : maxChargeAmpsInput;
+    const derMaxAmps =
+      derConstraint.effectiveMaxChargingAmps &&
+      derConstraint.effectiveMaxChargingAmps > 0
+        ? derConstraint.effectiveMaxChargingAmps
+        : null;
+    const maxChargeAmps = Math.max(
+      1,
+      this.minPositive([maxChargeAmpsInput, capacityFromGroup, derMaxAmps]) ??
+        maxChargeAmpsInput,
+    );
     const minChargeAmps = Math.max(
       0,
       Math.min(minChargeAmpsInput, maxChargeAmps),
@@ -147,7 +174,10 @@ export class EnergyOptimizationService {
     const bands = tariff ? this.parseTariffBands(tariff.bands) : [];
     const hasConsistentBands =
       tariff && this.evaluateBandConsistency(bands).isConsistent;
-    const shouldFallback = Boolean(fallbackReason) || !hasConsistentBands;
+    const shouldFallback =
+      Boolean(fallbackReason) ||
+      Boolean(derConstraint.fallbackReason) ||
+      !hasConsistentBands;
 
     let schedule: ScheduleEntry[] = [];
     let summary: Record<string, unknown> = {};
@@ -171,11 +201,15 @@ export class EnergyOptimizationService {
         mode: 'DLM_FALLBACK',
         explanation:
           fallbackReason ||
+          derConstraint.fallbackReason ||
           'Tariff bands are inconsistent; scheduler deferred to Phase 1 DLM.',
       };
       diagnostics = {
         fallback: true,
-        reason: fallbackReason || 'INCONSISTENT_TARIFF_BANDS',
+        reason:
+          fallbackReason ||
+          derConstraint.fallbackReason ||
+          'INCONSISTENT_TARIFF_BANDS',
       };
     }
 
@@ -193,7 +227,9 @@ export class EnergyOptimizationService {
         tariffCalendarId: tariff?.id || explicitTariffCalendarId || null,
         state,
         fallbackReason: shouldFallback
-          ? fallbackReason || 'INCONSISTENT_TARIFF_BANDS'
+          ? fallbackReason ||
+            derConstraint.fallbackReason ||
+            'INCONSISTENT_TARIFF_BANDS'
           : null,
         windowStart,
         windowEnd,
@@ -207,6 +243,7 @@ export class EnergyOptimizationService {
             ),
           ),
           departureTime: departureTime?.toISOString() || null,
+          derConstraint,
         } as unknown as Prisma.InputJsonValue,
         summary: summary as Prisma.InputJsonValue,
         schedule:
@@ -215,6 +252,7 @@ export class EnergyOptimizationService {
             : undefined,
         diagnostics: {
           ...diagnostics,
+          derConstraint,
           tariffStatus: tariff?.status || 'MISSING',
           tariffCalendarId: tariff?.id || null,
           tariffVersion: tariff?.version || null,
@@ -312,6 +350,83 @@ export class EnergyOptimizationService {
       return 'STALE_TARIFF';
     }
     return null;
+  }
+
+  private computeDerConstraint(
+    profile: {
+      status: string;
+      maxGridImportKw: number | null;
+      reserveGridKw: number | null;
+      solarEnabled: boolean;
+      maxSolarContributionKw: number | null;
+      bessEnabled: boolean;
+      maxBessDischargeKw: number | null;
+      bessSocPercent: number | null;
+      bessReserveSocPercent: number | null;
+    } | null,
+  ) {
+    if (!profile) {
+      return {
+        profileActive: false,
+        profileStatus: null as string | null,
+        gridHeadroomKw: null as number | null,
+        solarContributionKw: 0,
+        bessContributionKw: 0,
+        bessDischargeAllowed: false,
+        totalAvailableKw: null as number | null,
+        effectiveMaxChargingAmps: null as number | null,
+        fallbackReason: null as string | null,
+      };
+    }
+
+    const profileActive = profile.status === 'ACTIVE';
+    if (!profileActive) {
+      return {
+        profileActive: false,
+        profileStatus: profile.status,
+        gridHeadroomKw: null as number | null,
+        solarContributionKw: 0,
+        bessContributionKw: 0,
+        bessDischargeAllowed: false,
+        totalAvailableKw: null as number | null,
+        effectiveMaxChargingAmps: null as number | null,
+        fallbackReason: null as string | null,
+      };
+    }
+
+    const gridHeadroomKw =
+      profile.maxGridImportKw === null
+        ? null
+        : Math.max(0, profile.maxGridImportKw - (profile.reserveGridKw ?? 0));
+    const solarContributionKw = profile.solarEnabled
+      ? Math.max(0, profile.maxSolarContributionKw ?? 0)
+      : 0;
+    const bessDischargeAllowed =
+      profile.bessEnabled &&
+      (profile.bessSocPercent ?? 100) > (profile.bessReserveSocPercent ?? 0);
+    const bessContributionKw = bessDischargeAllowed
+      ? Math.max(0, profile.maxBessDischargeKw ?? 0)
+      : 0;
+
+    const totalAvailableKw =
+      (gridHeadroomKw ?? 0) + solarContributionKw + bessContributionKw;
+    const effectiveMaxChargingAmps = Math.max(
+      0,
+      Math.floor((totalAvailableKw * 1000) / (3 * 230)),
+    );
+
+    return {
+      profileActive: true,
+      profileStatus: profile.status,
+      gridHeadroomKw,
+      solarContributionKw,
+      bessContributionKw,
+      bessDischargeAllowed,
+      totalAvailableKw: Number(totalAvailableKw.toFixed(4)),
+      effectiveMaxChargingAmps,
+      fallbackReason:
+        effectiveMaxChargingAmps <= 0 ? 'DER_CONSTRAINT_ZERO_HEADROOM' : null,
+    };
   }
 
   private parseTariffBands(value: Prisma.JsonValue): TariffBand[] {

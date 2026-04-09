@@ -316,6 +316,15 @@ model Organization {
   fleetDriverGroups FleetDriverGroup[]
   fleetDrivers FleetDriver[]
   fleetDriverTokens FleetDriverToken[]
+  pncContracts PncContract[]
+  pncCertificates PncContractCertificate[]
+  pncCertificateEvents PncCertificateEvent[]
+  enterpriseIdentityProviders EnterpriseIdentityProvider[]
+  enterpriseIdentitySyncJobs EnterpriseIdentitySyncJob[]
+  developerApps DeveloperApp[]
+  developerApiKeys DeveloperApiKey[]
+  developerApiUsage DeveloperApiUsage[]
+  energyDerProfiles EnergyDerProfile[]
   wallets     Wallet[]
   paymentMethods PaymentMethod[]
   paymentIntents PaymentIntent[]
@@ -738,6 +747,7 @@ model Station {
   attendantAssignmentRequests AttendantAssignmentRequest[]
   stationTeamAssignments      StationTeamAssignment[]
   batteryPacks                BatteryPack[]
+  energyDerProfiles           EnergyDerProfile[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1078,6 +1088,240 @@ model EnergyPlanRun {
   @@map("energy_plan_runs")
   @@index([tenantId, stationId, startedAt])
   @@index([tenantId, state, startedAt])
+}
+
+model EnergyDerProfile {
+  id                          String   @id @default(uuid())
+  tenantId                    String   @map("tenant_id")
+  organizationId              String   @map("organization_id")
+  stationId                   String   @map("station_id")
+  siteId                      String?  @map("site_id")
+  status                      String   @default("ACTIVE")
+  maxGridImportKw             Float?   @map("max_grid_import_kw")
+  reserveGridKw               Float?   @map("reserve_grid_kw")
+  solarEnabled                Boolean  @default(false) @map("solar_enabled")
+  maxSolarContributionKw      Float?   @map("max_solar_contribution_kw")
+  bessEnabled                 Boolean  @default(false) @map("bess_enabled")
+  maxBessDischargeKw          Float?   @map("max_bess_discharge_kw")
+  bessSocPercent              Float?   @map("bess_soc_percent")
+  bessReserveSocPercent       Float?   @map("bess_reserve_soc_percent")
+  forecast                    Json?    @map("forecast")
+  metadata                    Json?
+  createdBy                   String?  @map("created_by")
+  updatedBy                   String?  @map("updated_by")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  station                     Station  @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  organization                Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("energy_der_profiles")
+  @@unique([tenantId, stationId])
+  @@index([organizationId, status])
+  @@index([tenantId, status, updatedAt])
+}
+
+model PncContract {
+  id                 String   @id @default(uuid())
+  organizationId     String   @map("organization_id")
+  contractRef        String   @map("contract_ref")
+  eMobilityAccountId String?  @map("e_mobility_account_id")
+  providerPartyId    String?  @map("provider_party_id")
+  vehicleVin         String?  @map("vehicle_vin")
+  status             String   @default("ACTIVE")
+  metadata           Json?
+  createdBy          String?  @map("created_by")
+  updatedBy          String?  @map("updated_by")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  certificates       PncContractCertificate[]
+
+  @@map("pnc_contracts")
+  @@unique([organizationId, contractRef])
+  @@index([organizationId, status])
+}
+
+model PncContractCertificate {
+  id                  String   @id @default(uuid())
+  contractId          String   @map("contract_id")
+  organizationId      String   @map("organization_id")
+  certificateHash     String   @map("certificate_hash")
+  certificateType     String   @default("CONTRACT") @map("certificate_type")
+  status              String   @default("ACTIVE")
+  validFrom           DateTime? @map("valid_from")
+  validTo             DateTime? @map("valid_to")
+  revokedAt           DateTime? @map("revoked_at")
+  revocationReason    String?   @map("revocation_reason")
+  mappedChargePointIds Json?    @map("mapped_charge_point_ids")
+  diagnostics         Json?
+  createdBy           String?   @map("created_by")
+  updatedBy           String?   @map("updated_by")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  contract            PncContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  events              PncCertificateEvent[]
+
+  @@map("pnc_contract_certificates")
+  @@unique([organizationId, certificateHash])
+  @@index([contractId, status])
+  @@index([organizationId, status, validTo])
+}
+
+model PncCertificateEvent {
+  id               String   @id @default(uuid())
+  certificateId    String   @map("certificate_id")
+  organizationId   String   @map("organization_id")
+  eventType        String   @map("event_type")
+  status           String?
+  details          Json?
+  occurredAt       DateTime @default(now()) @map("occurred_at")
+  createdBy        String?  @map("created_by")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  certificate      PncContractCertificate @relation(fields: [certificateId], references: [id], onDelete: Cascade)
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("pnc_certificate_events")
+  @@index([certificateId, occurredAt])
+  @@index([organizationId, eventType, occurredAt])
+}
+
+model EnterpriseIdentityProvider {
+  id                String   @id @default(uuid())
+  organizationId    String   @map("organization_id")
+  name              String
+  protocol          String
+  status            String   @default("ACTIVE")
+  issuerUrl         String?  @map("issuer_url")
+  authorizationUrl  String?  @map("authorization_url")
+  tokenUrl          String?  @map("token_url")
+  userInfoUrl       String?  @map("user_info_url")
+  jwksUrl           String?  @map("jwks_url")
+  samlMetadataUrl   String?  @map("saml_metadata_url")
+  samlEntityId      String?  @map("saml_entity_id")
+  samlAcsUrl        String?  @map("saml_acs_url")
+  clientId          String?  @map("client_id")
+  clientSecretRef   String?  @map("client_secret_ref")
+  roleMappings      Json?    @map("role_mappings")
+  syncMode          String   @default("MANUAL_IMPORT") @map("sync_mode")
+  lastSyncAt        DateTime? @map("last_sync_at")
+  metadata          Json?
+  createdBy         String?  @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  syncJobs          EnterpriseIdentitySyncJob[]
+
+  @@map("enterprise_identity_providers")
+  @@unique([organizationId, name])
+  @@index([organizationId, status])
+}
+
+model EnterpriseIdentitySyncJob {
+  id               String   @id @default(uuid())
+  providerId       String   @map("provider_id")
+  organizationId   String   @map("organization_id")
+  triggerType      String   @default("MANUAL_IMPORT") @map("trigger_type")
+  status           String   @default("REVIEW_REQUIRED")
+  importedUsers    Int      @default(0) @map("imported_users")
+  importedGroups   Int      @default(0) @map("imported_groups")
+  rejectedRecords  Int      @default(0) @map("rejected_records")
+  payloadDigest    String?  @map("payload_digest")
+  summary          Json?
+  startedAt        DateTime @default(now()) @map("started_at")
+  completedAt      DateTime? @map("completed_at")
+  createdBy        String?  @map("created_by")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  provider         EnterpriseIdentityProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("enterprise_identity_sync_jobs")
+  @@index([providerId, createdAt])
+  @@index([organizationId, status, createdAt])
+}
+
+model DeveloperApp {
+  id                    String   @id @default(uuid())
+  organizationId        String   @map("organization_id")
+  name                  String
+  slug                  String
+  description           String?
+  status                String   @default("ACTIVE")
+  defaultRateLimitPerMin Int     @default(120) @map("default_rate_limit_per_min")
+  metadata              Json?
+  createdBy             String?  @map("created_by")
+  updatedBy             String?  @map("updated_by")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  apiKeys               DeveloperApiKey[]
+  usageRecords          DeveloperApiUsage[]
+
+  @@map("developer_apps")
+  @@unique([organizationId, slug])
+  @@index([organizationId, status, updatedAt])
+}
+
+model DeveloperApiKey {
+  id               String   @id @default(uuid())
+  appId            String   @map("app_id")
+  organizationId   String   @map("organization_id")
+  name             String
+  keyPrefix        String   @unique @map("key_prefix")
+  secretHash       String   @map("secret_hash")
+  secretSalt       String   @map("secret_salt")
+  scopes           Json?
+  rateLimitPerMin  Int      @default(120) @map("rate_limit_per_min")
+  status           String   @default("ACTIVE")
+  lastUsedAt       DateTime? @map("last_used_at")
+  revokedAt        DateTime? @map("revoked_at")
+  metadata         Json?
+  createdBy        String?  @map("created_by")
+  updatedBy        String?  @map("updated_by")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  app              DeveloperApp @relation(fields: [appId], references: [id], onDelete: Cascade)
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  usageRecords     DeveloperApiUsage[]
+
+  @@map("developer_api_keys")
+  @@index([appId, status])
+  @@index([organizationId, status, updatedAt])
+}
+
+model DeveloperApiUsage {
+  id             String   @id @default(uuid())
+  appId          String   @map("app_id")
+  apiKeyId       String   @map("api_key_id")
+  organizationId String   @map("organization_id")
+  route          String
+  method         String
+  windowStart    DateTime @map("window_start")
+  windowEnd      DateTime @map("window_end")
+  requestCount   Int      @default(0) @map("request_count")
+  deniedCount    Int      @default(0) @map("denied_count")
+  latestReason   String?  @map("latest_reason")
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  app            DeveloperApp @relation(fields: [appId], references: [id], onDelete: Cascade)
+  apiKey         DeveloperApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("developer_api_usage")
+  @@unique([apiKeyId, route, method, windowStart])
+  @@index([organizationId, windowStart])
+  @@index([appId, windowStart])
 }
 
 model Booking {
