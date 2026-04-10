@@ -118,16 +118,16 @@ New-Item -ItemType Directory -Path $root -Force | Out-Null
 $runDir = Join-Path $root ("{0}-{1}-{2}" -f $startedUtc.ToString('yyyy-MM-dd'), (S $EnvironmentLabel), $runId)
 New-Item -ItemType Directory -Path $runDir -Force | Out-Null
 
-$host = ([System.Uri]$ApiBaseUrl).Host
-$isProd = $host -ieq 'api.evzonecharging.com'
+$targetHost = ([System.Uri]$ApiBaseUrl).Host
+$isProd = $targetHost -ieq 'api.evzonecharging.com'
 Write-Host "Target: $ApiBaseUrl"
 Write-Host "Output: $runDir"
 if ($isProd) { Write-Host 'WARN: target is production host.' -ForegroundColor Yellow }
 
 Scenario 'Preflight and endpoint reachability' {
   if (-not $SkipDnsCheck) {
-    $ips = @(Resolve-DnsName -Name $host -ErrorAction Stop | Where-Object { $_.IPAddress } | Select-Object -ExpandProperty IPAddress)
-    if ($ips.Count -eq 0) { throw "DNS resolution failed for $host" }
+    $ips = @(Resolve-DnsName -Name $targetHost -ErrorAction Stop | Where-Object { $_.IPAddress } | Select-Object -ExpandProperty IPAddress)
+    if ($ips.Count -eq 0) { throw "DNS resolution failed for $targetHost" }
   }
   [void](R $runDir 'Preflight and endpoint reachability' 'health' 'GET' $ApiBaseUrl '/health' @{} $null @(200) $TimeoutSeconds)
   [void](R $runDir 'Preflight and endpoint reachability' 'health_ready' 'GET' $ApiBaseUrl '/health/ready' @{} $null @(200) $TimeoutSeconds)
