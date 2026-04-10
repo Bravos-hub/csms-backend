@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { TenantContextService } from '@app/db';
@@ -25,6 +26,8 @@ const CERTIFICATE_TYPE = new Set(['CONTRACT', 'PROVISIONING', 'ROOT']);
 
 @Injectable()
 export class PncService {
+  private readonly logger = new Logger(PncService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenantContext: TenantContextService,
@@ -156,7 +159,7 @@ export class PncService {
     const contractRef = this.requiredTrimmed(dto.contractRef, 'contractRef');
 
     try {
-      return await this.prisma.pncContract.create({
+      const created = await this.prisma.pncContract.create({
         data: {
           organizationId: tenantId,
           contractRef,
@@ -171,11 +174,34 @@ export class PncService {
           updatedBy: actorId,
         },
       });
+      await this.recordAuditEvent({
+        actorId,
+        action: 'PNC_CONTRACT_CREATED',
+        resource: 'PncContract',
+        resourceId: created.id,
+        details: {
+          tenantId,
+          contractRef: created.contractRef,
+          status: created.status,
+        },
+      });
+      return created;
     } catch (error) {
       this.handleKnownPrismaError(
         error,
         'PnC contract reference already exists for this tenant',
       );
+      await this.recordAuditEvent({
+        actorId,
+        action: 'PNC_CONTRACT_CREATE_FAILED',
+        resource: 'PncContract',
+        details: {
+          tenantId,
+          contractRef,
+        },
+        status: 'FAILED',
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   }
@@ -189,7 +215,7 @@ export class PncService {
     await this.assertTenantActor(actorId, tenantId);
     await this.assertContractInTenant(contractId, tenantId);
 
-    return this.prisma.pncContract.update({
+    const updated = await this.prisma.pncContract.update({
       where: { id: contractId },
       data: {
         ...(dto.eMobilityAccountId !== undefined
@@ -216,6 +242,17 @@ export class PncService {
         updatedBy: actorId,
       },
     });
+    await this.recordAuditEvent({
+      actorId,
+      action: 'PNC_CONTRACT_UPDATED',
+      resource: 'PncContract',
+      resourceId: updated.id,
+      details: {
+        tenantId,
+        status: updated.status,
+      },
+    });
+    return updated;
   }
 
   async issueCertificate(
@@ -282,6 +319,17 @@ export class PncService {
         mappedChargePointCount: mappedChargePointIds.length,
       },
     });
+    await this.recordAuditEvent({
+      actorId,
+      action: 'PNC_CERTIFICATE_ISSUED',
+      resource: 'PncContractCertificate',
+      resourceId: certificateId,
+      details: {
+        tenantId,
+        contractId,
+        mappedChargePointCount: mappedChargePointIds.length,
+      },
+    });
 
     return this.getCertificateDiagnostics(actorId, certificateId);
   }
@@ -316,6 +364,16 @@ export class PncService {
       eventType: 'REVOKED',
       status: 'REVOKED',
       details: { reason },
+    });
+    await this.recordAuditEvent({
+      actorId,
+      action: 'PNC_CERTIFICATE_REVOKED',
+      resource: 'PncContractCertificate',
+      resourceId: certificate.id,
+      details: {
+        tenantId,
+        reason,
+      },
     });
 
     return this.getCertificateDiagnostics(actorId, certificate.id);
@@ -636,6 +694,35 @@ export class PncService {
       error.code === 'P2002'
     ) {
       throw new BadRequestException(message);
+    }
+  }
+
+  private async recordAuditEvent(input: {
+    actorId: string;
+    action: string;
+    resource: string;
+    resourceId?: string;
+    details?: Record<string, unknown>;
+    status?: string;
+    errorMessage?: string;
+  }): Promise<void> {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          actor: input.actorId,
+          action: input.action,
+          resource: input.resource,
+          resourceId: input.resourceId,
+          details: input.details as Prisma.InputJsonValue | undefined,
+          status: input.status || 'SUCCESS',
+          errorMessage: input.errorMessage,
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to record PnC audit event ${input.action}`,
+        String(error).replace(/[\n\r]/g, ''),
+      );
     }
   }
 }

@@ -213,4 +213,31 @@ describe('OcpiInternalController', () => {
     expect(prisma.chargePoint.findUnique).not.toHaveBeenCalled();
     expect(commandsService.enqueueCommand).not.toHaveBeenCalled();
   });
+
+  it('returns existing command for replayed requestId without enqueueing', async () => {
+    prisma.command.findFirst.mockResolvedValue({
+      id: 'existing-cmd-1',
+      status: 'Queued',
+    });
+
+    const result = await controller.createCommandRequest({
+      version: '2.2.1',
+      role: 'cpo',
+      command: 'RESERVE_NOW',
+      requestId: 'req-duplicate-1',
+      request: {
+        evse_uid: 'CP-5',
+        reservation_id: 501,
+        expiry_date: '2026-03-30T12:00:00.000Z',
+      },
+    });
+
+    expect(result).toEqual({
+      result: 'ACCEPTED',
+      requestId: 'req-duplicate-1',
+      commandId: 'existing-cmd-1',
+    });
+    expect(commandsService.enqueueCommand).not.toHaveBeenCalled();
+    expect(prisma.chargePoint.findUnique).not.toHaveBeenCalled();
+  });
 });

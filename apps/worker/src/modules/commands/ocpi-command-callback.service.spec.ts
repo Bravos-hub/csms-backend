@@ -192,4 +192,26 @@ describe('OcpiCommandCallbackService', () => {
       }),
     );
   });
+
+  it('skips delivery when callback was already marked as delivered', async () => {
+    commandPayload = {
+      ocpi: {
+        callbackDeliveryStatus: 'DELIVERED',
+        callbackDeliveredAt: '2026-04-10T10:00:00.000Z',
+      },
+    };
+    prisma.command.update.mockClear();
+
+    await service.deliver({
+      commandId: 'cmd-4',
+      requestId: 'req-4',
+      command: 'START_SESSION',
+      responseUrl: 'https://partner.example.com/callback',
+      partnerId: 'partner-1',
+      status: 'Accepted',
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(prisma.command.update).not.toHaveBeenCalled();
+  });
 });

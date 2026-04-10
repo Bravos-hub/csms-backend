@@ -287,6 +287,21 @@ export class EnergyManagementService {
         updatedBy: actorId || current?.updatedBy || null,
       },
     });
+    await this.recordAuditEvent({
+      actorId: actorId || 'system:energy-management',
+      action: 'ENERGY_DER_PROFILE_UPSERTED',
+      resource: 'EnergyDerProfile',
+      resourceId: profile.id,
+      details: {
+        tenantId,
+        stationId: station.id,
+        status: profile.status,
+        maxGridImportKw: profile.maxGridImportKw,
+        reserveGridKw: profile.reserveGridKw,
+        solarEnabled: profile.solarEnabled,
+        bessEnabled: profile.bessEnabled,
+      },
+    });
 
     return {
       stationId: station.id,
@@ -767,7 +782,7 @@ export class EnergyManagementService {
     if (!expiresAt) throw new BadRequestException('expiresAt must be valid');
     if (capAmps === null) throw new BadRequestException('capAmps is required');
 
-    await this.prisma.energyManualOverride.create({
+    const created = await this.prisma.energyManualOverride.create({
       data: {
         groupId: group.id,
         reason,
@@ -775,6 +790,20 @@ export class EnergyManagementService {
         capAmps,
         expiresAt,
         status: 'ACTIVE',
+      },
+    });
+    await this.recordAuditEvent({
+      actorId: actorId || 'system:energy-management',
+      action: 'ENERGY_MANUAL_OVERRIDE_CREATED',
+      resource: 'EnergyManualOverride',
+      resourceId: created.id,
+      details: {
+        tenantId: group.tenantId,
+        groupId: group.id,
+        stationId: group.stationId,
+        capAmps,
+        expiresAt: expiresAt.toISOString(),
+        reason,
       },
     });
 
@@ -797,6 +826,17 @@ export class EnergyManagementService {
         status: 'CLEARED',
         clearedAt: new Date(),
         requestedBy: actorId || override.requestedBy,
+      },
+    });
+    await this.recordAuditEvent({
+      actorId: actorId || 'system:energy-management',
+      action: 'ENERGY_MANUAL_OVERRIDE_CLEARED',
+      resource: 'EnergyManualOverride',
+      resourceId: override.id,
+      details: {
+        tenantId: group.tenantId,
+        groupId: group.id,
+        stationId: group.stationId,
       },
     });
 
@@ -2362,5 +2402,34 @@ export class EnergyManagementService {
       phase2: Math.max(0, site2 - nonEv2 - buffer2),
       phase3: Math.max(0, site3 - nonEv3 - buffer3),
     };
+  }
+
+  private async recordAuditEvent(input: {
+    actorId: string;
+    action: string;
+    resource: string;
+    resourceId?: string;
+    details?: Record<string, unknown>;
+    status?: string;
+    errorMessage?: string;
+  }): Promise<void> {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          actor: input.actorId,
+          action: input.action,
+          resource: input.resource,
+          resourceId: input.resourceId,
+          details: input.details as Prisma.InputJsonValue | undefined,
+          status: input.status || 'SUCCESS',
+          errorMessage: input.errorMessage,
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to record energy management audit event ${input.action}`,
+        String(error).replace(/[\n\r]/g, ''),
+      );
+    }
   }
 }

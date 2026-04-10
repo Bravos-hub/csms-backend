@@ -5,6 +5,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -37,6 +38,8 @@ export type DeveloperApiKeyContext = {
 
 @Injectable()
 export class DeveloperPlatformService {
+  private readonly logger = new Logger(DeveloperPlatformService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenantContext: TenantContextService,
@@ -166,7 +169,7 @@ export class DeveloperPlatformService {
     );
 
     try {
-      return await this.prisma.developerApp.create({
+      const created = await this.prisma.developerApp.create({
         data: {
           organizationId: tenantId,
           name,
@@ -180,11 +183,36 @@ export class DeveloperPlatformService {
           updatedBy: actorId,
         },
       });
+      await this.recordAuditEvent({
+        actorId,
+        action: 'DEVELOPER_APP_CREATED',
+        resource: 'DeveloperApp',
+        resourceId: created.id,
+        details: {
+          tenantId,
+          status: created.status,
+          defaultRateLimitPerMin: created.defaultRateLimitPerMin,
+          slug: created.slug,
+        },
+      });
+      return created;
     } catch (error) {
       this.handleKnownPrismaError(
         error,
         'Developer app slug must be unique per tenant',
       );
+      await this.recordAuditEvent({
+        actorId,
+        action: 'DEVELOPER_APP_CREATE_FAILED',
+        resource: 'DeveloperApp',
+        details: {
+          tenantId,
+          slug,
+          name,
+        },
+        status: 'FAILED',
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   }
@@ -198,7 +226,7 @@ export class DeveloperPlatformService {
     await this.assertTenantActor(actorId, tenantId);
     await this.assertAppInTenant(appId, tenantId);
 
-    return this.prisma.developerApp.update({
+    const updated = await this.prisma.developerApp.update({
       where: { id: appId },
       data: {
         ...(dto.name !== undefined
@@ -228,6 +256,18 @@ export class DeveloperPlatformService {
         updatedBy: actorId,
       },
     });
+    await this.recordAuditEvent({
+      actorId,
+      action: 'DEVELOPER_APP_UPDATED',
+      resource: 'DeveloperApp',
+      resourceId: updated.id,
+      details: {
+        tenantId,
+        status: updated.status,
+        defaultRateLimitPerMin: updated.defaultRateLimitPerMin,
+      },
+    });
+    return updated;
   }
 
   async createApiKey(
@@ -269,6 +309,19 @@ export class DeveloperPlatformService {
         updatedBy: actorId,
       },
     });
+    await this.recordAuditEvent({
+      actorId,
+      action: 'DEVELOPER_API_KEY_CREATED',
+      resource: 'DeveloperApiKey',
+      resourceId: key.id,
+      details: {
+        tenantId,
+        appId: app.id,
+        keyPrefix: key.keyPrefix,
+        status: key.status,
+        rateLimitPerMin: key.rateLimitPerMin,
+      },
+    });
 
     return {
       ...this.toApiKeySummary(key),
@@ -297,6 +350,17 @@ export class DeveloperPlatformService {
           revokedReason: this.optionalTrimmed(dto.reason),
         } as Prisma.InputJsonValue,
         updatedBy: actorId,
+      },
+    });
+    await this.recordAuditEvent({
+      actorId,
+      action: 'DEVELOPER_API_KEY_REVOKED',
+      resource: 'DeveloperApiKey',
+      resourceId: updated.id,
+      details: {
+        tenantId,
+        keyPrefix: updated.keyPrefix,
+        reason: this.optionalTrimmed(dto.reason),
       },
     });
 
@@ -853,6 +917,35 @@ export class DeveloperPlatformService {
       error.code === 'P2002'
     ) {
       throw new BadRequestException(message);
+    }
+  }
+
+  private async recordAuditEvent(input: {
+    actorId: string;
+    action: string;
+    resource: string;
+    resourceId?: string;
+    details?: Record<string, unknown>;
+    status?: string;
+    errorMessage?: string;
+  }): Promise<void> {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          actor: input.actorId,
+          action: input.action,
+          resource: input.resource,
+          resourceId: input.resourceId,
+          details: input.details as Prisma.InputJsonValue | undefined,
+          status: input.status || 'SUCCESS',
+          errorMessage: input.errorMessage,
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to record developer platform audit event ${input.action}`,
+        String(error).replace(/[\n\r]/g, ''),
+      );
     }
   }
 }

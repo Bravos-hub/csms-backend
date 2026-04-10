@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { TenantContextService } from '@app/db';
@@ -33,6 +34,8 @@ const IMPORT_MODE = new Set(['DRY_RUN', 'REVIEW_REQUIRED', 'APPLY']);
 
 @Injectable()
 export class EnterpriseIamService {
+  private readonly logger = new Logger(EnterpriseIamService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenantContext: TenantContextService,
@@ -140,7 +143,7 @@ export class EnterpriseIamService {
     await this.assertTenantActor(actorId, tenantId);
 
     try {
-      return await this.prisma.enterpriseIdentityProvider.create({
+      const created = await this.prisma.enterpriseIdentityProvider.create({
         data: {
           organizationId: tenantId,
           name: this.requiredTrimmed(dto.name, 'name'),
@@ -169,11 +172,35 @@ export class EnterpriseIamService {
           updatedBy: actorId,
         },
       });
+      await this.recordAuditEvent({
+        actorId,
+        action: 'ENTERPRISE_IAM_PROVIDER_CREATED',
+        resource: 'EnterpriseIdentityProvider',
+        resourceId: created.id,
+        details: {
+          tenantId,
+          protocol: created.protocol,
+          status: created.status,
+          syncMode: created.syncMode,
+        },
+      });
+      return created;
     } catch (error) {
       this.handleKnownPrismaError(
         error,
         'Enterprise identity provider name must be unique per tenant',
       );
+      await this.recordAuditEvent({
+        actorId,
+        action: 'ENTERPRISE_IAM_PROVIDER_CREATE_FAILED',
+        resource: 'EnterpriseIdentityProvider',
+        details: {
+          tenantId,
+          providerName: this.optionalTrimmed(dto.name) || null,
+        },
+        status: 'FAILED',
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   }
@@ -187,7 +214,7 @@ export class EnterpriseIamService {
     await this.assertTenantActor(actorId, tenantId);
     await this.assertProviderInTenant(providerId, tenantId);
 
-    return this.prisma.enterpriseIdentityProvider.update({
+    const updated = await this.prisma.enterpriseIdentityProvider.update({
       where: { id: providerId },
       data: {
         ...(dto.status !== undefined
@@ -245,6 +272,18 @@ export class EnterpriseIamService {
         updatedBy: actorId,
       },
     });
+    await this.recordAuditEvent({
+      actorId,
+      action: 'ENTERPRISE_IAM_PROVIDER_UPDATED',
+      resource: 'EnterpriseIdentityProvider',
+      resourceId: updated.id,
+      details: {
+        tenantId,
+        status: updated.status,
+        syncMode: updated.syncMode,
+      },
+    });
+    return updated;
   }
 
   async updateRoleMappings(
@@ -256,13 +295,25 @@ export class EnterpriseIamService {
     await this.assertTenantActor(actorId, tenantId);
     await this.assertProviderInTenant(providerId, tenantId);
 
-    return this.prisma.enterpriseIdentityProvider.update({
+    const updated = await this.prisma.enterpriseIdentityProvider.update({
       where: { id: providerId },
       data: {
         roleMappings: this.normalizeRoleMappings(dto.roleMappings),
         updatedBy: actorId,
       },
     });
+    await this.recordAuditEvent({
+      actorId,
+      action: 'ENTERPRISE_IAM_ROLE_MAPPINGS_UPDATED',
+      resource: 'EnterpriseIdentityProvider',
+      resourceId: updated.id,
+      details: {
+        tenantId,
+        mappingCount: Object.keys(this.normalizeRoleMappings(dto.roleMappings))
+          .length,
+      },
+    });
+    return updated;
   }
 
   async listSyncJobs(
@@ -374,7 +425,7 @@ export class EnterpriseIamService {
       .update(JSON.stringify(payloadForDigest))
       .digest('hex');
 
-    return this.prisma.enterpriseIdentitySyncJob.create({
+    const created = await this.prisma.enterpriseIdentitySyncJob.create({
       data: {
         providerId: provider.id,
         organizationId: tenantId,
@@ -412,6 +463,23 @@ export class EnterpriseIamService {
         },
       },
     });
+    await this.recordAuditEvent({
+      actorId,
+      action: 'ENTERPRISE_IAM_SYNC_IMPORT_CREATED',
+      resource: 'EnterpriseIdentitySyncJob',
+      resourceId: created.id,
+      details: {
+        tenantId,
+        providerId: provider.id,
+        requestedMode,
+        appliedMode: status,
+        includeGroupsOnly,
+        importedUsers: normalizedUsers.length,
+        importedGroups: normalizedGroups.length,
+        rejectedRecords,
+      },
+    });
+    return created;
   }
 
   private normalizeGroups(
@@ -645,6 +713,35 @@ export class EnterpriseIamService {
       error.code === 'P2002'
     ) {
       throw new BadRequestException(message);
+    }
+  }
+
+  private async recordAuditEvent(input: {
+    actorId: string;
+    action: string;
+    resource: string;
+    resourceId?: string;
+    details?: Record<string, unknown>;
+    status?: string;
+    errorMessage?: string;
+  }): Promise<void> {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          actor: input.actorId,
+          action: input.action,
+          resource: input.resource,
+          resourceId: input.resourceId,
+          details: input.details as Prisma.InputJsonValue | undefined,
+          status: input.status || 'SUCCESS',
+          errorMessage: input.errorMessage,
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to record enterprise IAM audit event ${input.action}`,
+        String(error).replace(/[\n\r]/g, ''),
+      );
     }
   }
 }

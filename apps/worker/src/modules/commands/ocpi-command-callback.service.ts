@@ -25,6 +25,7 @@ export class OcpiCommandCallbackService {
   async deliver(input: CallbackInput): Promise<void> {
     if (!this.isEnabled()) return;
     if (!input.responseUrl) return;
+    if (await this.wasCallbackAlreadyDelivered(input.commandId)) return;
 
     const result = this.mapStatusToOcpiResult(input.status);
     const body: Record<string, unknown> = {
@@ -236,10 +237,32 @@ export class OcpiCommandCallbackService {
     });
   }
 
+  private async wasCallbackAlreadyDelivered(
+    commandId: string,
+  ): Promise<boolean> {
+    const existing = await this.prisma.command.findUnique({
+      where: { id: commandId },
+      select: { payload: true },
+    });
+    if (!existing) return false;
+    const payload = this.ensureObject(existing.payload);
+    const ocpi = this.ensureObject(payload.ocpi);
+    return (
+      this.extractString(ocpi.callbackDeliveryStatus) === 'DELIVERED' &&
+      this.extractString(ocpi.callbackDeliveredAt) !== null
+    );
+  }
+
   private ensureObject(value: unknown): Record<string, unknown> {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       return value as Record<string, unknown>;
     }
     return {};
+  }
+
+  private extractString(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
   }
 }
