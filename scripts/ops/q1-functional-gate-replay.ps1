@@ -19,6 +19,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+if (Get-Alias -Name r -ErrorAction SilentlyContinue) {
+  Remove-Item Alias:r -ErrorAction SilentlyContinue
+}
+
 function V([string]$x, [string]$k) {
   if ($x -and $x.Trim()) { return $x }
   $e = [Environment]::GetEnvironmentVariable($k)
@@ -49,7 +53,20 @@ function N($obj, [string[]]$path) {
   return $cur
 }
 
-function R($runDir, $scenario, $step, $method, $base, $path, $headers, $body, $expected, $timeout) {
+function R {
+  param(
+    [string]$runDir,
+    [string]$scenario,
+    [string]$step,
+    [string]$method,
+    [string]$base,
+    [string]$path,
+    [hashtable]$headers = @{},
+    [object]$body = $null,
+    [int[]]$expected = @(200),
+    [int]$timeout = 20
+  )
+
   $sd = Join-Path $runDir (S $scenario)
   New-Item -ItemType Directory -Path $sd -Force | Out-Null
   if (-not $script:steps.ContainsKey($scenario)) { $script:steps[$scenario] = 0 }
@@ -61,7 +78,11 @@ function R($runDir, $scenario, $step, $method, $base, $path, $headers, $body, $e
   $p = @{ Uri = $url; Method = $method; TimeoutSec = $timeout; Headers = $headers }
   if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey('SkipHttpErrorCheck')) { $p.SkipHttpErrorCheck = $true }
   if ($null -ne $body) { $p.Body = J $body; $p.ContentType = 'application/json' }
-  $resp = Invoke-WebRequest @p
+  try {
+    $resp = Invoke-WebRequest @p
+  } catch {
+    throw ("Invoke-WebRequest failed (url={0}, method={1}, timeout={2}): {3}" -f $url, $method, $timeout, $_.Exception.Message)
+  }
   $code = [int]$resp.StatusCode
   $raw = if ($null -ne $resp.Content) { [string]$resp.Content } else { '' }
   $parsed = $null
@@ -93,6 +114,9 @@ function Scenario([string]$name, [scriptblock]$work) {
     Write-Host "PASS: $name" -ForegroundColor Green
   } catch {
     $msg = $_.Exception.Message
+    if ($_.ScriptStackTrace) {
+      $msg = "$msg | $($_.ScriptStackTrace)"
+    }
     $script:results += @{ name = $name; status = 'FAIL'; notes = $msg; startedAtUtc = $start.ToString('o'); finishedAtUtc = (Get-Date).ToUniversalTime().ToString('o'); artifactCount = ($script:artifacts[$name] | Measure-Object).Count }
     $script:fails += ('{0}: {1}' -f $name, $msg)
     Write-Host "FAIL: $name - $msg" -ForegroundColor Red
@@ -133,8 +157,8 @@ Scenario 'Preflight and endpoint reachability' {
   [void](R $runDir 'Preflight and endpoint reachability' 'health_ready' 'GET' $ApiBaseUrl '/health/ready' @{} $null @(200) $TimeoutSeconds)
 }
 
-$adminToken = ''
-$managerToken = ''
+$script:adminToken = ''
+$script:managerToken = ''
 
 if (-not $PreflightOnly) {
   if (-not $AdminEmail -or -not $AdminPassword -or -not $ManagerEmail -or -not $ManagerPassword) {
@@ -143,33 +167,33 @@ if (-not $PreflightOnly) {
 
   Scenario 'OIDC and RBAC gate' {
     $a = R $runDir 'OIDC and RBAC gate' 'admin_login' 'POST' $ApiBaseUrl '/api/v1/auth/login' @{} @{ email = $AdminEmail; password = $AdminPassword } @(200, 201) $TimeoutSeconds
-    $adminToken = [string](G $a.body 'accessToken')
-    if (-not $adminToken) { throw 'Admin login returned no accessToken.' }
+    $script:adminToken = [string](G $a.body 'accessToken')
+    if (-not $script:adminToken) { throw 'Admin login returned no accessToken.' }
     $m = R $runDir 'OIDC and RBAC gate' 'manager_login' 'POST' $ApiBaseUrl '/api/v1/auth/login' @{} @{ email = $ManagerEmail; password = $ManagerPassword } @(200, 201) $TimeoutSeconds
-    $managerToken = [string](G $m.body 'accessToken')
-    if (-not $managerToken) { throw 'Manager login returned no accessToken.' }
-    [void](R $runDir 'OIDC and RBAC gate' 'admin_enterprise_overview' 'GET' $ApiBaseUrl '/api/v1/enterprise-iam/overview' @{ Authorization = "Bearer $adminToken" } $null @(200) $TimeoutSeconds)
-    [void](R $runDir 'OIDC and RBAC gate' 'admin_developer_overview' 'GET' $ApiBaseUrl '/api/v1/platform/developer/v1/overview' @{ Authorization = "Bearer $adminToken" } $null @(200) $TimeoutSeconds)
-    [void](R $runDir 'OIDC and RBAC gate' 'manager_enterprise_overview_denied' 'GET' $ApiBaseUrl '/api/v1/enterprise-iam/overview' @{ Authorization = "Bearer $managerToken" } $null @(403) $TimeoutSeconds)
-    [void](R $runDir 'OIDC and RBAC gate' 'manager_developer_overview_denied' 'GET' $ApiBaseUrl '/api/v1/platform/developer/v1/overview' @{ Authorization = "Bearer $managerToken" } $null @(403) $TimeoutSeconds)
+    $script:managerToken = [string](G $m.body 'accessToken')
+    if (-not $script:managerToken) { throw 'Manager login returned no accessToken.' }
+    [void](R $runDir 'OIDC and RBAC gate' 'admin_enterprise_overview' 'GET' $ApiBaseUrl '/api/v1/enterprise-iam/overview' @{ Authorization = "Bearer $script:adminToken" } $null @(200) $TimeoutSeconds)
+    [void](R $runDir 'OIDC and RBAC gate' 'admin_developer_overview' 'GET' $ApiBaseUrl '/api/v1/platform/developer/v1/overview' @{ Authorization = "Bearer $script:adminToken" } $null @(200) $TimeoutSeconds)
+    [void](R $runDir 'OIDC and RBAC gate' 'manager_enterprise_overview_denied' 'GET' $ApiBaseUrl '/api/v1/enterprise-iam/overview' @{ Authorization = "Bearer $script:managerToken" } $null @(403) $TimeoutSeconds)
+    [void](R $runDir 'OIDC and RBAC gate' 'manager_developer_overview_denied' 'GET' $ApiBaseUrl '/api/v1/platform/developer/v1/overview' @{ Authorization = "Bearer $script:managerToken" } $null @(403) $TimeoutSeconds)
   }
 
   Scenario 'Enterprise sync import gate' {
-    $h = @{ Authorization = "Bearer $adminToken" }
+    $h = @{ Authorization = "Bearer $script:adminToken" }
     $p = R $runDir 'Enterprise sync import gate' 'create_provider' 'POST' $ApiBaseUrl '/api/v1/enterprise-iam/providers' $h @{ name = "q1-gate-provider-$runId"; protocol = 'OIDC'; status = 'ACTIVE'; syncMode = 'MANUAL_IMPORT'; roleMappings = @{ admins = @('EVZONE_ADMIN'); managers = @('MANAGER') } } @(200, 201) $TimeoutSeconds
-    $pid = [string](G $p.body 'id'); if (-not $pid) { throw 'Provider creation returned no id.' }
-    [void](R $runDir 'Enterprise sync import gate' 'update_role_mappings' 'PUT' $ApiBaseUrl "/api/v1/enterprise-iam/providers/$pid/role-mappings" $h @{ roleMappings = @{ admins = @('EVZONE_ADMIN'); managers = @('MANAGER') } } @(200) $TimeoutSeconds)
-    [void](R $runDir 'Enterprise sync import gate' 'sync_import' 'POST' $ApiBaseUrl "/api/v1/enterprise-iam/providers/$pid/sync-import" $h @{ mode = 'APPLY'; includeGroupsOnly = $false; groups = @(@{ name = 'admins'; mappedRoleKey = 'EVZONE_ADMIN' }, @{ name = 'managers'; mappedRoleKey = 'MANAGER' }); users = @(@{ email = "q1-sync-user-$runId@example.com"; displayName = 'Q1 Sync User'; groups = @('managers') }) } @(200, 201) $TimeoutSeconds)
-    [void](R $runDir 'Enterprise sync import gate' 'list_sync_jobs' 'GET' $ApiBaseUrl "/api/v1/enterprise-iam/sync-jobs?providerId=$([System.Uri]::EscapeDataString($pid))" $h $null @(200) $TimeoutSeconds)
+    $providerId = [string](G $p.body 'id'); if (-not $providerId) { throw 'Provider creation returned no id.' }
+    [void](R $runDir 'Enterprise sync import gate' 'update_role_mappings' 'PUT' $ApiBaseUrl "/api/v1/enterprise-iam/providers/$providerId/role-mappings" $h @{ roleMappings = @{ admins = @('EVZONE_ADMIN'); managers = @('MANAGER') } } @(200) $TimeoutSeconds)
+    [void](R $runDir 'Enterprise sync import gate' 'sync_import' 'POST' $ApiBaseUrl "/api/v1/enterprise-iam/providers/$providerId/sync-import" $h @{ mode = 'APPLY'; includeGroupsOnly = $false; groups = @(@{ name = 'admins'; mappedRoleKey = 'EVZONE_ADMIN' }, @{ name = 'managers'; mappedRoleKey = 'MANAGER' }); users = @(@{ email = "q1-sync-user-$runId@example.com"; displayName = 'Q1 Sync User'; groups = @('managers') }) } @(200, 201) $TimeoutSeconds)
+    [void](R $runDir 'Enterprise sync import gate' 'list_sync_jobs' 'GET' $ApiBaseUrl "/api/v1/enterprise-iam/sync-jobs?providerId=$([System.Uri]::EscapeDataString($providerId))" $h $null @(200) $TimeoutSeconds)
   }
 }
 
 if (-not $PreflightOnly) {
   Scenario 'PnC lifecycle and diagnostics gate' {
-    $h = @{ Authorization = "Bearer $adminToken" }
+    $h = @{ Authorization = "Bearer $script:adminToken" }
     $c = R $runDir 'PnC lifecycle and diagnostics gate' 'create_contract' 'POST' $ApiBaseUrl '/api/v1/pnc/contracts' $h @{ contractRef = "Q1-GATE-$runId"; status = 'ACTIVE'; metadata = @{ source = 'q1-functional-gate-replay'; runId = $runId } } @(200, 201) $TimeoutSeconds
     $cid = [string](G $c.body 'id'); if (-not $cid) { throw 'Contract create returned no id.' }
-    $i = R $runDir 'PnC lifecycle and diagnostics gate' 'issue_certificate' 'POST' $ApiBaseUrl "/api/v1/pnc/contracts/$cid/certificates" $h @{ certificateHash = ([Guid]::NewGuid().ToString('N')); certificateType = 'ISO15118'; validFrom = (Get-Date).ToUniversalTime().ToString('o'); validTo = (Get-Date).ToUniversalTime().AddDays(365).ToString('o') } @(200, 201) $TimeoutSeconds
+    $i = R $runDir 'PnC lifecycle and diagnostics gate' 'issue_certificate' 'POST' $ApiBaseUrl "/api/v1/pnc/contracts/$cid/certificates" $h @{ certificateHash = ([Guid]::NewGuid().ToString('N')); certificateType = 'CONTRACT'; validFrom = (Get-Date).ToUniversalTime().ToString('o'); validTo = (Get-Date).ToUniversalTime().AddDays(365).ToString('o') } @(200, 201) $TimeoutSeconds
     $cert = G $i.body 'certificate'; $certId = [string](G $cert 'id'); if (-not $certId) { throw 'Certificate issue returned no certificate.id.' }
     [void](R $runDir 'PnC lifecycle and diagnostics gate' 'diagnostics_before_revoke' 'GET' $ApiBaseUrl "/api/v1/pnc/certificates/$certId/diagnostics" $h $null @(200) $TimeoutSeconds)
     [void](R $runDir 'PnC lifecycle and diagnostics gate' 'revoke_certificate' 'POST' $ApiBaseUrl "/api/v1/pnc/certificates/$certId/revoke" $h @{ reason = 'Q1 gate replay' } @(200, 201) $TimeoutSeconds)
@@ -178,7 +202,7 @@ if (-not $PreflightOnly) {
   }
 
   Scenario 'DER constrained fallback gate' {
-    $h = @{ Authorization = "Bearer $adminToken" }
+    $h = @{ Authorization = "Bearer $script:adminToken" }
     if ($EnableDerProfileMutation) {
       $cur = R $runDir 'DER constrained fallback gate' 'read_original_der_profile' 'GET' $ApiBaseUrl "/api/v1/energy-management/stations/$DerStationId/der-profile" $h $null @(200) $TimeoutSeconds
       $orig = G $cur.body 'profile'; if ($null -eq $orig) { throw 'Mutation mode requires an existing DER profile.' }
@@ -205,7 +229,7 @@ if (-not $PreflightOnly) {
   }
 
   Scenario 'Developer app and key lifecycle gate' {
-    $h = @{ Authorization = "Bearer $adminToken" }
+    $h = @{ Authorization = "Bearer $script:adminToken" }
     $app = R $runDir 'Developer app and key lifecycle gate' 'create_app' 'POST' $ApiBaseUrl '/api/v1/platform/developer/v1/apps' $h @{ name = "Q1 lifecycle app $runId"; defaultRateLimitPerMin = 120 } @(200, 201) $TimeoutSeconds
     $appId = [string](G $app.body 'id'); if (-not $appId) { throw 'App creation returned no id.' }
     $key = R $runDir 'Developer app and key lifecycle gate' 'create_key' 'POST' $ApiBaseUrl "/api/v1/platform/developer/v1/apps/$appId/keys" $h @{ name = "Q1 lifecycle key $runId"; scopes = @('stations.read'); rateLimitPerMin = 120 } @(200, 201) $TimeoutSeconds
@@ -217,7 +241,7 @@ if (-not $PreflightOnly) {
   }
 
   Scenario 'Rate-limit enforcement gate' {
-    $h = @{ Authorization = "Bearer $adminToken" }
+    $h = @{ Authorization = "Bearer $script:adminToken" }
     $app = R $runDir 'Rate-limit enforcement gate' 'create_rate_app' 'POST' $ApiBaseUrl '/api/v1/platform/developer/v1/apps' $h @{ name = "Q1 rate app $runId"; defaultRateLimitPerMin = 10 } @(200, 201) $TimeoutSeconds
     $appId = [string](G $app.body 'id'); if (-not $appId) { throw 'Rate app creation returned no id.' }
     $key = R $runDir 'Rate-limit enforcement gate' 'create_rate_key' 'POST' $ApiBaseUrl "/api/v1/platform/developer/v1/apps/$appId/keys" $h @{ name = "Q1 rate key $runId"; scopes = @('stations.read'); rateLimitPerMin = 10 } @(200, 201) $TimeoutSeconds
@@ -233,7 +257,7 @@ if (-not $PreflightOnly) {
     $limited = @($codes | Where-Object { $_ -eq 429 }).Count
     if ($ok -ne 10 -or $limited -ne 2) { throw ("Expected 10x200 + 2x429; got {0}x200 + {1}x429" -f $ok, $limited) }
     Start-Sleep -Seconds 2
-    $u = R $runDir 'Rate-limit enforcement gate' 'usage_after_burst' 'GET' $ApiBaseUrl "/api/v1/platform/developer/v1/usage?apiKeyId=$([System.Uri]::EscapeDataString($apiKeyId))&windowHours=1" $h $null @(200) $TimeoutSeconds
+    $u = R $runDir 'Rate-limit enforcement gate' 'usage_after_burst' 'GET' $ApiBaseUrl "/api/v1/platform/developer/v1/usage?apiKeyId=$([System.Uri]::EscapeDataString($apiKeyId))" $h $null @(200) $TimeoutSeconds
     $tot = G $u.body 'totals'
     if ([int](G $tot 'requests') -lt 12 -or [int](G $tot 'denied') -lt 2) { throw 'Usage totals did not reflect expected request/denied counts.' }
   }
