@@ -59,6 +59,7 @@ import { FleetModule } from './modules/fleet/fleet.module';
 import { PncModule } from './modules/pnc/pnc.module';
 import { EnterpriseIamModule } from './modules/enterprise-iam/enterprise-iam.module';
 import { DeveloperPlatformModule } from './modules/developer-platform/developer-platform.module';
+import { VendorBaselineModule } from './modules/vendor-baseline/vendor-baseline.module';
 
 @Module({
   imports: [
@@ -124,6 +125,7 @@ import { DeveloperPlatformModule } from './modules/developer-platform/developer-
     PncModule,
     EnterpriseIamModule,
     DeveloperPlatformModule,
+    VendorBaselineModule,
   ],
   controllers: [AppController],
   providers: [
