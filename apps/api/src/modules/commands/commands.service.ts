@@ -46,6 +46,11 @@ export class CommandsService {
 
     const now = new Date();
     const commandId = randomUUID();
+    const normalizedCorrelationId = this.optionalTrimmed(input.correlationId);
+    const normalizedDedupeKey = this.optionalTrimmed(input.dedupeKey);
+    const normalizedIdempotencyTtlSec = this.normalizeOptionalIdempotencyTtlSec(
+      input.idempotencyTtlSec,
+    );
 
     const context = this.tenantContext.get();
     const resolvedTenantId =
@@ -54,6 +59,39 @@ export class CommandsService {
       input.tenantId ||
       input.requestedBy?.orgId ||
       null;
+    const effectiveCorrelationId =
+      normalizedCorrelationId || normalizedDedupeKey || commandId;
+
+    if (
+      normalizedIdempotencyTtlSec !== null &&
+      (normalizedCorrelationId || normalizedDedupeKey)
+    ) {
+      const replayWindowStart = new Date(
+        now.getTime() - normalizedIdempotencyTtlSec * 1000,
+      );
+
+      const existing = await this.prisma.command.findFirst({
+        where: {
+          tenantId: resolvedTenantId,
+          correlationId: effectiveCorrelationId,
+          requestedAt: { gte: replayWindowStart },
+        },
+        orderBy: { requestedAt: 'desc' },
+        select: {
+          id: true,
+          status: true,
+          requestedAt: true,
+        },
+      });
+
+      if (existing) {
+        return {
+          commandId: existing.id,
+          status: existing.status,
+          requestedAt: existing.requestedAt.toISOString(),
+        };
+      }
+    }
 
     await this.prisma.command.create({
       data: {
@@ -72,13 +110,8 @@ export class CommandsService {
         requestedAt: now,
         sentAt: null,
         completedAt: null,
-        correlationId: input.correlationId || input.dedupeKey || commandId,
-        idempotencyTtlSec:
-          typeof input.idempotencyTtlSec === 'number' &&
-          Number.isFinite(input.idempotencyTtlSec) &&
-          input.idempotencyTtlSec > 0
-            ? Math.floor(input.idempotencyTtlSec)
-            : null,
+        correlationId: effectiveCorrelationId,
+        idempotencyTtlSec: normalizedIdempotencyTtlSec,
         error: null,
       },
     });
@@ -220,5 +253,20 @@ export class CommandsService {
         .replace(/[\s-]+/g, '_')
         .toUpperCase() === 'UPDATE_FIRMWARE'
     );
+  }
+
+  private optionalTrimmed(value?: string): string | null {
+    if (value === undefined) {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private normalizeOptionalIdempotencyTtlSec(value?: number): number | null {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      return Math.floor(value);
+    }
+    return null;
   }
 }

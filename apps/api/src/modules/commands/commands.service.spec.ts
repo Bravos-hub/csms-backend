@@ -8,6 +8,7 @@ describe('CommandsService', () => {
   const prisma = {
     command: {
       create: jest.fn(),
+      findFirst: jest.fn(),
       findMany: jest.fn(),
       findUnique: jest.fn(),
     },
@@ -31,6 +32,7 @@ describe('CommandsService', () => {
   beforeEach(() => {
     process.env.FEATURE_OCPP_FIRMWARE_COMMANDS_ENABLED = previousFirmwareFlag;
     prisma.command.create.mockReset();
+    prisma.command.findFirst.mockReset();
     prisma.command.findMany.mockReset();
     prisma.command.findUnique.mockReset();
     prisma.commandOutbox.create.mockReset();
@@ -80,6 +82,70 @@ describe('CommandsService', () => {
 
     expect(result.status).toBe('Queued');
     expect(result.commandId).toBeTruthy();
+  });
+
+  it('returns existing command for replayed correlation id within idempotency window', async () => {
+    tenantContext.get.mockReturnValue({
+      effectiveOrganizationId: 'org-tenant-1',
+      authenticatedOrganizationId: 'org-tenant-fallback',
+    });
+
+    const existingRequestedAt = new Date('2026-04-11T12:00:00.000Z');
+    prisma.command.findFirst.mockResolvedValue({
+      id: 'cmd-existing',
+      status: 'Queued',
+      requestedAt: existingRequestedAt,
+    });
+
+    const result = await service.enqueueCommand({
+      commandType: 'ApplyChargingLimit',
+      chargePointId: 'cp-1',
+      payload: { limitAmps: 16 },
+      requestedBy: { userId: 'user-1', orgId: 'org-body' },
+      correlationId: 'corr-123',
+      idempotencyTtlSec: 300,
+    });
+
+    const findFirstCalls = prisma.command.findFirst.mock.calls as Array<
+      [
+        {
+          where?: {
+            tenantId?: string | null;
+            correlationId?: string;
+            requestedAt?: {
+              gte?: Date;
+            };
+          };
+          orderBy?: {
+            requestedAt?: 'asc' | 'desc';
+          };
+          select?: {
+            id?: boolean;
+            status?: boolean;
+            requestedAt?: boolean;
+          };
+        },
+      ]
+    >;
+    const findFirstCallArg = findFirstCalls[0]?.[0];
+
+    expect(findFirstCallArg?.where?.tenantId).toBe('org-tenant-1');
+    expect(findFirstCallArg?.where?.correlationId).toBe('corr-123');
+    expect(findFirstCallArg?.where?.requestedAt?.gte).toBeInstanceOf(Date);
+    expect(findFirstCallArg?.orderBy?.requestedAt).toBe('desc');
+    expect(findFirstCallArg?.select).toEqual({
+      id: true,
+      status: true,
+      requestedAt: true,
+    });
+    expect(prisma.command.create).not.toHaveBeenCalled();
+    expect(prisma.commandOutbox.create).not.toHaveBeenCalled();
+    expect(prisma.commandEvent.create).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      commandId: 'cmd-existing',
+      status: 'Queued',
+      requestedAt: existingRequestedAt.toISOString(),
+    });
   });
 
   afterAll(() => {

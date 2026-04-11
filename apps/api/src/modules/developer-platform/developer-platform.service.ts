@@ -27,6 +27,11 @@ const PLATFORM_ADMIN_ROLES = new Set<UserRole>([
 ]);
 
 const APP_STATUS = new Set(['ACTIVE', 'DISABLED', 'ARCHIVED']);
+type DeveloperApiKeyAuthDeniedReason =
+  | 'KEY_NOT_FOUND'
+  | 'KEY_NOT_ACTIVE'
+  | 'APP_NOT_ACTIVE'
+  | 'SECRET_MISMATCH';
 
 export type DeveloperApiKeyContext = {
   appId: string;
@@ -456,6 +461,7 @@ export class DeveloperPlatformService {
     method: string;
   }): Promise<DeveloperApiKeyContext> {
     const parsed = this.parseApiKey(input.rawApiKey);
+    const auditActorId = this.buildApiKeyAuditActor(parsed.keyPrefix);
     const apiKey = await this.prisma.developerApiKey.findUnique({
       where: { keyPrefix: parsed.keyPrefix },
       include: {
@@ -469,15 +475,58 @@ export class DeveloperPlatformService {
       },
     });
 
-    if (!apiKey || apiKey.status !== 'ACTIVE') {
+    if (!apiKey) {
+      await this.recordApiKeyAuthDeniedEvent({
+        actorId: auditActorId,
+        keyPrefix: parsed.keyPrefix,
+        route: input.route,
+        method: input.method,
+        reason: 'KEY_NOT_FOUND',
+      });
+      throw new UnauthorizedException('Invalid API key');
+    }
+    if (apiKey.status !== 'ACTIVE') {
+      await this.recordApiKeyAuthDeniedEvent({
+        actorId: auditActorId,
+        keyPrefix: parsed.keyPrefix,
+        route: input.route,
+        method: input.method,
+        reason: 'KEY_NOT_ACTIVE',
+        apiKeyId: apiKey.id,
+        organizationId: apiKey.organizationId,
+        keyStatus: apiKey.status,
+        appStatus: apiKey.app.status,
+      });
       throw new UnauthorizedException('Invalid API key');
     }
     if (apiKey.app.status !== 'ACTIVE') {
+      await this.recordApiKeyAuthDeniedEvent({
+        actorId: auditActorId,
+        keyPrefix: parsed.keyPrefix,
+        route: input.route,
+        method: input.method,
+        reason: 'APP_NOT_ACTIVE',
+        apiKeyId: apiKey.id,
+        organizationId: apiKey.organizationId,
+        keyStatus: apiKey.status,
+        appStatus: apiKey.app.status,
+      });
       throw new UnauthorizedException('Developer app is not active');
     }
 
     const expectedHash = this.hashSecret(parsed.secret, apiKey.secretSalt);
     if (expectedHash !== apiKey.secretHash) {
+      await this.recordApiKeyAuthDeniedEvent({
+        actorId: auditActorId,
+        keyPrefix: parsed.keyPrefix,
+        route: input.route,
+        method: input.method,
+        reason: 'SECRET_MISMATCH',
+        apiKeyId: apiKey.id,
+        organizationId: apiKey.organizationId,
+        keyStatus: apiKey.status,
+        appStatus: apiKey.app.status,
+      });
       throw new UnauthorizedException('Invalid API key');
     }
 
@@ -676,6 +725,40 @@ export class DeveloperPlatformService {
 
   private hashSecret(secret: string, salt: string): string {
     return createHash('sha256').update(salt).update(secret).digest('hex');
+  }
+
+  private buildApiKeyAuditActor(keyPrefix: string): string {
+    return `developer-api-key:${keyPrefix}`;
+  }
+
+  private async recordApiKeyAuthDeniedEvent(input: {
+    actorId: string;
+    keyPrefix: string;
+    route: string;
+    method: string;
+    reason: DeveloperApiKeyAuthDeniedReason;
+    apiKeyId?: string;
+    organizationId?: string;
+    keyStatus?: string;
+    appStatus?: string;
+  }): Promise<void> {
+    await this.recordAuditEvent({
+      actorId: input.actorId,
+      action: 'DEVELOPER_API_KEY_AUTH_DENIED',
+      resource: 'DeveloperApiKey',
+      resourceId: input.apiKeyId,
+      status: 'FAILURE',
+      errorMessage: 'Developer API key authentication denied',
+      details: {
+        keyPrefix: input.keyPrefix,
+        organizationId: input.organizationId,
+        route: input.route,
+        method: input.method,
+        reason: input.reason,
+        keyStatus: input.keyStatus,
+        appStatus: input.appStatus,
+      },
+    });
   }
 
   private toApiKeySummary(key: {
