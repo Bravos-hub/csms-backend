@@ -109,7 +109,9 @@ export class ServiceAuthGuard implements CanActivate {
         authenticatedOrganizationId: null,
         effectiveOrganizationId: hostOrganizationId,
         resolutionSource: hostOrganizationId
-          ? 'host_subdomain'
+          ? current?.resolutionSource === 'host_custom_domain'
+            ? 'host_custom_domain'
+            : 'host_subdomain'
           : 'platform_shared',
         mismatchReason: null,
         mismatchRejected: false,
@@ -117,7 +119,9 @@ export class ServiceAuthGuard implements CanActivate {
       });
 
       responseLocals.tenantResolutionSource = hostOrganizationId
-        ? 'host_subdomain'
+        ? current?.resolutionSource === 'host_custom_domain'
+          ? 'host_custom_domain'
+          : 'host_subdomain'
         : 'platform_shared';
       responseLocals.tenantOrganizationId = hostOrganizationId;
       responseLocals.tenantRoutingTier =

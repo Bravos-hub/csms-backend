@@ -12,11 +12,12 @@ import {
   requestContextMiddleware,
   requestLoggingMiddleware,
 } from './common/observability/request-logging.middleware';
-import { TenantContextService } from '@app/db';
+import { TenantContextService, TenantRoutingConfigService } from '@app/db';
 import { TenantResolutionService } from './common/tenant/tenant-resolution.service';
 import { createTenantResolutionMiddleware } from './common/tenant/tenant-resolution.middleware';
 import { DatabaseConnectivityExceptionFilter } from './common/filters/database-connectivity-exception.filter';
 import { validateKafkaTopicsOrThrow } from './contracts/kafka-topics';
+import { PrismaService } from './prisma.service';
 import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
@@ -83,9 +84,23 @@ async function bootstrap() {
     );
 
     const corsOrigins = buildCorsOrigins();
+    const prismaService = app.get(PrismaService);
+    const tenantRoutingConfig = app.get(TenantRoutingConfigService);
+    const platformHosts = tenantRoutingConfig.getPlatformHosts();
 
     app.enableCors({
-      origin: corsOrigins,
+      origin: (
+        origin: string | undefined,
+        callback: (error: Error | null, allow?: boolean) => void,
+      ) => {
+        void isCorsOriginAllowed(origin, {
+          corsOrigins,
+          platformHosts,
+          prismaService,
+        })
+          .then((allowed) => callback(null, allowed))
+          .catch(() => callback(new Error('Not allowed by CORS'), false));
+      },
       credentials: true, // IMPORTANT: Enable credentials for cookies
     });
 
@@ -172,6 +187,121 @@ function buildCorsOrigins(): string[] {
   validateCorsOriginsOrThrow(origins);
   console.log(`CORS allowlist: ${origins.join(', ')}`);
   return origins;
+}
+
+function normalizeRequestOrigin(origin: string): string | null {
+  try {
+    const parsed = new URL(origin);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+function extractHostFromOrigin(origin: string): string | null {
+  try {
+    return new URL(origin).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function resolveTenantSubdomainFromHost(
+  host: string,
+  platformHosts: string[],
+): string | null {
+  for (const root of platformHosts) {
+    const normalizedRoot = root.trim().toLowerCase();
+    if (!normalizedRoot) continue;
+    if (host === normalizedRoot) {
+      return null;
+    }
+    const suffix = `.${normalizedRoot}`;
+    if (!host.endsWith(suffix)) continue;
+    const prefix = host.slice(0, -suffix.length);
+    if (!prefix) return null;
+    const firstLabel = prefix.split('.')[0]?.trim().toLowerCase();
+    if (!firstLabel || !/^[a-z0-9-]+$/.test(firstLabel)) {
+      return null;
+    }
+    return firstLabel;
+  }
+  return null;
+}
+
+async function isCorsOriginAllowed(
+  origin: string | undefined,
+  input: {
+    corsOrigins: string[];
+    platformHosts: string[];
+    prismaService: PrismaService;
+  },
+): Promise<boolean> {
+  if (!origin) {
+    return true;
+  }
+
+  const normalizedOrigin = normalizeRequestOrigin(origin);
+  if (!normalizedOrigin) {
+    return false;
+  }
+
+  if (input.corsOrigins.includes(normalizedOrigin)) {
+    return true;
+  }
+
+  const host = extractHostFromOrigin(normalizedOrigin);
+  if (!host) {
+    return false;
+  }
+
+  const controlPlane = input.prismaService.getControlPlaneClient();
+
+  const organizationByDomain = await controlPlane.organization.findFirst({
+    where: {
+      OR: [
+        {
+          primaryDomain: {
+            equals: host,
+            mode: 'insensitive',
+          },
+        },
+        {
+          allowedOrigins: {
+            has: normalizedOrigin,
+          },
+        },
+      ],
+    },
+    select: { id: true },
+  });
+
+  if (organizationByDomain) {
+    return true;
+  }
+
+  const tenantSubdomain = resolveTenantSubdomainFromHost(
+    host,
+    input.platformHosts,
+  );
+  if (!tenantSubdomain) {
+    return false;
+  }
+
+  const organizationBySubdomain = await controlPlane.organization.findFirst({
+    where: {
+      tenantSubdomain: {
+        equals: tenantSubdomain,
+        mode: 'insensitive',
+      },
+    },
+    select: { id: true },
+  });
+
+  return Boolean(organizationBySubdomain);
 }
 
 function normalizeCorsOrigins(origins: string[]): string[] {

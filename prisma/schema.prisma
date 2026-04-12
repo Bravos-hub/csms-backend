@@ -199,6 +199,12 @@ enum TenantTier {
   DEDICATED_DB
 }
 
+enum TenantBrandingRevisionStatus {
+  DRAFT
+  PUBLISHED
+  ROLLED_BACK
+}
+
 model User {
   id              String  @id @default(uuid())
   name            String
@@ -330,11 +336,33 @@ model Organization {
   paymentIntents PaymentIntent[]
   swapProviders SwapProvider[] @relation("ProviderOrganization")
   ownerProviderRelationships ProviderRelationship[] @relation("OwnerOrganization")
+  brandingRevisions TenantBrandingRevision[]
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@map("organizations")
+}
+
+model TenantBrandingRevision {
+  id                    String                       @id @default(uuid())
+  organizationId        String                       @map("organization_id")
+  version               Int
+  status                TenantBrandingRevisionStatus
+  config                Json                         @map("config_json")
+  publishedAt           DateTime?                    @map("published_at")
+  rolledBackFromVersion Int?                         @map("rolled_back_from_version")
+  createdBy             String?                      @map("created_by")
+  updatedBy             String?                      @map("updated_by")
+  createdAt             DateTime                     @default(now()) @map("created_at")
+  updatedAt             DateTime                     @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_branding_revisions")
+  @@unique([organizationId, version])
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
 }
 
 model OrganizationMembership {

@@ -17,6 +17,7 @@ describe('TenantResolutionService', () => {
   };
 
   const directory = {
+    findByPrimaryDomain: jest.fn(),
     findBySubdomain: jest.fn(),
     findByHeaderTenant: jest.fn(),
   };
@@ -29,6 +30,7 @@ describe('TenantResolutionService', () => {
   beforeEach(() => {
     config.getPlatformHosts.mockReset();
     config.isHeaderFallbackEnabledForLocalhost.mockReset();
+    directory.findByPrimaryDomain.mockReset();
     directory.findBySubdomain.mockReset();
     directory.findByHeaderTenant.mockReset();
 
@@ -38,10 +40,36 @@ describe('TenantResolutionService', () => {
     );
   });
 
+  it('resolves tenant from custom domain host before subdomain fallback', async () => {
+    directory.findByPrimaryDomain.mockResolvedValue({
+      id: 'org-domain',
+      tenantSubdomain: 'acme',
+      primaryDomain: 'portal.acme.com',
+      tenantRoutingEnabled: true,
+      tenantTier: 'SHARED',
+      tenantSchema: null,
+    });
+
+    const request = createRequest({
+      host: 'portal.acme.com',
+    });
+
+    const result = await service.resolveRequest(request);
+
+    expect(directory.findByPrimaryDomain).toHaveBeenCalledWith(
+      'portal.acme.com',
+    );
+    expect(directory.findBySubdomain).not.toHaveBeenCalled();
+    expect(result.resolutionSource).toBe('host_custom_domain');
+    expect(result.provisionalOrganization?.id).toBe('org-domain');
+  });
+
   it('resolves tenant from subdomain host', async () => {
+    directory.findByPrimaryDomain.mockResolvedValue(null);
     directory.findBySubdomain.mockResolvedValue({
       id: 'org-host',
       tenantSubdomain: 'acme',
+      primaryDomain: null,
       tenantRoutingEnabled: true,
       tenantTier: 'SCHEMA',
       tenantSchema: 'tenant_acme',
@@ -60,10 +88,12 @@ describe('TenantResolutionService', () => {
   });
 
   it('allows localhost header fallback when enabled', async () => {
+    directory.findByPrimaryDomain.mockResolvedValue(null);
     directory.findBySubdomain.mockResolvedValue(null);
     directory.findByHeaderTenant.mockResolvedValue({
       id: 'org-header',
       tenantSubdomain: 'header',
+      primaryDomain: null,
       tenantRoutingEnabled: true,
       tenantTier: 'SHARED',
       tenantSchema: null,
@@ -85,6 +115,7 @@ describe('TenantResolutionService', () => {
   });
 
   it('returns none when host and header do not resolve a tenant', async () => {
+    directory.findByPrimaryDomain.mockResolvedValue(null);
     directory.findBySubdomain.mockResolvedValue(null);
     directory.findByHeaderTenant.mockResolvedValue(null);
 
@@ -98,6 +129,7 @@ describe('TenantResolutionService', () => {
   });
 
   it('does not use header fallback in non-localhost hosts', async () => {
+    directory.findByPrimaryDomain.mockResolvedValue(null);
     directory.findBySubdomain.mockResolvedValue(null);
 
     const request = createRequest({

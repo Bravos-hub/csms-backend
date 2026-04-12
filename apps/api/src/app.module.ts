@@ -60,6 +60,7 @@ import { PncModule } from './modules/pnc/pnc.module';
 import { EnterpriseIamModule } from './modules/enterprise-iam/enterprise-iam.module';
 import { DeveloperPlatformModule } from './modules/developer-platform/developer-platform.module';
 import { VendorBaselineModule } from './modules/vendor-baseline/vendor-baseline.module';
+import { TenantBrandingModule } from './modules/tenant-branding/tenant-branding.module';
 
 @Module({
   imports: [
@@ -126,6 +127,7 @@ import { VendorBaselineModule } from './modules/vendor-baseline/vendor-baseline.
     EnterpriseIamModule,
     DeveloperPlatformModule,
     VendorBaselineModule,
+    TenantBrandingModule,
   ],
   controllers: [AppController],
   providers: [

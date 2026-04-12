@@ -148,12 +148,18 @@ export class JwtAuthGuard implements CanActivate {
         effectiveOrganizationId: effectiveOrganizationId || null,
         mismatchRejected: false,
         mismatchReason: null,
-        resolutionSource: hostOrganizationId ? 'host_subdomain' : 'jwt_claim',
+        resolutionSource: hostOrganizationId
+          ? existingContext?.resolutionSource === 'host_custom_domain'
+            ? 'host_custom_domain'
+            : 'host_subdomain'
+          : 'jwt_claim',
         routing,
       });
 
       responseLocals.tenantResolutionSource = hostOrganizationId
-        ? 'host_subdomain'
+        ? existingContext?.resolutionSource === 'host_custom_domain'
+          ? 'host_custom_domain'
+          : 'host_subdomain'
         : 'jwt_claim';
       responseLocals.tenantOrganizationId = effectiveOrganizationId || null;
       responseLocals.tenantRoutingTier =

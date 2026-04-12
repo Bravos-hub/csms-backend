@@ -14,7 +14,11 @@ export type TenantResolutionResult = {
   hostOrganization: TenantOrganizationRoutingRecord | null;
   headerOrganization: TenantOrganizationRoutingRecord | null;
   provisionalOrganization: TenantOrganizationRoutingRecord | null;
-  resolutionSource: 'host_subdomain' | 'header_fallback' | 'none';
+  resolutionSource:
+    | 'host_custom_domain'
+    | 'host_subdomain'
+    | 'header_fallback'
+    | 'none';
 };
 
 @Injectable()
@@ -29,10 +33,15 @@ export class TenantResolutionService {
     const isLocalhost = this.isLocalHost(host);
     const subdomain = this.resolveSubdomain(host);
     const headerTenantId = this.resolveHeaderTenantId(request);
-
-    const hostOrganization = subdomain
-      ? await this.directory.findBySubdomain(subdomain)
+    const hostOrganizationByDomain = host
+      ? await this.directory.findByPrimaryDomain(host)
       : null;
+
+    const hostOrganization = hostOrganizationByDomain
+      ? hostOrganizationByDomain
+      : subdomain
+        ? await this.directory.findBySubdomain(subdomain)
+        : null;
 
     const headerOrganization =
       !hostOrganization &&
@@ -43,11 +52,13 @@ export class TenantResolutionService {
 
     const provisionalOrganization = hostOrganization || headerOrganization;
 
-    const resolutionSource = hostOrganization
-      ? 'host_subdomain'
-      : headerOrganization
-        ? 'header_fallback'
-        : 'none';
+    const resolutionSource = hostOrganizationByDomain
+      ? 'host_custom_domain'
+      : hostOrganization
+        ? 'host_subdomain'
+        : headerOrganization
+          ? 'header_fallback'
+          : 'none';
 
     return {
       host,

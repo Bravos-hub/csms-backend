@@ -6,6 +6,7 @@ import { TenantRoutingHint } from '@app/db';
 export type TenantOrganizationRoutingRecord = {
   id: string;
   tenantSubdomain: string | null;
+  primaryDomain: string | null;
   tenantRoutingEnabled: boolean;
   tenantTier: TenantTier;
   tenantSchema: string | null;
@@ -30,6 +31,30 @@ export class TenantDirectoryService {
       select: {
         id: true,
         tenantSubdomain: true,
+        primaryDomain: true,
+        tenantRoutingEnabled: true,
+        tenantTier: true,
+        tenantSchema: true,
+      },
+    });
+  }
+
+  async findByPrimaryDomain(
+    host: string,
+  ): Promise<TenantOrganizationRoutingRecord | null> {
+    if (!host) return null;
+
+    return this.prisma.getControlPlaneClient().organization.findFirst({
+      where: {
+        primaryDomain: {
+          equals: host,
+          mode: 'insensitive',
+        },
+      },
+      select: {
+        id: true,
+        tenantSubdomain: true,
+        primaryDomain: true,
         tenantRoutingEnabled: true,
         tenantTier: true,
         tenantSchema: true,
@@ -47,6 +72,7 @@ export class TenantDirectoryService {
       select: {
         id: true,
         tenantSubdomain: true,
+        primaryDomain: true,
         tenantRoutingEnabled: true,
         tenantTier: true,
         tenantSchema: true,

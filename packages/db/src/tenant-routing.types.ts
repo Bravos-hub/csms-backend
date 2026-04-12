@@ -3,6 +3,7 @@ export type TenantRoutingTier = 'SHARED' | 'SCHEMA' | 'DEDICATED_DB';
 export type TenantRoutingSelection = 'shared' | 'schema' | 'dedicated_db';
 
 export type TenantResolutionSource =
+  | 'host_custom_domain'
   | 'host_subdomain'
   | 'header_fallback'
   | 'jwt_claim'
