@@ -6,6 +6,8 @@ import {
   PermissionScope,
   ZoneType,
   MembershipStatus,
+  StationOwnerCapability,
+  UserRole,
 } from '@prisma/client';
 import * as dotenv from 'dotenv';
 import * as bcrypt from 'bcrypt';
@@ -25,6 +27,13 @@ dotenv.config();
 console.log('DATABASE_URL loaded:', !!process.env.DATABASE_URL);
 
 let prisma: PrismaClient;
+
+type RoleTestAccount = {
+  name: string;
+  email: string;
+  role: UserRole;
+  ownerCapability: StationOwnerCapability | null;
+};
 
 const EVZONE_WORLD_NAME = 'EVZONE WORLD';
 const LEGACY_EVZONE_NAME = 'EVZONE';
@@ -231,44 +240,50 @@ async function main() {
 
   // 1.5 Create deterministic role-based test accounts for platform validation
   const sharedTestAccountPassword = await bcrypt.hash('Tests@2099', 10);
-  const roleTestAccounts = [
+  const roleTestAccounts: readonly RoleTestAccount[] = [
     {
       name: 'Test Platform Super Admin',
       email: 'test@evzonecharging.com',
-      role: 'SUPER_ADMIN',
+      role: UserRole.SUPER_ADMIN,
+      ownerCapability: null,
     },
     {
       name: 'Test EVZONE Admin',
       email: 'test1@evzonecharging.com',
-      role: 'EVZONE_ADMIN',
+      role: UserRole.EVZONE_ADMIN,
+      ownerCapability: null,
     },
     {
       name: 'Test Tenant Admin',
       email: 'test2@evzonecharging.com',
-      role: 'STATION_ADMIN',
+      role: UserRole.STATION_ADMIN,
+      ownerCapability: null,
     },
     {
       name: 'Test Operations Manager',
       email: 'test3@evzonecharging.com',
-      role: 'MANAGER',
+      role: UserRole.MANAGER,
+      ownerCapability: null,
     },
     {
       name: 'Test Station Owner',
       email: 'test4@evzonecharging.com',
-      role: 'STATION_OWNER',
-      ownerCapability: 'BOTH',
+      role: UserRole.STATION_OWNER,
+      ownerCapability: StationOwnerCapability.BOTH,
     },
     {
       name: 'Test Station Operator',
       email: 'test5@evzonecharging.com',
-      role: 'STATION_OPERATOR',
+      role: UserRole.STATION_OPERATOR,
+      ownerCapability: null,
     },
     {
       name: 'Test Driver Account',
       email: 'test6@evzonecharging.com',
-      role: 'DRIVER',
+      role: UserRole.DRIVER,
+      ownerCapability: null,
     },
-  ] as const;
+  ];
 
   for (const account of roleTestAccounts) {
     const normalizedEmail = account.email.toLowerCase();
@@ -280,7 +295,7 @@ async function main() {
         status: 'Active',
         region: 'Africa',
         organizationId: evzoneOrganization.id,
-        ownerCapability: account.ownerCapability ?? null,
+        ownerCapability: account.ownerCapability,
         passwordHash: sharedTestAccountPassword,
         emailVerifiedAt: new Date(),
       },
@@ -291,7 +306,7 @@ async function main() {
         status: 'Active',
         region: 'Africa',
         organizationId: evzoneOrganization.id,
-        ownerCapability: account.ownerCapability ?? null,
+        ownerCapability: account.ownerCapability,
         passwordHash: sharedTestAccountPassword,
         emailVerifiedAt: new Date(),
       },
