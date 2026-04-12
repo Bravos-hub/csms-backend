@@ -2,10 +2,12 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -21,10 +23,19 @@ import {
   UpdatePlatformTenantDto,
 } from '../tenant-provisioning/dto/tenant-provisioning.dto';
 import { AssignTenantMembershipDto } from '../tenant-rbac/dto/tenant-rbac.dto';
+import {
+  CreateTierPricingDraftDto,
+  PublishTierPricingVersionDto,
+} from './dto/tier-pricing.dto';
 
 type PlatformRequest = Request & {
   user?: {
     sub?: string;
+    role?: string;
+    canonicalRole?: string;
+    accessProfile?: {
+      canonicalRole?: string;
+    };
   };
 };
 
@@ -32,6 +43,26 @@ type PlatformRequest = Request & {
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class PlatformController {
   constructor(private readonly platformService: PlatformService) {}
+
+  private assertSuperAdmin(req: PlatformRequest): string {
+    const actorId = req.user?.sub;
+    if (!actorId) {
+      throw new BadRequestException('Authenticated user is required');
+    }
+
+    const canonicalRole =
+      req.user?.canonicalRole || req.user?.accessProfile?.canonicalRole;
+    if (
+      canonicalRole !== 'PLATFORM_SUPER_ADMIN' &&
+      req.user?.role !== 'SUPER_ADMIN'
+    ) {
+      throw new ForbiddenException(
+        'Only platform super admins can manage tier pricing',
+      );
+    }
+
+    return actorId;
+  }
 
   @Get('tenants')
   @RequirePermissions('platform.tenants.read')
@@ -97,5 +128,42 @@ export class PlatformController {
   @RequirePermissions('platform.health.read')
   getSystemHealth() {
     return this.platformService.getSystemHealth();
+  }
+
+  @Get('tier-pricing')
+  @RequirePermissions('platform.tenants.read')
+  listTierPricing(
+    @Req() req: PlatformRequest,
+    @Query('includeHistory') includeHistoryRaw?: string,
+  ) {
+    this.assertSuperAdmin(req);
+    const includeHistory = includeHistoryRaw === 'true';
+    return this.platformService.listTierPricing(includeHistory);
+  }
+
+  @Post('tier-pricing/:tierCode/drafts')
+  @RequirePermissions('platform.tenants.write')
+  createTierPricingDraft(
+    @Param('tierCode') tierCode: string,
+    @Body() body: CreateTierPricingDraftDto,
+    @Req() req: PlatformRequest,
+  ) {
+    const actorId = this.assertSuperAdmin(req);
+    return this.platformService.createTierPricingDraft(tierCode, body, actorId);
+  }
+
+  @Post('tier-pricing/:tierCode/publish')
+  @RequirePermissions('platform.tenants.write')
+  publishTierPricingVersion(
+    @Param('tierCode') tierCode: string,
+    @Body() body: PublishTierPricingVersionDto,
+    @Req() req: PlatformRequest,
+  ) {
+    const actorId = this.assertSuperAdmin(req);
+    return this.platformService.publishTierPricingVersion(
+      tierCode,
+      body.version,
+      actorId,
+    );
   }
 }

@@ -1257,6 +1257,133 @@ async function main() {
 
   console.log('Subscription plans seeded');
 
+  console.log('Seeding platform tier pricing...');
+
+  await prisma.platformTierPricingVersion.upsert({
+    where: {
+      tierCode_version: {
+        tierCode: 'T1',
+        version: 1,
+      },
+    },
+    update: {},
+    create: {
+      tierCode: 'T1',
+      version: 1,
+      tierLabel: 'T1 Start',
+      deploymentModel: 'SHARED_SCHEMA',
+      accountTypes: ['INDIVIDUAL', 'COMPANY'],
+      currency: 'USD',
+      isCustomPricing: false,
+      monthlyPrice: 99,
+      annualPrice: 1010,
+      setupFee: 0,
+      whiteLabelAvailable: false,
+      status: 'ACTIVE',
+      effectiveFrom: new Date(),
+      notes:
+        'Starter shared-schema tier for individual and small company tenants.',
+      createdBy: superAdmin.id,
+      publishedBy: superAdmin.id,
+      publishedAt: new Date(),
+    },
+  });
+
+  await prisma.platformTierPricingVersion.upsert({
+    where: {
+      tierCode_version: {
+        tierCode: 'T2',
+        version: 1,
+      },
+    },
+    update: {},
+    create: {
+      tierCode: 'T2',
+      version: 1,
+      tierLabel: 'T2 Growth',
+      deploymentModel: 'SHARED_SCHEMA',
+      accountTypes: ['COMPANY'],
+      currency: 'USD',
+      isCustomPricing: false,
+      monthlyPrice: 299,
+      annualPrice: 3050,
+      setupFee: 250,
+      whiteLabelAvailable: false,
+      status: 'ACTIVE',
+      effectiveFrom: new Date(),
+      notes: 'Growth shared-schema tier for expanding company tenants.',
+      createdBy: superAdmin.id,
+      publishedBy: superAdmin.id,
+      publishedAt: new Date(),
+    },
+  });
+
+  await prisma.platformTierPricingVersion.upsert({
+    where: {
+      tierCode_version: {
+        tierCode: 'T3',
+        version: 1,
+      },
+    },
+    update: {},
+    create: {
+      tierCode: 'T3',
+      version: 1,
+      tierLabel: 'T3 Scale',
+      deploymentModel: 'DEDICATED_DB',
+      accountTypes: ['COMPANY', 'ORGANIZATION'],
+      currency: 'USD',
+      isCustomPricing: false,
+      monthlyPrice: 1490,
+      annualPrice: 15198,
+      setupFee: 2000,
+      whiteLabelAvailable: true,
+      whiteLabelMonthlyAddon: 350,
+      whiteLabelSetupFee: 600,
+      status: 'ACTIVE',
+      effectiveFrom: new Date(),
+      notes:
+        'Dedicated-DB scale tier with optional white-label add-on pricing.',
+      createdBy: superAdmin.id,
+      publishedBy: superAdmin.id,
+      publishedAt: new Date(),
+    },
+  });
+
+  await prisma.platformTierPricingVersion.upsert({
+    where: {
+      tierCode_version: {
+        tierCode: 'T4',
+        version: 1,
+      },
+    },
+    update: {},
+    create: {
+      tierCode: 'T4',
+      version: 1,
+      tierLabel: 'T4 Enterprise',
+      deploymentModel: 'DEDICATED_DB',
+      accountTypes: ['STATE', 'ORGANIZATION', 'COMPANY'],
+      currency: 'USD',
+      isCustomPricing: true,
+      monthlyPrice: null,
+      annualPrice: null,
+      setupFee: null,
+      whiteLabelAvailable: true,
+      whiteLabelMonthlyAddon: null,
+      whiteLabelSetupFee: null,
+      status: 'ACTIVE',
+      effectiveFrom: new Date(),
+      notes:
+        'Enterprise tier is contract-priced per tenant agreement with EVzone.',
+      createdBy: superAdmin.id,
+      publishedBy: superAdmin.id,
+      publishedAt: new Date(),
+    },
+  });
+
+  console.log('Platform tier pricing seeded');
+
   // 7. Seed provider ecosystem (marketplace + governance)
   console.log('Seeding provider ecosystem...');
 

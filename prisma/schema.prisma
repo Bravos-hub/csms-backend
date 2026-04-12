@@ -2578,6 +2578,37 @@ model ApprovalRequest {
   @@index([applicantId])
 }
 
+model PlatformTierPricingVersion {
+  id                     String    @id @default(uuid())
+  tierCode               String    @map("tier_code")
+  tierLabel              String    @map("tier_label")
+  deploymentModel        String    @map("deployment_model")
+  accountTypes           String[]  @default([]) @map("account_types")
+  currency               String    @default("USD")
+  isCustomPricing        Boolean   @default(false) @map("is_custom_pricing")
+  monthlyPrice           Decimal?  @db.Decimal(10, 2) @map("monthly_price")
+  annualPrice            Decimal?  @db.Decimal(10, 2) @map("annual_price")
+  setupFee               Decimal?  @db.Decimal(10, 2) @map("setup_fee")
+  whiteLabelAvailable    Boolean   @default(false) @map("white_label_available")
+  whiteLabelMonthlyAddon Decimal?  @db.Decimal(10, 2) @map("white_label_monthly_addon")
+  whiteLabelSetupFee     Decimal?  @db.Decimal(10, 2) @map("white_label_setup_fee")
+  status                 String    @default("DRAFT")
+  version                Int
+  notes                  String?   @db.Text
+  effectiveFrom          DateTime? @map("effective_from")
+  effectiveTo            DateTime? @map("effective_to")
+  createdBy              String?   @map("created_by")
+  publishedBy            String?   @map("published_by")
+  publishedAt            DateTime? @map("published_at")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  @@map("platform_tier_pricing_versions")
+  @@unique([tierCode, version])
+  @@index([tierCode, status], map: "platform_tier_pricing_tier_status_idx")
+  @@index([status, effectiveFrom], map: "platform_tier_pricing_status_effective_idx")
+}
+
 model Job {
   id          String   @id @default(uuid())
   title       String

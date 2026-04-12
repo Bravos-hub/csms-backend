@@ -19,6 +19,8 @@ import {
 } from '../tenant-provisioning/dto/tenant-provisioning.dto';
 import { AssignTenantMembershipDto } from '../tenant-rbac/dto/tenant-rbac.dto';
 import { TenantRbacService } from '../tenant-rbac/tenant-rbac.service';
+import { PlatformTierPricingService } from './platform-tier-pricing.service';
+import { CreateTierPricingDraftDto } from './dto/tier-pricing.dto';
 
 @Injectable()
 export class PlatformService {
@@ -26,6 +28,7 @@ export class PlatformService {
     private readonly prisma: PrismaService,
     private readonly tenantProvisioning: TenantProvisioningService,
     private readonly tenantRbac: TenantRbacService,
+    private readonly tierPricing: PlatformTierPricingService,
   ) {}
 
   listTenants() {
@@ -42,6 +45,26 @@ export class PlatformService {
 
   suspendTenant(id: string, dto: SuspendTenantDto) {
     return this.tenantProvisioning.setTenantSuspended(id, dto.suspended);
+  }
+
+  listTierPricing(includeHistory = false) {
+    return this.tierPricing.listTierPricing(includeHistory);
+  }
+
+  createTierPricingDraft(
+    tierCode: string,
+    dto: CreateTierPricingDraftDto,
+    actorId: string,
+  ) {
+    return this.tierPricing.createDraft(tierCode, dto, actorId);
+  }
+
+  publishTierPricingVersion(
+    tierCode: string,
+    version: number,
+    actorId: string,
+  ) {
+    return this.tierPricing.publishVersion(tierCode, version, actorId);
   }
 
   async assignTenantMembership(

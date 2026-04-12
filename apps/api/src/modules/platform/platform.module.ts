@@ -4,10 +4,11 @@ import { TenantProvisioningModule } from '../tenant-provisioning/tenant-provisio
 import { TenantRbacModule } from '../tenant-rbac/tenant-rbac.module';
 import { PlatformController } from './platform.controller';
 import { PlatformService } from './platform.service';
+import { PlatformTierPricingService } from './platform-tier-pricing.service';
 
 @Module({
   imports: [AuthModule, TenantProvisioningModule, TenantRbacModule],
   controllers: [PlatformController],
-  providers: [PlatformService],
+  providers: [PlatformService, PlatformTierPricingService],
 })
 export class PlatformModule {}
