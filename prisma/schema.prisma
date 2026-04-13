@@ -1708,6 +1708,24 @@ model AttendantNotification {
   @@index([read, createdAt])
 }
 
+model AttendantSyncAction {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  idempotencyKey String   @map("idempotency_key")
+  actionType     String   @map("action_type")
+  payload        Json
+  status         String   @default("QUEUED")
+  sourceCreatedAt DateTime? @map("source_created_at")
+  processedAt    DateTime? @map("processed_at")
+  errorMessage   String?  @map("error_message")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("attendant_sync_actions")
+  @@unique([userId, idempotencyKey])
+  @@index([userId, status, createdAt])
+}
+
 model Wallet {
   id             String   @id @default(uuid())
   userId         String   @unique

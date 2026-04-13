@@ -1,11 +1,16 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as Twilio from 'twilio';
 
 @Injectable()
 export class TwilioService {
-  private client: Twilio.Twilio;
+  private readonly client: Twilio.Twilio | null;
   private readonly logger = new Logger(TwilioService.name);
+  private readonly hasConfiguredCredentials: boolean;
 
   constructor(private readonly configService: ConfigService) {
     const accountSid = this.configService.get<string>('TWILIO_ACCOUNT_SID');
@@ -13,9 +18,12 @@ export class TwilioService {
 
     if (accountSid && authToken) {
       this.client = new Twilio.Twilio(accountSid, authToken);
+      this.hasConfiguredCredentials = true;
     } else {
+      this.client = null;
+      this.hasConfiguredCredentials = false;
       this.logger.warn(
-        'Twilio credentials not found. SMS features will be mocked.',
+        'Twilio credentials are not configured. SMS sending through Twilio is disabled.',
       );
     }
   }
@@ -23,9 +31,16 @@ export class TwilioService {
   async sendSms(to: string, body: string) {
     const from = this.configService.get<string>('TWILIO_PHONE_NUMBER');
 
-    if (!this.client) {
-      this.logger.log(`[MOCK SMS] To: ${to}, Body: ${body}`);
-      return { sid: 'mock-sid', status: 'sent(mock)' };
+    if (!this.client || !this.hasConfiguredCredentials) {
+      throw new ServiceUnavailableException(
+        'Twilio SMS provider is not configured',
+      );
+    }
+
+    if (!from) {
+      throw new ServiceUnavailableException(
+        'TWILIO_PHONE_NUMBER is not configured',
+      );
     }
 
     try {

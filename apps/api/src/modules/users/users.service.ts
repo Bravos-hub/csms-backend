@@ -30,12 +30,23 @@ export class UsersService {
   }
 
   async getCrmStats() {
-    const total = await this.prisma.user.count();
-    const active = await this.prisma.user.count({
-      where: { status: 'Active' },
-    });
-    // Revenue mock (or sum transactions if possible)
-    const totalRevenue = 125000;
+    const [total, active, settledRevenue] = await Promise.all([
+      this.prisma.user.count(),
+      this.prisma.user.count({
+        where: { status: 'Active' },
+      }),
+      this.prisma.paymentIntent.aggregate({
+        where: {
+          status: 'SETTLED',
+          currency: 'USD',
+        },
+        _sum: {
+          amount: true,
+        },
+      }),
+    ]);
+
+    const totalRevenue = Number((settledRevenue._sum.amount || 0).toFixed(2));
 
     return {
       total,

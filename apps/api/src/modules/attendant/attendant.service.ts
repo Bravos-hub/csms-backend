@@ -621,18 +621,86 @@ export class AttendantService {
       this.config.get<string>('ATTENDANT_SYNC_ENABLED'),
     );
     if (!enabled) {
-      throw new ServiceUnavailableException(
-        'Attendant sync batch is disabled. This endpoint is Phase A scaffold only.',
-      );
+      throw new ServiceUnavailableException('Attendant sync batch is disabled');
     }
 
+    const queued = await this.prisma.$transaction(async (tx) => {
+      const items: Array<{
+        id: string;
+        idempotencyKey: string;
+        type: string;
+        status: string;
+        createdAt: Date;
+        updatedAt: Date;
+        processedAt: Date | null;
+        errorMessage: string | null;
+        replayed: boolean;
+      }> = [];
+
+      for (const action of dto.actions) {
+        const existing = await tx.attendantSyncAction.findUnique({
+          where: {
+            userId_idempotencyKey: {
+              userId,
+              idempotencyKey: action.idempotencyKey,
+            },
+          },
+        });
+
+        if (existing) {
+          items.push({
+            id: existing.id,
+            idempotencyKey: existing.idempotencyKey,
+            type: existing.actionType,
+            status: existing.status,
+            createdAt: existing.createdAt,
+            updatedAt: existing.updatedAt,
+            processedAt: existing.processedAt,
+            errorMessage: existing.errorMessage,
+            replayed: true,
+          });
+          continue;
+        }
+
+        const created = await tx.attendantSyncAction.create({
+          data: {
+            userId,
+            idempotencyKey: action.idempotencyKey,
+            actionType: action.type,
+            payload: action.payload as Prisma.InputJsonValue,
+            status: 'QUEUED',
+            sourceCreatedAt: this.parseOptionalIsoDate(action.createdAt),
+          },
+        });
+
+        items.push({
+          id: created.id,
+          idempotencyKey: created.idempotencyKey,
+          type: created.actionType,
+          status: created.status,
+          createdAt: created.createdAt,
+          updatedAt: created.updatedAt,
+          processedAt: created.processedAt,
+          errorMessage: created.errorMessage,
+          replayed: false,
+        });
+      }
+
+      return items;
+    });
+
     return {
-      mode: 'scaffold',
       receivedAt: new Date().toISOString(),
-      actions: dto.actions.map((action) => ({
-        idempotencyKey: action.idempotencyKey,
-        type: action.type,
-        status: 'queued_stub',
+      actions: queued.map((item) => ({
+        id: item.id,
+        idempotencyKey: item.idempotencyKey,
+        type: item.type,
+        status: item.status,
+        replayed: item.replayed,
+        createdAt: item.createdAt.toISOString(),
+        updatedAt: item.updatedAt.toISOString(),
+        processedAt: item.processedAt?.toISOString() || null,
+        errorMessage: item.errorMessage,
       })),
     };
   }
@@ -1122,6 +1190,25 @@ export class AttendantService {
   private parseBoolean(value?: string | null): boolean {
     const normalized = this.normalizeToken(value);
     return ['1', 'true', 'yes', 'on'].includes(normalized);
+  }
+
+  private parseOptionalIsoDate(value?: string): Date | null {
+    if (value === undefined) {
+      return null;
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    const parsed = new Date(trimmed);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException(
+        'actions.createdAt must be a valid ISO date-time string',
+      );
+    }
+    return parsed;
   }
 
   private mapMobileJobStatus(status: string): JobStatus {

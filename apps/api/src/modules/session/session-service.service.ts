@@ -121,6 +121,7 @@ export class SessionService {
       // Need to fetch user here or include in update? Fetch separate
       void this.notifyUserOfStop(updatedSession.userId, {
         totalEnergy: updatedSession.totalEnergy,
+        amount: updatedSession.amount,
       });
     }
 
@@ -134,12 +135,15 @@ export class SessionService {
 
   private async notifyUserOfStop(
     userId: string,
-    session: { totalEnergy: number },
+    session: { totalEnergy: number; amount?: number | null },
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (user && user.phone) {
-      const cost = (session.totalEnergy || 0) * 0.5; // Mock Rate
-      const msg = `EvZone: Charging Stopped. Energy: ${session.totalEnergy}Wh. Est Cost: $${cost.toFixed(2)}`;
+      const recordedAmount =
+        typeof session.amount === 'number' && Number.isFinite(session.amount)
+          ? session.amount
+          : 0;
+      const msg = `EvZone: Charging Stopped. Energy: ${session.totalEnergy}Wh. Cost: $${recordedAmount.toFixed(2)}`;
       await this.notificationService.sendSms(user.phone, msg, {
         userId: user.id,
         zoneId: user.zoneId,

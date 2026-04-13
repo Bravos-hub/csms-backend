@@ -567,6 +567,14 @@ export class AuthController {
     return req.user?.sub || this.getRequestHeader(req, 'x-user-id');
   }
 
+  private assertAuthenticatedUserId(req: AuthenticatedRequest): string {
+    const userId = this.getAuthenticatedUserId(req);
+    if (!userId) {
+      throw new BadRequestException('Authenticated user is required');
+    }
+    return userId;
+  }
+
   private applyFrontendUrlFromRequest(
     payload: MutableFrontendUrl,
     req: Request,
@@ -619,6 +627,14 @@ export class UsersController {
     req: AuthenticatedRequest,
   ): string | undefined {
     return req.user?.sub || this.getRequestHeader(req, 'x-user-id');
+  }
+
+  private assertAuthenticatedUserId(req: AuthenticatedRequest): string {
+    const userId = this.getAuthenticatedUserId(req);
+    if (!userId) {
+      throw new BadRequestException('Authenticated user is required');
+    }
+    return userId;
   }
 
   private applyFrontendUrlFromRequest(
@@ -680,8 +696,10 @@ export class UsersController {
 
   @Get('team')
   @UseGuards(JwtAuthGuard)
-  findTeam(@Req() req: Request & { user?: { sub?: string } }) {
-    return this.authService.findTeamMembers(req.user?.sub || '');
+  findTeam(@Req() req: AuthenticatedRequest) {
+    return this.authService.findTeamMembers(
+      this.assertAuthenticatedUserId(req),
+    );
   }
 
   @Post('team/invite')
@@ -689,11 +707,14 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   inviteTeamMember(
     @Body() inviteDto: TeamInviteUserDto,
-    @Req() req: Request & { user?: { sub?: string } },
+    @Req() req: AuthenticatedRequest,
   ) {
     this.applyFrontendUrlFromRequest(inviteDto, req);
 
-    return this.authService.inviteTeamMember(inviteDto, req.user?.sub || '');
+    return this.authService.inviteTeamMember(
+      inviteDto,
+      this.assertAuthenticatedUserId(req),
+    );
   }
 
   @Patch('team/:id')
@@ -701,12 +722,12 @@ export class UsersController {
   updateTeamMember(
     @Param('id') id: string,
     @Body() updateDto: UpdateUserDto,
-    @Req() req: Request & { user?: { sub?: string } },
+    @Req() req: AuthenticatedRequest,
   ) {
     return this.authService.updateTeamMember(
       id,
       updateDto,
-      req.user?.sub || '',
+      this.assertAuthenticatedUserId(req),
     );
   }
 
@@ -714,9 +735,12 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   getTeamAssignments(
     @Param('id') id: string,
-    @Req() req: Request & { user?: { sub?: string } },
+    @Req() req: AuthenticatedRequest,
   ) {
-    return this.authService.getTeamAssignments(id, req.user?.sub || '');
+    return this.authService.getTeamAssignments(
+      id,
+      this.assertAuthenticatedUserId(req),
+    );
   }
 
   @Put('team/:id/assignments')
@@ -724,12 +748,12 @@ export class UsersController {
   updateTeamAssignments(
     @Param('id') id: string,
     @Body() body: TeamStationAssignmentsUpdateDto,
-    @Req() req: Request & { user?: { sub?: string } },
+    @Req() req: AuthenticatedRequest,
   ) {
     return this.authService.replaceTeamAssignments(
       id,
       body.assignments,
-      req.user?.sub || '',
+      this.assertAuthenticatedUserId(req),
     );
   }
 
@@ -737,9 +761,12 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   getTeamPayoutProfile(
     @Param('id') id: string,
-    @Req() req: Request & { user?: { sub?: string } },
+    @Req() req: AuthenticatedRequest,
   ) {
-    return this.authService.getStaffPayoutProfile(id, req.user?.sub || '');
+    return this.authService.getStaffPayoutProfile(
+      id,
+      this.assertAuthenticatedUserId(req),
+    );
   }
 
   @Put('team/:id/payout-profile')
@@ -747,29 +774,31 @@ export class UsersController {
   upsertTeamPayoutProfile(
     @Param('id') id: string,
     @Body() body: StaffPayoutProfileDto,
-    @Req() req: Request & { user?: { sub?: string } },
+    @Req() req: AuthenticatedRequest,
   ) {
     return this.authService.upsertStaffPayoutProfile(
       id,
       body,
-      req.user?.sub || '',
+      this.assertAuthenticatedUserId(req),
     );
   }
 
   @Get('me/station-contexts')
   @UseGuards(JwtAuthGuard)
-  getStationContexts(@Req() req: Request & { user?: { sub?: string } }) {
-    return this.authService.getUserStationContexts(req.user?.sub || '');
+  getStationContexts(@Req() req: AuthenticatedRequest) {
+    return this.authService.getUserStationContexts(
+      this.assertAuthenticatedUserId(req),
+    );
   }
 
   @Post('me/station-context')
   @UseGuards(JwtAuthGuard)
   switchStationContext(
     @Body() body: StationContextSwitchDto,
-    @Req() req: Request & { user?: { sub?: string } },
+    @Req() req: AuthenticatedRequest,
   ) {
     return this.authService.switchUserStationContext(
-      req.user?.sub || '',
+      this.assertAuthenticatedUserId(req),
       body.assignmentId,
     );
   }

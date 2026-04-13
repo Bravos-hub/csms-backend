@@ -196,6 +196,7 @@ describe('SessionService OCPP TransactionEvent handling', () => {
       stationId: 'station-1',
       userId: 'user-1',
       totalEnergy: 2500,
+      amount: 1250,
       status: 'STOPPED',
     });
     prisma.user.findUnique.mockResolvedValue({
@@ -212,7 +213,7 @@ describe('SessionService OCPP TransactionEvent handling', () => {
 
     expect(notificationService.sendSms).toHaveBeenCalledWith(
       '+256700000001',
-      'EvZone: Charging Stopped. Energy: 2500Wh. Est Cost: $1250.00',
+      'EvZone: Charging Stopped. Energy: 2500Wh. Cost: $1250.00',
       {
         userId: 'user-1',
         zoneId: 'zone-af-1',

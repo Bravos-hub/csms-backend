@@ -2,6 +2,13 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 
+type TechnicianStationContext = {
+  stationId: string;
+  shiftStart: string | null;
+  shiftEnd: string | null;
+  attendantName: string | null;
+};
+
 @Injectable()
 export class TechniciansService {
   constructor(private prisma: PrismaService) {}
@@ -39,19 +46,11 @@ export class TechniciansService {
 
   async getAssignment(userId: string) {
     if (!userId) throw new ForbiddenException('Invalid authenticated user');
-    // Find if the user has an assigned station as 'ATTENDANT' or explicit assignment
-    // For now, we check the 'technicianStatus' location or if they own/operate one.
-    // Assuming location store stationId or we look up stations where operatorId = userId
-    // But for technician, let's use a new query or use 'technicianStatus.location' as rudimentary stationId if formatted as such,
-    // OR better: Look for 'Station' where operatorId = userId or similar.
-    // The mock 'StationAssignment' shows Shift and Attendant.
+    const context = await this.resolveActiveStationContext(userId);
+    if (!context) return null;
 
-    // Let's assume we link via 'Station.operatorId' or similar for now.
-    // Or if 'Job' has stationId, we can infer.
-
-    // Simplest: Find a station where this user is an operator or attendant.
     const station = await this.prisma.station.findFirst({
-      where: { operatorId: userId },
+      where: { id: context.stationId },
       include: {
         jobs: {
           where: { status: { in: ['AVAILABLE', 'IN_PROGRESS'] } },
@@ -62,7 +61,11 @@ export class TechniciansService {
 
     if (!station) return null;
 
-    // Transform to mock format
+    const shift =
+      context.shiftStart && context.shiftEnd
+        ? `${context.shiftStart} - ${context.shiftEnd}`
+        : null;
+
     return {
       id: station.id,
       name: station.name,
@@ -74,8 +77,8 @@ export class TechniciansService {
           : station.type === 'CHARGING'
             ? 'Charge'
             : 'Both',
-      shift: '08:00 - 16:00', // Hardcoded shift for now, or add to DB later
-      attendant: 'You', // Or fetch user name
+      shift,
+      attendant: context.attendantName,
       metrics: [
         {
           label: 'Chargers available',
@@ -93,18 +96,14 @@ export class TechniciansService {
 
   async getJobs(userId: string) {
     if (!userId) throw new ForbiddenException('Invalid authenticated user');
-    // Return jobs assigned to this technician OR available at their assigned station
-    // First find their station
-    const station = await this.prisma.station.findFirst({
-      where: { operatorId: userId },
-    });
+    const context = await this.resolveActiveStationContext(userId);
 
     const orConditions: Prisma.JobWhereInput[] = [{ technicianId: userId }];
 
-    if (station) {
+    if (context?.stationId) {
       orConditions.push({
-        stationId: station.id,
-        technicianId: null, // Unassigned jobs at their station
+        stationId: context.stationId,
+        technicianId: null,
         status: 'AVAILABLE',
       });
     }
@@ -123,8 +122,66 @@ export class TechniciansService {
       priority: j.priority,
       status: j.status,
       pay: j.pay,
-      posted: j.createdAt.toISOString(), // Client can format relative time
+      posted: j.createdAt.toISOString(),
       description: j.description,
     }));
+  }
+
+  private async resolveActiveStationContext(
+    userId: string,
+  ): Promise<TechnicianStationContext | null> {
+    const now = new Date();
+
+    const attendantAssignment = await this.prisma.attendantAssignment.findFirst(
+      {
+        where: {
+          userId,
+          isActive: true,
+          OR: [{ activeFrom: null }, { activeFrom: { lte: now } }],
+          AND: [{ OR: [{ activeTo: null }, { activeTo: { gte: now } }] }],
+        },
+        select: {
+          stationId: true,
+          shiftStart: true,
+          shiftEnd: true,
+          user: { select: { name: true } },
+        },
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      },
+    );
+
+    if (attendantAssignment) {
+      return {
+        stationId: attendantAssignment.stationId,
+        shiftStart: attendantAssignment.shiftStart,
+        shiftEnd: attendantAssignment.shiftEnd,
+        attendantName: attendantAssignment.user.name || null,
+      };
+    }
+
+    const teamAssignment = await this.prisma.stationTeamAssignment.findFirst({
+      where: {
+        userId,
+        isActive: true,
+      },
+      select: {
+        stationId: true,
+        shiftStart: true,
+        shiftEnd: true,
+        user: { select: { name: true } },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    if (!teamAssignment) {
+      return null;
+    }
+
+    return {
+      stationId: teamAssignment.stationId,
+      shiftStart: teamAssignment.shiftStart,
+      shiftEnd: teamAssignment.shiftEnd,
+      attendantName: teamAssignment.user.name || null,
+    };
   }
 }

@@ -1375,12 +1375,9 @@ export class AnalyticsService {
   ) {
     const relevant = history.filter((entry) => entry.timestamp <= end);
     if (relevant.length === 0) {
-      const fallback = this.chargePointFallbackUptime(currentStatus);
       return {
-        uptimePct: fallback,
-        downtimeHours: Number(
-          (((100 - fallback) / 100) * this.diffHours(start, end)).toFixed(2),
-        ),
+        uptimePct: null,
+        downtimeHours: null,
       };
     }
 
@@ -1539,13 +1536,6 @@ export class AnalyticsService {
         available.length
       ).toFixed(2),
     );
-  }
-
-  private chargePointFallbackUptime(status: string) {
-    const bucket = this.resolveChargePointBucket(status);
-    if (bucket === 'online') return 85;
-    if (bucket === 'maintenance') return 55;
-    return 10;
   }
 
   private resolveChargePointBucket(

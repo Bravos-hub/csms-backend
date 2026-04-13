@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -34,6 +35,16 @@ import { AttendantService } from './attendant.service';
 export class AttendantController {
   constructor(private readonly attendantService: AttendantService) {}
 
+  private assertAuthenticatedUserId(
+    req: Request & { user?: { sub?: string } },
+  ) {
+    const userId = req.user?.sub;
+    if (!userId) {
+      throw new BadRequestException('Authenticated user is required');
+    }
+    return userId;
+  }
+
   @Post('auth/login')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   login(@Body() dto: AttendantLoginDto) {
@@ -53,7 +64,10 @@ export class AttendantController {
     const token = authHeader.startsWith('Bearer ')
       ? authHeader.slice('Bearer '.length)
       : '';
-    return this.attendantService.getSession(req.user?.sub || '', token);
+    return this.attendantService.getSession(
+      this.assertAuthenticatedUserId(req),
+      token,
+    );
   }
 
   @Post('auth/password/request')
@@ -87,7 +101,10 @@ export class AttendantController {
     @Req() req: Request & { user?: { sub?: string } },
     @Query() query: AttendantBookingsQueryDto,
   ) {
-    return this.attendantService.listBookings(req.user?.sub || '', query);
+    return this.attendantService.listBookings(
+      this.assertAuthenticatedUserId(req),
+      query,
+    );
   }
 
   @Get('bookings/:id')
@@ -96,7 +113,10 @@ export class AttendantController {
     @Req() req: Request & { user?: { sub?: string } },
     @Param('id') id: string,
   ) {
-    return this.attendantService.getBookingById(req.user?.sub || '', id);
+    return this.attendantService.getBookingById(
+      this.assertAuthenticatedUserId(req),
+      id,
+    );
   }
 
   @Get('ports')
@@ -105,7 +125,10 @@ export class AttendantController {
     @Req() req: Request & { user?: { sub?: string } },
     @Query() query: AttendantPortsQueryDto,
   ) {
-    return this.attendantService.listPorts(req.user?.sub || '', query);
+    return this.attendantService.listPorts(
+      this.assertAuthenticatedUserId(req),
+      query,
+    );
   }
 
   @Get('sessions/metrics')
@@ -114,19 +137,26 @@ export class AttendantController {
     @Req() req: Request & { user?: { sub?: string } },
     @Query() query: AttendantSessionMetricsQueryDto,
   ) {
-    return this.attendantService.getSessionMetrics(req.user?.sub || '', query);
+    return this.attendantService.getSessionMetrics(
+      this.assertAuthenticatedUserId(req),
+      query,
+    );
   }
 
   @Get('mobile/assignment')
   @UseGuards(JwtAuthGuard, AttendantRoleGuard)
   getMobileAssignment(@Req() req: Request & { user?: { sub?: string } }) {
-    return this.attendantService.getMobileAssignment(req.user?.sub || '');
+    return this.attendantService.getMobileAssignment(
+      this.assertAuthenticatedUserId(req),
+    );
   }
 
   @Get('mobile/jobs')
   @UseGuards(JwtAuthGuard, AttendantRoleGuard)
   listMobileJobs(@Req() req: Request & { user?: { sub?: string } }) {
-    return this.attendantService.listMobileJobs(req.user?.sub || '');
+    return this.attendantService.listMobileJobs(
+      this.assertAuthenticatedUserId(req),
+    );
   }
 
   @Get('transactions')
@@ -135,7 +165,10 @@ export class AttendantController {
     @Req() req: Request & { user?: { sub?: string } },
     @Query() query: AttendantTransactionsQueryDto,
   ) {
-    return this.attendantService.listTransactions(req.user?.sub || '', query);
+    return this.attendantService.listTransactions(
+      this.assertAuthenticatedUserId(req),
+      query,
+    );
   }
 
   @Get('transactions/:id')
@@ -144,7 +177,10 @@ export class AttendantController {
     @Req() req: Request & { user?: { sub?: string } },
     @Param('id') id: string,
   ) {
-    return this.attendantService.getTransactionById(req.user?.sub || '', id);
+    return this.attendantService.getTransactionById(
+      this.assertAuthenticatedUserId(req),
+      id,
+    );
   }
 
   @Get('notifications')
@@ -153,7 +189,10 @@ export class AttendantController {
     @Req() req: Request & { user?: { sub?: string } },
     @Query() query: AttendantNotificationsQueryDto,
   ) {
-    return this.attendantService.listNotifications(req.user?.sub || '', query);
+    return this.attendantService.listNotifications(
+      this.assertAuthenticatedUserId(req),
+      query,
+    );
   }
 
   @Patch('notifications/:id/read')
@@ -163,7 +202,10 @@ export class AttendantController {
     @Req() req: Request & { user?: { sub?: string } },
     @Param('id') id: string,
   ) {
-    await this.attendantService.markNotificationAsRead(req.user?.sub || '', id);
+    await this.attendantService.markNotificationAsRead(
+      this.assertAuthenticatedUserId(req),
+      id,
+    );
   }
 
   @Patch('notifications/read-all')
@@ -172,7 +214,9 @@ export class AttendantController {
   async markAllNotificationsAsRead(
     @Req() req: Request & { user?: { sub?: string } },
   ) {
-    await this.attendantService.markAllNotificationsAsRead(req.user?.sub || '');
+    await this.attendantService.markAllNotificationsAsRead(
+      this.assertAuthenticatedUserId(req),
+    );
   }
 
   @Post('sync/batch')
@@ -181,6 +225,9 @@ export class AttendantController {
     @Req() req: Request & { user?: { sub?: string } },
     @Body() dto: AttendantSyncBatchDto,
   ) {
-    return this.attendantService.syncBatch(req.user?.sub || '', dto);
+    return this.attendantService.syncBatch(
+      this.assertAuthenticatedUserId(req),
+      dto,
+    );
   }
 }

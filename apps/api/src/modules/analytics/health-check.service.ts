@@ -26,6 +26,7 @@ export class HealthCheckService {
   private healthCache: HealthCheckResult | null = null;
   private lastCheckTime: number = 0;
   private readonly CACHE_TTL = 30000; // 30 seconds cache
+  private readonly paymentHealthTimeoutMs: number;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -46,6 +47,16 @@ export class HealthCheckService {
         );
       }
     }
+
+    const parsedPaymentHealthTimeout = Number.parseInt(
+      this.config.get<string>('PAYMENT_HEALTHCHECK_TIMEOUT_MS') || '5000',
+      10,
+    );
+    this.paymentHealthTimeoutMs =
+      Number.isFinite(parsedPaymentHealthTimeout) &&
+      parsedPaymentHealthTimeout > 0
+        ? parsedPaymentHealthTimeout
+        : 5000;
   }
 
   /**
@@ -65,7 +76,7 @@ export class HealthCheckService {
         this.checkDatabase(),
         this.checkRedis(),
         this.checkOCPPGateway(),
-        Promise.resolve(this.checkPaymentGateway()),
+        this.checkPaymentGateway(),
       ]);
 
       // Map settled promises to ServiceHealth objects
@@ -311,34 +322,73 @@ export class HealthCheckService {
   /**
    * Check Payment Gateway health
    */
-  private checkPaymentGateway(): ServiceHealth {
+  private async checkPaymentGateway(): Promise<ServiceHealth> {
     const startTime = Date.now();
     const name = 'Payment Gateway';
+    let timeoutId: NodeJS.Timeout | null = null;
 
     try {
-      // For now, return operational if payment config exists
-      // In production, you'd ping the actual payment provider API
-      const paymentProvider = this.config.get<string>('PAYMENT_PROVIDER');
-
-      if (!paymentProvider) {
+      const healthcheckUrl = this.config
+        .get<string>('PAYMENT_HEALTHCHECK_URL')
+        ?.trim();
+      if (!healthcheckUrl) {
         return {
           name,
           status: 'Degraded',
-          responseTime: 1,
+          responseTime: 0,
           lastCheck: new Date().toISOString(),
-          metadata: { note: 'Payment provider not configured' },
+          metadata: {
+            error:
+              'PAYMENT_HEALTHCHECK_URL is not configured for payment gateway health checks',
+          },
         };
       }
 
-      // Simulate a successful check
+      const headers: HeadersInit = {
+        Accept: 'application/json',
+      };
+      const bearerToken = this.config
+        .get<string>('PAYMENT_HEALTHCHECK_BEARER_TOKEN')
+        ?.trim();
+      if (bearerToken) {
+        headers.Authorization = `Bearer ${bearerToken}`;
+      }
+
+      const controller = new AbortController();
+      timeoutId = setTimeout(
+        () => controller.abort(),
+        this.paymentHealthTimeoutMs,
+      );
+
+      const response = await fetch(healthcheckUrl, {
+        method: 'GET',
+        headers,
+        signal: controller.signal,
+      });
+
       const responseTime = Date.now() - startTime;
 
+      if (response.ok) {
+        return {
+          name,
+          status: responseTime < 200 ? 'Operational' : 'Degraded',
+          responseTime,
+          lastCheck: new Date().toISOString(),
+          metadata: { healthcheckUrl },
+        };
+      }
+
+      const responseBody = await response.text().catch(() => '');
       return {
         name,
-        status: 'Operational',
-        responseTime: responseTime || 1,
-        uptime: '99.95%',
+        status: 'Degraded',
+        responseTime,
         lastCheck: new Date().toISOString(),
+        metadata: {
+          healthcheckUrl,
+          httpStatus: response.status,
+          response: responseBody.slice(0, 300) || null,
+        },
       };
     } catch (error) {
       const message = this.errorMessage(error);
@@ -350,6 +400,10 @@ export class HealthCheckService {
         lastCheck: new Date().toISOString(),
         metadata: { error: message },
       };
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     }
   }
 

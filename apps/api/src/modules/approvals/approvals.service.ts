@@ -40,8 +40,7 @@ export class ApprovalsService {
       orderBy: { submittedAt: 'desc' },
     });
 
-    // Enrich with user data (mocked enrichment for performance/simplicity in this MVP)
-    // Or better: fetch users.
+    // Enrich with user data in a separate query to keep this path lightweight.
     const userIds = [...new Set(requests.map((r) => r.applicantId))];
     const users = await this.prisma.user.findMany({
       where: { id: { in: userIds } },

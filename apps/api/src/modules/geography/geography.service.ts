@@ -94,6 +94,14 @@ export class GeographyService implements OnModuleInit {
     'https://api.countrystatecity.in/v1';
   private readonly cscApiKey =
     process.env.GEOGRAPHY_CSC_API_KEY || process.env.CSC_API_KEY || '';
+  private readonly ipapiBaseUrl =
+    process.env.GEOGRAPHY_IPAPI_BASE_URL || 'https://ipapi.co';
+  private readonly ipapiApiKey = process.env.GEOGRAPHY_IPAPI_KEY || '';
+  private readonly openCageBaseUrl =
+    process.env.GEOGRAPHY_OPENCAGE_BASE_URL ||
+    'https://api.opencagedata.com/geocode/v1';
+  private readonly openCageApiKey =
+    process.env.GEOGRAPHY_OPENCAGE_API_KEY || '';
 
   private countriesCache: CacheEntry<GeographyCountryReference[]> | null = null;
   private readonly statesCache = new Map<
@@ -154,55 +162,128 @@ export class GeographyService implements OnModuleInit {
   }
 
   /**
-   * Auto-detect location from IP address.
-   * Mock implementation for now.
+   * Auto-detect location from IP address using ipapi.co.
    */
-  detectLocationFromIp(ip: string) {
-    // In a real app, use MaxMind or an IP-API here.
-    // For prototype, return a default or random location based on simple logic
-
-    // Simulate "US" user
-    if (ip.startsWith('192.168') || ip.startsWith('10.')) {
-      return {
-        countryCode: 'US',
-        countryName: 'United States',
-        regionCode: 'US-CA',
-        regionName: 'California',
-        city: 'San Francisco',
-        postalCode: '94105',
-        lat: 37.7749,
-        lng: -122.4194,
-      };
+  async detectLocationFromIp(ip: string) {
+    if (!this.ipapiApiKey) {
+      throw new ServiceUnavailableException(
+        'IP geolocation provider is not configured. Set GEOGRAPHY_IPAPI_KEY to enable IP-based detection.',
+      );
     }
 
-    return null;
+    const normalizedIp = this.normalizeClientIp(ip);
+    if (!normalizedIp) {
+      throw new BadRequestException('A valid client IP address is required');
+    }
+
+    const url =
+      `${this.ipapiBaseUrl}/${encodeURIComponent(normalizedIp)}/json/` +
+      `?key=${encodeURIComponent(this.ipapiApiKey)}`;
+    const payload = await this.fetchJson<unknown>(url);
+    const record = asRecord(payload);
+
+    const countryCode = normalizeCode(
+      readString(record, 'country_code') || '',
+      2,
+    );
+    const countryName = (readString(record, 'country_name') || '').trim();
+    if (!countryCode || !countryName) {
+      throw new ServiceUnavailableException(
+        'IP geolocation provider returned incomplete location data',
+      );
+    }
+
+    const rawRegionCode = (readString(record, 'region_code') || '').trim();
+    const regionCode =
+      rawRegionCode.length > 0
+        ? `${countryCode}-${normalizeCode(rawRegionCode, 16)}`
+        : null;
+    const latitude = this.readFiniteNumber(record?.latitude ?? record?.lat);
+    const longitude = this.readFiniteNumber(record?.longitude ?? record?.lon);
+
+    return {
+      countryCode,
+      countryName,
+      regionCode,
+      regionName: readString(record, 'region') || null,
+      city: readString(record, 'city') || null,
+      postalCode: readString(record, 'postal') || null,
+      lat: latitude,
+      lng: longitude,
+    };
   }
 
   /**
-   * Reverse geocode a lat/long to a standardized address.
-   * This is the "Magic" for mobile users.
+   * Reverse geocode coordinates using OpenCage.
    */
-  reverseGeocode(lat: number, lng: number) {
-    // Mock implementation.
-    // In production, integrate Google Maps API or OpenCage.
-
-    // Example: Nairobi, Kenya
-    if (lat > -1.5 && lat < -1.0 && lng > 36.5 && lng < 37.0) {
-      return {
-        countryCode: 'KE',
-        countryName: 'Kenya',
-        adm1: 'Nairobi', // County
-        adm1Type: 'County',
-        city: 'Nairobi',
-        postalCode: '00100',
-      };
+  async reverseGeocode(lat: number, lng: number) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      throw new BadRequestException(
+        'Valid lat and lng query parameters are required',
+      );
+    }
+    if (!this.openCageApiKey) {
+      throw new ServiceUnavailableException(
+        'Reverse geocoding provider is not configured. Set GEOGRAPHY_OPENCAGE_API_KEY to enable reverse geocoding.',
+      );
     }
 
-    // Default: Return coordinates as "Unknown"
+    const query = encodeURIComponent(`${lat},${lng}`);
+    const url =
+      `${this.openCageBaseUrl}/json?q=${query}` +
+      `&key=${encodeURIComponent(this.openCageApiKey)}` +
+      '&no_annotations=1&limit=1';
+    const payload = await this.fetchJson<unknown>(url);
+    const root = asRecord(payload);
+    const results = Array.isArray(root?.results) ? root.results : [];
+    const first = asRecord(results[0]);
+    const components = asRecord(first?.components);
+    if (!first || !components) {
+      throw new NotFoundException('No address found for provided coordinates');
+    }
+
+    const countryCode = normalizeCode(
+      readString(components, 'country_code') || '',
+      2,
+    );
+    const countryName = (readString(components, 'country') || '').trim();
+    if (!countryCode || !countryName) {
+      throw new ServiceUnavailableException(
+        'Reverse geocoding provider returned incomplete location data',
+      );
+    }
+
+    const adm1 =
+      readString(components, 'state') ||
+      readString(components, 'region') ||
+      readString(components, 'county') ||
+      null;
+    const city =
+      readString(components, 'city') ||
+      readString(components, 'town') ||
+      readString(components, 'village') ||
+      readString(components, 'municipality') ||
+      readString(components, 'county') ||
+      null;
+    const adm1Type =
+      adm1 && readString(components, 'state')
+        ? 'State'
+        : adm1 && readString(components, 'region')
+          ? 'Region'
+          : adm1 && readString(components, 'county')
+            ? 'County'
+            : null;
+
     return {
+      countryCode,
+      countryName,
+      adm1,
+      adm1Type,
+      city,
+      postalCode: readString(components, 'postcode') || null,
       lat,
       lng,
-      note: 'Location not in mock database',
+      formatted: readString(first, 'formatted') || null,
     };
   }
 
@@ -674,6 +755,32 @@ export class GeographyService implements OnModuleInit {
       );
     }
     throw error;
+  }
+
+  private normalizeClientIp(raw: string): string | null {
+    const first = raw.split(',')[0]?.trim() || '';
+    if (!first) {
+      return null;
+    }
+
+    const normalized =
+      first.startsWith('::ffff:') && first.length > '::ffff:'.length
+        ? first.slice('::ffff:'.length)
+        : first;
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  private readFiniteNumber(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+    return null;
   }
 
   private async fetchJson<T>(url: string, init?: RequestInit): Promise<T> {

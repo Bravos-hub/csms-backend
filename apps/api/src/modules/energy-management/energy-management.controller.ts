@@ -213,7 +213,11 @@ export class EnergyManagementController {
   @Post('groups/:id/simulate-meter-loss')
   @RequirePermissions('smart_charging.write')
   simulateMeterLoss(@Param('id') id: string, @Req() request: RequestWithUser) {
-    if ((process.env.NODE_ENV || '').toLowerCase() === 'production') {
+    const isProduction =
+      (process.env.NODE_ENV || '').toLowerCase() === 'production';
+    const simulationEnabled =
+      (process.env.ENERGY_SIMULATION_ENABLED || '').toLowerCase() === 'true';
+    if (isProduction || !simulationEnabled) {
       throw new ForbiddenException('Meter loss simulation is disabled');
     }
 
