@@ -13,6 +13,7 @@ import { StationService } from './station-service.service';
 describe('StationService charge point onboarding', () => {
   const prisma = {
     chargePoint: {
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
     },
@@ -42,15 +43,29 @@ describe('StationService charge point onboarding', () => {
     getChargePointRoamingPublication: jest.fn(),
     setChargePointRoamingPublication: jest.fn(),
   };
+  const energyManagement = {
+    recalculateStation: jest.fn(),
+  };
+  const tenantGuardrails = {
+    requireTenantScope: jest
+      .fn()
+      .mockResolvedValue({ tenantId: 'tenant-1', cpoType: 'CHARGE' }),
+    buildOwnedStationWhere: jest.fn((_: unknown, extra?: unknown) => extra),
+    buildOwnedChargePointWhere: jest.fn((_: unknown, extra?: unknown) => extra),
+    listOwnedStationIds: jest.fn().mockResolvedValue(['station-1']),
+  };
 
   const service = new StationService(
     prisma as any,
     provisioningService as any,
     commands as any,
     ocpiService as any,
+    energyManagement as any,
+    tenantGuardrails as any,
   );
 
   beforeEach(() => {
+    prisma.chargePoint.findFirst.mockReset();
     prisma.chargePoint.findUnique.mockReset();
     prisma.chargePoint.update.mockReset();
     prisma.station.findFirst.mockReset();
@@ -62,10 +77,20 @@ describe('StationService charge point onboarding', () => {
     provisioningService.provision.mockReset();
     ocpiService.getChargePointRoamingPublication.mockReset();
     ocpiService.setChargePointRoamingPublication.mockReset();
+    energyManagement.recalculateStation.mockReset();
+    tenantGuardrails.requireTenantScope.mockReset();
+    tenantGuardrails.requireTenantScope.mockResolvedValue({
+      tenantId: 'tenant-1',
+      cpoType: 'CHARGE',
+    });
+    tenantGuardrails.buildOwnedStationWhere.mockClear();
+    tenantGuardrails.buildOwnedChargePointWhere.mockClear();
+    tenantGuardrails.listOwnedStationIds.mockReset();
+    tenantGuardrails.listOwnedStationIds.mockResolvedValue(['station-1']);
   });
 
   it('confirms identity and maps manufacturer into vendor field', async () => {
-    prisma.chargePoint.findUnique.mockResolvedValueOnce({
+    prisma.chargePoint.findFirst.mockResolvedValueOnce({
       id: 'cp-1',
       stationId: 'station-1',
       ocppId: 'CP-001',
@@ -109,7 +134,7 @@ describe('StationService charge point onboarding', () => {
   });
 
   it('rejects identity confirmation once the charge point is published', async () => {
-    prisma.chargePoint.findUnique.mockResolvedValueOnce({
+    prisma.chargePoint.findFirst.mockResolvedValueOnce({
       id: 'cp-1',
       stationId: 'station-1',
       ocppId: 'CP-001',
@@ -132,7 +157,7 @@ describe('StationService charge point onboarding', () => {
   });
 
   it('blocks publication when boot notification has not been received', async () => {
-    prisma.chargePoint.findUnique.mockResolvedValueOnce({
+    prisma.chargePoint.findFirst.mockResolvedValueOnce({
       id: 'cp-1',
       stationId: 'station-1',
       ocppId: 'CP-001',
@@ -151,7 +176,7 @@ describe('StationService charge point onboarding', () => {
   });
 
   it('blocks publication when identity is not yet confirmed', async () => {
-    prisma.chargePoint.findUnique.mockResolvedValueOnce({
+    prisma.chargePoint.findFirst.mockResolvedValueOnce({
       id: 'cp-1',
       stationId: 'station-1',
       ocppId: 'CP-001',
@@ -170,7 +195,7 @@ describe('StationService charge point onboarding', () => {
   });
 
   it('publishes when boot and confirmed identity preconditions are met', async () => {
-    prisma.chargePoint.findUnique.mockResolvedValueOnce({
+    prisma.chargePoint.findFirst.mockResolvedValueOnce({
       id: 'cp-1',
       stationId: 'station-1',
       ocppId: 'CP-001',
@@ -275,7 +300,7 @@ describe('StationService charge point onboarding', () => {
   });
 
   it('maps publication response into charge-point publication contract', async () => {
-    prisma.chargePoint.findUnique.mockResolvedValueOnce({
+    prisma.chargePoint.findFirst.mockResolvedValueOnce({
       id: 'cp-1',
       stationId: 'station-1',
       ocppId: 'CP-001',

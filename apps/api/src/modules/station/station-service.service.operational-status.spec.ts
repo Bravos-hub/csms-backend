@@ -20,12 +20,25 @@ describe('StationService operational station status', () => {
     getChargePointRoamingPublication: jest.fn(),
     setChargePointRoamingPublication: jest.fn(),
   };
+  const energyManagement = {
+    recalculateStation: jest.fn(),
+  };
+  const tenantGuardrails = {
+    requireTenantScope: jest
+      .fn()
+      .mockResolvedValue({ tenantId: 'tenant-1', cpoType: 'CHARGE' }),
+    buildOwnedStationWhere: jest.fn((_: unknown, extra?: unknown) => extra),
+    buildOwnedChargePointWhere: jest.fn((_: unknown, extra?: unknown) => extra),
+    listOwnedStationIds: jest.fn().mockResolvedValue(['station-1']),
+  };
 
   const service = new StationService(
     prisma as any,
     provisioningService as any,
     commands as any,
     ocpiService as any,
+    energyManagement as any,
+    tenantGuardrails as any,
   );
 
   const baseStation = {
@@ -74,6 +87,19 @@ describe('StationService operational station status', () => {
     }
     return first.operationalStatus;
   };
+
+  beforeEach(() => {
+    energyManagement.recalculateStation.mockReset();
+    tenantGuardrails.requireTenantScope.mockReset();
+    tenantGuardrails.requireTenantScope.mockResolvedValue({
+      tenantId: 'tenant-1',
+      cpoType: 'CHARGE',
+    });
+    tenantGuardrails.buildOwnedStationWhere.mockClear();
+    tenantGuardrails.buildOwnedChargePointWhere.mockClear();
+    tenantGuardrails.listOwnedStationIds.mockReset();
+    tenantGuardrails.listOwnedStationIds.mockResolvedValue(['station-1']);
+  });
 
   it('returns OFFLINE when all charge points are offline', async () => {
     const status = await mapOperationalStatus({

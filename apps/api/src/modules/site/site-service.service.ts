@@ -1,13 +1,23 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, SitePurpose } from '@prisma/client';
+import {
+  CpoServiceType,
+  Prisma,
+  SitePurpose,
+  StationType,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { CreateSiteDto, UpdateSiteDto } from './dto/site.dto';
 import { CreateSiteDocumentDto } from './dto/document.dto';
 import { parsePaginationOptions } from '../../common/utils/pagination';
+import {
+  TenantGuardrailsService,
+  TenantScope,
+} from '../../common/tenant/tenant-guardrails.service';
 
 type SiteWithRelations = Prisma.SiteGetPayload<{
   include: {
@@ -22,7 +32,14 @@ type SiteWithRelations = Prisma.SiteGetPayload<{
 
 @Injectable()
 export class SiteService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantGuardrails: TenantGuardrailsService,
+  ) {}
+
+  private async requireTenantScope(): Promise<TenantScope> {
+    return this.tenantGuardrails.requireTenantScope('tenant');
+  }
 
   private parseArray(value?: string): string[] {
     if (!value) return [];
@@ -53,15 +70,54 @@ export class SiteService {
     };
   }
 
+  private stationVisibilityWhere(
+    scope: TenantScope,
+  ): Prisma.StationWhereInput | undefined {
+    if (scope.cpoType === CpoServiceType.HYBRID) {
+      return undefined;
+    }
+
+    return {
+      type:
+        scope.cpoType === CpoServiceType.CHARGE
+          ? StationType.CHARGING
+          : StationType.SWAPPING,
+    };
+  }
+
+  private siteInclude(scope: TenantScope): Prisma.SiteInclude {
+    return {
+      stations: {
+        where: this.stationVisibilityWhere(scope),
+      },
+      leaseDetails: true,
+      documents: true,
+      owner: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          region: true,
+        },
+      },
+    };
+  }
+
   async createSite(createDto: CreateSiteDto) {
+    const scope = await this.requireTenantScope();
     if (!createDto.ownerId?.trim()) {
       throw new BadRequestException('ownerId is required');
     }
 
     const owner = await this.prisma.user.findUnique({
       where: { id: createDto.ownerId },
+      select: { id: true, organizationId: true },
     });
     if (!owner) throw new NotFoundException('Owner not found');
+    if (owner.organizationId !== scope.tenantId) {
+      throw new ForbiddenException('Owner is outside tenant scope');
+    }
 
     const data: Prisma.SiteCreateInput = {
       name: createDto.name,
@@ -70,6 +126,7 @@ export class SiteService {
       powerCapacityKw: createDto.powerCapacityKw,
       parkingBays: createDto.parkingBays,
       owner: { connect: { id: owner.id } },
+      organization: { connect: { id: scope.tenantId } },
     };
 
     if (createDto.purpose) data.purpose = createDto.purpose;
@@ -96,10 +153,10 @@ export class SiteService {
 
     const created = await this.prisma.site.create({
       data,
-      include: { stations: true, leaseDetails: true, documents: true },
+      include: { leaseDetails: true },
     });
 
-    return this.findSiteById(created.id);
+    return this.findSiteById(created.id, scope);
   }
 
   private normalizePurpose(purpose?: string): SitePurpose | undefined {
@@ -113,58 +170,38 @@ export class SiteService {
   async findAllSites(
     params: { purpose?: string; limit?: string; offset?: string } = {},
   ) {
+    const scope = await this.requireTenantScope();
     const purpose = this.normalizePurpose(params.purpose);
     const pagination = parsePaginationOptions(
       { limit: params.limit, offset: params.offset },
       { limit: 50, maxLimit: 200 },
     );
     const sites = await this.prisma.site.findMany({
-      where: purpose ? { purpose } : undefined,
+      where: this.tenantGuardrails.buildOwnedSiteWhere(
+        scope,
+        purpose ? { purpose } : undefined,
+      ),
       take: pagination.limit,
       skip: pagination.offset,
-      include: {
-        stations: true,
-        leaseDetails: true,
-        documents: true,
-        owner: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true,
-            region: true,
-          },
-        },
-      },
+      include: this.siteInclude(scope),
     });
     return sites.map((site) => this.formatSite(site));
   }
 
-  async findSiteById(id: string) {
-    const site = await this.prisma.site.findUnique({
-      where: { id },
-      include: {
-        stations: true,
-        leaseDetails: true,
-        documents: true,
-        owner: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true,
-            region: true,
-          },
-        },
-      },
+  async findSiteById(id: string, scopeOverride?: TenantScope) {
+    const scope = scopeOverride || (await this.requireTenantScope());
+    const site = await this.prisma.site.findFirst({
+      where: this.tenantGuardrails.buildOwnedSiteWhere(scope, { id }),
+      include: this.siteInclude(scope),
     });
     if (!site) throw new NotFoundException('Site not found');
     return this.formatSite(site);
   }
 
   async updateSite(id: string, updateDto: UpdateSiteDto) {
-    const site = await this.prisma.site.findUnique({
-      where: { id },
+    const scope = await this.requireTenantScope();
+    const site = await this.prisma.site.findFirst({
+      where: this.tenantGuardrails.buildOwnedSiteWhere(scope, { id }),
       include: { leaseDetails: true },
     });
     if (!site) throw new NotFoundException('Site not found');
@@ -184,8 +221,12 @@ export class SiteService {
     if (updateDto.ownerId) {
       const owner = await this.prisma.user.findUnique({
         where: { id: updateDto.ownerId },
+        select: { id: true, organizationId: true },
       });
       if (!owner) throw new NotFoundException('Owner not found');
+      if (owner.organizationId !== scope.tenantId) {
+        throw new ForbiddenException('Owner is outside tenant scope');
+      }
       data.owner = { connect: { id: owner.id } };
     }
 
@@ -228,33 +269,22 @@ export class SiteService {
     const updated = await this.prisma.site.update({
       where: { id },
       data,
-      include: {
-        stations: true,
-        leaseDetails: true,
-        documents: true,
-        owner: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true,
-            region: true,
-          },
-        },
-      },
+      include: this.siteInclude(scope),
     });
 
     return this.formatSite(updated);
   }
 
   async removeSite(id: string) {
-    await this.findSiteById(id);
+    const scope = await this.requireTenantScope();
+    await this.findSiteById(id, scope);
     return this.prisma.site.delete({ where: { id } });
   }
 
   async verifySite(id: string, status: string, verifierId: string) {
     // Verify site exists
-    await this.findSiteById(id);
+    const scope = await this.requireTenantScope();
+    await this.findSiteById(id, scope);
 
     return this.prisma.site.update({
       where: { id },
@@ -270,7 +300,8 @@ export class SiteService {
   // Document Management Methods
   async findSiteDocuments(siteId: string) {
     // Verify site exists
-    await this.findSiteById(siteId);
+    const scope = await this.requireTenantScope();
+    await this.findSiteById(siteId, scope);
 
     const documents = await this.prisma.siteDocument.findMany({
       where: { siteId },
@@ -292,7 +323,8 @@ export class SiteService {
 
   async createSiteDocument(siteId: string, createDto: CreateSiteDocumentDto) {
     // Verify site exists
-    await this.findSiteById(siteId);
+    const scope = await this.requireTenantScope();
+    await this.findSiteById(siteId, scope);
 
     return this.prisma.siteDocument.create({
       data: {
@@ -309,12 +341,26 @@ export class SiteService {
   }
 
   async deleteSiteDocument(documentId: string) {
+    const scope = await this.requireTenantScope();
     const document = await this.prisma.siteDocument.findUnique({
       where: { id: documentId },
+      select: {
+        id: true,
+        siteId: true,
+        site: {
+          select: {
+            organizationId: true,
+          },
+        },
+      },
     });
 
     if (!document) {
       throw new NotFoundException('Document not found');
+    }
+
+    if (document.site?.organizationId !== scope.tenantId) {
+      throw new ForbiddenException('Document is outside tenant scope');
     }
 
     return this.prisma.siteDocument.delete({
@@ -324,11 +370,12 @@ export class SiteService {
 
   // Stats Aggregation Methods
   async getSiteStats(siteId: string) {
+    const scope = await this.requireTenantScope();
     // Verify site exists
-    await this.findSiteById(siteId);
+    await this.findSiteById(siteId, scope);
 
     const stations = await this.prisma.station.findMany({
-      where: { siteId },
+      where: this.tenantGuardrails.buildOwnedStationWhere(scope, { siteId }),
       select: { id: true },
     });
 

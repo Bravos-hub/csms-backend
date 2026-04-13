@@ -4,9 +4,10 @@ import { DocumentsController } from './documents.controller';
 import { PrismaModule } from '../../prisma.module';
 import { ConfigModule } from '@nestjs/config';
 import { MediaStorageService } from '../../common/services/media-storage.service';
+import { AuthModule } from '../auth/auth-service.module';
 
 @Module({
-  imports: [PrismaModule, ConfigModule],
+  imports: [PrismaModule, ConfigModule, AuthModule],
   controllers: [DocumentsController],
   providers: [DocumentsService, MediaStorageService],
   exports: [DocumentsService],

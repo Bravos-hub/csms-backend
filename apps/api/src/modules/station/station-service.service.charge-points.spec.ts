@@ -13,7 +13,7 @@ describe('StationService charge point listing', () => {
   const prisma = {
     chargePoint: {
       findMany: jest.fn(),
-      findUnique: jest.fn(),
+      findFirst: jest.fn(),
     },
     ocpiPartnerLocation: {
       findMany: jest.fn(),
@@ -32,21 +32,44 @@ describe('StationService charge point listing', () => {
     getChargePointRoamingPublication: jest.fn(),
     setChargePointRoamingPublication: jest.fn(),
   };
+  const energyManagement = {
+    recalculateStation: jest.fn(),
+  };
+  const tenantGuardrails = {
+    requireTenantScope: jest
+      .fn()
+      .mockResolvedValue({ tenantId: 'tenant-1', cpoType: 'CHARGE' }),
+    buildOwnedStationWhere: jest.fn((_: unknown, extra?: unknown) => extra),
+    buildOwnedChargePointWhere: jest.fn((_: unknown, extra?: unknown) => extra),
+    listOwnedStationIds: jest.fn().mockResolvedValue(['station-1']),
+  };
 
   const service = new StationService(
     prisma as any,
     provisioningService as any,
     commands as any,
     ocpiService as any,
+    energyManagement as any,
+    tenantGuardrails as any,
   );
 
   beforeEach(() => {
     prisma.chargePoint.findMany.mockReset();
     prisma.chargePoint.findMany.mockResolvedValue([]);
-    prisma.chargePoint.findUnique.mockReset();
-    prisma.chargePoint.findUnique.mockResolvedValue(null);
+    prisma.chargePoint.findFirst.mockReset();
+    prisma.chargePoint.findFirst.mockResolvedValue(null);
     prisma.ocpiPartnerLocation.findMany.mockReset();
     prisma.ocpiPartnerLocation.findMany.mockResolvedValue([]);
+    energyManagement.recalculateStation.mockReset();
+    tenantGuardrails.requireTenantScope.mockReset();
+    tenantGuardrails.requireTenantScope.mockResolvedValue({
+      tenantId: 'tenant-1',
+      cpoType: 'CHARGE',
+    });
+    tenantGuardrails.buildOwnedStationWhere.mockClear();
+    tenantGuardrails.buildOwnedChargePointWhere.mockClear();
+    tenantGuardrails.listOwnedStationIds.mockReset();
+    tenantGuardrails.listOwnedStationIds.mockResolvedValue(['station-1']);
   });
 
   it('includes the parent station name for fleet management views', async () => {
@@ -116,7 +139,7 @@ describe('StationService charge point listing', () => {
   });
 
   it('surfaces roaming publication status in detail responses', async () => {
-    prisma.chargePoint.findUnique.mockResolvedValueOnce({
+    prisma.chargePoint.findFirst.mockResolvedValueOnce({
       id: 'cp-2',
       stationId: 'st-102',
       ocppId: 'CP-002',

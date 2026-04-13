@@ -2,6 +2,8 @@ import { SessionService } from './session-service.service';
 import { PrismaService } from '../../prisma.service';
 import { NotificationService } from '../notification/notification-service.service';
 import { OcpiTokenSyncService } from '../../common/services/ocpi-token-sync.service';
+import { EnergyManagementService } from '../energy-management/energy-management.service';
+import { TenantGuardrailsService } from '../../common/tenant/tenant-guardrails.service';
 
 describe('SessionService OCPP TransactionEvent handling', () => {
   const prisma = {
@@ -11,6 +13,7 @@ describe('SessionService OCPP TransactionEvent handling', () => {
     session: {
       create: jest.fn(),
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       update: jest.fn(),
       count: jest.fn(),
       findMany: jest.fn(),
@@ -28,20 +31,42 @@ describe('SessionService OCPP TransactionEvent handling', () => {
     syncIdTagToken: jest.fn(),
   };
 
+  const energyManagement = {
+    recalculateStation: jest.fn(),
+  };
+
+  const tenantGuardrails = {
+    requireTenantScope: jest
+      .fn()
+      .mockResolvedValue({ tenantId: 'tenant-1', cpoType: 'CHARGE' }),
+    listOwnedStationIds: jest.fn().mockResolvedValue(['station-1']),
+  };
+
   const service = new SessionService(
     prisma as unknown as PrismaService,
     notificationService as unknown as NotificationService,
     ocpiTokenSync as unknown as OcpiTokenSyncService,
+    energyManagement as unknown as EnergyManagementService,
+    tenantGuardrails as unknown as TenantGuardrailsService,
   );
 
   beforeEach(() => {
     prisma.chargePoint.findUnique.mockReset();
     prisma.session.create.mockReset();
     prisma.session.findUnique.mockReset();
+    prisma.session.findFirst.mockReset();
     prisma.session.update.mockReset();
     prisma.user.findUnique.mockReset();
     ocpiTokenSync.syncIdTagToken.mockReset();
     notificationService.sendSms.mockReset();
+    energyManagement.recalculateStation.mockReset();
+    tenantGuardrails.requireTenantScope.mockReset();
+    tenantGuardrails.requireTenantScope.mockResolvedValue({
+      tenantId: 'tenant-1',
+      cpoType: 'CHARGE',
+    });
+    tenantGuardrails.listOwnedStationIds.mockReset();
+    tenantGuardrails.listOwnedStationIds.mockResolvedValue(['station-1']);
   });
 
   it('creates a session from OCPP 2.x TransactionEvent Started', async () => {
@@ -161,12 +186,14 @@ describe('SessionService OCPP TransactionEvent handling', () => {
   });
 
   it('passes geo context when sending stop-session SMS notifications', async () => {
-    prisma.session.findUnique.mockResolvedValue({
+    prisma.session.findFirst.mockResolvedValue({
       id: 'session-1',
       status: 'ACTIVE',
+      stationId: 'station-1',
     });
     prisma.session.update.mockResolvedValue({
       id: 'session-1',
+      stationId: 'station-1',
       userId: 'user-1',
       totalEnergy: 2500,
       status: 'STOPPED',

@@ -31,11 +31,6 @@ import {
 type ApplicationsRequest = Request & {
   user?: {
     sub?: string;
-    role?: string;
-    canonicalRole?: string;
-    accessProfile?: {
-      canonicalRole?: string;
-    };
   };
 };
 
@@ -53,19 +48,14 @@ export class ApplicationsController {
     return userId;
   }
 
-  private isSuperAdmin(req: ApplicationsRequest): boolean {
-    const canonicalRole =
-      req.user?.canonicalRole || req.user?.accessProfile?.canonicalRole;
-
-    return (
-      canonicalRole === 'PLATFORM_SUPER_ADMIN' ||
-      req.user?.role === 'SUPER_ADMIN'
-    );
+  private async isSuperAdmin(req: ApplicationsRequest): Promise<boolean> {
+    const actorId = this.assertUserId(req);
+    return this.applicationsService.isPlatformSuperAdmin(actorId);
   }
 
-  private assertSuperAdmin(req: ApplicationsRequest): string {
+  private async assertSuperAdmin(req: ApplicationsRequest): Promise<string> {
     const actorId = this.assertUserId(req);
-    if (!this.isSuperAdmin(req)) {
+    if (!(await this.isSuperAdmin(req))) {
       throw new ForbiddenException(
         'Only platform super admins can perform this action',
       );
@@ -87,25 +77,25 @@ export class ApplicationsController {
 
   @Get('onboarding/canonical-roles')
   @RequirePermissions('platform.tenants.read')
-  listTenantScopedCanonicalRoles(@Req() req: ApplicationsRequest) {
-    this.assertSuperAdmin(req);
+  async listTenantScopedCanonicalRoles(@Req() req: ApplicationsRequest) {
+    await this.assertSuperAdmin(req);
     return this.applicationsService.listTenantScopedCanonicalRoles();
   }
 
   @Get()
   @RequirePermissions('platform.tenants.read')
-  listForAdmin(
+  async listForAdmin(
     @Req() req: ApplicationsRequest,
     @Query() filters: ListApplicationsQueryDto,
   ) {
-    this.assertSuperAdmin(req);
+    await this.assertSuperAdmin(req);
     return this.applicationsService.listForAdmin(filters);
   }
 
   @Get(':id')
   async getOne(@Param('id') id: string, @Req() req: ApplicationsRequest) {
     const userId = this.assertUserId(req);
-    if (this.isSuperAdmin(req)) {
+    if (await this.isSuperAdmin(req)) {
       return this.applicationsService.getOneForAdmin(id);
     }
     return this.applicationsService.getOneForApplicant(id, userId);
@@ -129,12 +119,12 @@ export class ApplicationsController {
 
   @Patch(':id/review')
   @RequirePermissions('platform.tenants.write')
-  review(
+  async review(
     @Param('id') id: string,
     @Body() dto: ReviewApplicationDto,
     @Req() req: ApplicationsRequest,
   ) {
-    const reviewerId = this.assertSuperAdmin(req);
+    const reviewerId = await this.assertSuperAdmin(req);
     return this.applicationsService.review(id, reviewerId, dto);
   }
 
@@ -163,7 +153,7 @@ export class ApplicationsController {
     req: ApplicationsRequest,
   ): Promise<string> {
     const requesterId = this.assertUserId(req);
-    if (!this.isSuperAdmin(req)) {
+    if (!(await this.isSuperAdmin(req))) {
       return requesterId;
     }
 
@@ -193,12 +183,12 @@ export class ApplicationsController {
 
   @Post(':id/activate')
   @RequirePermissions('platform.tenants.write')
-  activate(
+  async activate(
     @Param('id') id: string,
     @Body() dto: ActivateApplicationDto,
     @Req() req: ApplicationsRequest,
   ) {
-    const reviewerId = this.assertSuperAdmin(req);
+    const reviewerId = await this.assertSuperAdmin(req);
     return this.applicationsService.activate(id, reviewerId, dto);
   }
 }

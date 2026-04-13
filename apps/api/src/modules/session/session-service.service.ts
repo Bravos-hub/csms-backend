@@ -6,6 +6,10 @@ import { StopSessionDto, SessionFilterDto } from './dto/session.dto';
 import { OcpiTokenSyncService } from '../../common/services/ocpi-token-sync.service';
 import { parsePaginationOptions } from '../../common/utils/pagination';
 import { EnergyManagementService } from '../energy-management/energy-management.service';
+import {
+  TenantGuardrailsService,
+  TenantScope,
+} from '../../common/tenant/tenant-guardrails.service';
 
 type OcppSessionPayload = Record<string, unknown>;
 
@@ -18,31 +22,73 @@ export class SessionService {
     private readonly notificationService: NotificationService,
     private readonly ocpiTokenSync: OcpiTokenSyncService,
     private readonly energyManagement: EnergyManagementService,
+    private readonly tenantGuardrails: TenantGuardrailsService,
   ) {}
 
+  private async requireChargeScope(): Promise<TenantScope> {
+    return this.tenantGuardrails.requireTenantScope('charge');
+  }
+
+  private async listScopedStationIds(
+    scope: TenantScope,
+    stationId?: string,
+  ): Promise<string[]> {
+    return this.tenantGuardrails.listOwnedStationIds(
+      scope,
+      stationId ? { id: stationId } : undefined,
+    );
+  }
+
   async getActiveSessions(limit?: unknown, offset?: unknown) {
+    const scope = await this.requireChargeScope();
+    const stationIds = await this.listScopedStationIds(scope);
+    if (stationIds.length === 0) {
+      return [];
+    }
+
     const pagination = parsePaginationOptions(
       { limit, offset },
       { limit: 50, maxLimit: 100 },
     );
     return this.prisma.session.findMany({
-      where: { status: 'ACTIVE' },
+      where: { status: 'ACTIVE', stationId: { in: stationIds } },
       orderBy: { startTime: 'desc' },
       take: pagination.limit,
       skip: pagination.offset,
     });
   }
 
-  async findById(id: string) {
-    const session = await this.prisma.session.findUnique({ where: { id } });
+  async findById(id: string, scopeOverride?: TenantScope) {
+    const scope = scopeOverride || (await this.requireChargeScope());
+    const stationIds = await this.listScopedStationIds(scope);
+    if (stationIds.length === 0) {
+      throw new NotFoundException('Session not found');
+    }
+
+    const session = await this.prisma.session.findFirst({
+      where: {
+        id,
+        stationId: { in: stationIds },
+      },
+    });
     if (!session) throw new NotFoundException('Session not found');
     return session;
   }
 
   async getHistory(filter: SessionFilterDto) {
-    const where: Prisma.SessionWhereInput = {};
+    const scope = await this.requireChargeScope();
+    const scopedStationIds = await this.listScopedStationIds(
+      scope,
+      filter.stationId,
+    );
+    if (scopedStationIds.length === 0) {
+      return [];
+    }
+
+    const where: Prisma.SessionWhereInput = {
+      stationId: { in: scopedStationIds },
+    };
     if (filter.status) where.status = filter.status;
-    if (filter.stationId) where.stationId = filter.stationId;
     const pagination = parsePaginationOptions(
       { limit: filter.limit, offset: filter.offset },
       { limit: 50, maxLimit: 200 },
@@ -56,8 +102,9 @@ export class SessionService {
   }
 
   async stopSession(id: string, stopDto: StopSessionDto) {
+    const scope = await this.requireChargeScope();
     void stopDto;
-    const session = await this.findById(id);
+    const session = await this.findById(id, scope);
     if (session.status !== 'ACTIVE') return session;
 
     // Stop logic & Update
@@ -103,12 +150,47 @@ export class SessionService {
   }
 
   async getStatsSummary() {
-    return {
-      totalEnergy: 15403,
-      activeSessions: await this.prisma.session.count({
-        where: { status: 'ACTIVE' },
+    const scope = await this.requireChargeScope();
+    const stationIds = await this.listScopedStationIds(scope);
+    if (stationIds.length === 0) {
+      return {
+        totalEnergy: 0,
+        activeSessions: 0,
+        completedToday: 0,
+      };
+    }
+
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const [aggregate, activeSessions, completedToday] = await Promise.all([
+      this.prisma.session.aggregate({
+        where: {
+          stationId: { in: stationIds },
+        },
+        _sum: {
+          totalEnergy: true,
+        },
       }),
-      completedToday: 42,
+      this.prisma.session.count({
+        where: {
+          stationId: { in: stationIds },
+          status: 'ACTIVE',
+        },
+      }),
+      this.prisma.session.count({
+        where: {
+          stationId: { in: stationIds },
+          status: { in: ['COMPLETED', 'STOPPED'] },
+          startTime: { gte: startOfDay },
+        },
+      }),
+    ]);
+
+    return {
+      totalEnergy: Number((aggregate._sum.totalEnergy || 0).toFixed(2)),
+      activeSessions,
+      completedToday,
     };
   }
 

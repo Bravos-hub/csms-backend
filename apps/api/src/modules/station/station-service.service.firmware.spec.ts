@@ -7,6 +7,7 @@ describe('StationService firmware commands and history', () => {
 
   const prisma = {
     chargePoint: {
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
     },
@@ -34,6 +35,17 @@ describe('StationService firmware commands and history', () => {
     getChargePointRoamingPublication: jest.fn(),
     setChargePointRoamingPublication: jest.fn(),
   };
+  const energyManagement = {
+    recalculateStation: jest.fn(),
+  };
+  const tenantGuardrails = {
+    requireTenantScope: jest
+      .fn()
+      .mockResolvedValue({ tenantId: 'tenant-1', cpoType: 'CHARGE' }),
+    buildOwnedStationWhere: jest.fn((_: unknown, extra?: unknown) => extra),
+    buildOwnedChargePointWhere: jest.fn((_: unknown, extra?: unknown) => extra),
+    listOwnedStationIds: jest.fn().mockResolvedValue(['station-1']),
+  };
 
   const createService = () =>
     new StationService(
@@ -41,11 +53,14 @@ describe('StationService firmware commands and history', () => {
       provisioningService as any,
       commands as any,
       ocpiService as any,
+      energyManagement as any,
+      tenantGuardrails as any,
     );
 
   beforeEach(() => {
     process.env.FEATURE_OCPP_FIRMWARE_COMMANDS_ENABLED =
       previousFirmwareCommandFlag;
+    prisma.chargePoint.findFirst.mockReset();
     prisma.chargePoint.findUnique.mockReset();
     prisma.firmwareUpdateEvent.findMany.mockReset();
     prisma.ocpiPartnerLocation.findMany.mockReset();
@@ -53,6 +68,16 @@ describe('StationService firmware commands and history', () => {
     commands.enqueueCommand.mockReset();
     ocpiService.getChargePointRoamingPublication.mockReset();
     ocpiService.setChargePointRoamingPublication.mockReset();
+    energyManagement.recalculateStation.mockReset();
+    tenantGuardrails.requireTenantScope.mockReset();
+    tenantGuardrails.requireTenantScope.mockResolvedValue({
+      tenantId: 'tenant-1',
+      cpoType: 'CHARGE',
+    });
+    tenantGuardrails.buildOwnedStationWhere.mockClear();
+    tenantGuardrails.buildOwnedChargePointWhere.mockClear();
+    tenantGuardrails.listOwnedStationIds.mockReset();
+    tenantGuardrails.listOwnedStationIds.mockResolvedValue(['station-1']);
   });
 
   afterAll(() => {
@@ -67,7 +92,7 @@ describe('StationService firmware commands and history', () => {
   it('queues UpdateFirmware command from canonical DTO when feature is enabled', async () => {
     process.env.FEATURE_OCPP_FIRMWARE_COMMANDS_ENABLED = 'true';
     const service = createService();
-    prisma.chargePoint.findUnique.mockResolvedValue({
+    prisma.chargePoint.findFirst.mockResolvedValue({
       id: 'cp-1',
       stationId: 'station-1',
     });
@@ -122,7 +147,7 @@ describe('StationService firmware commands and history', () => {
   it('reads firmware event history for a charge point', async () => {
     process.env.FEATURE_OCPP_FIRMWARE_COMMANDS_ENABLED = 'true';
     const service = createService();
-    prisma.chargePoint.findUnique.mockResolvedValue({
+    prisma.chargePoint.findFirst.mockResolvedValue({
       id: 'cp-1',
       stationId: 'station-1',
     });

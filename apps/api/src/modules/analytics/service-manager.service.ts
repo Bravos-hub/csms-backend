@@ -1,8 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { exec } from 'child_process';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface ServiceLog {
   timestamp: string;
@@ -23,71 +23,53 @@ export interface ServiceEvent {
 export class ServiceManagerService {
   private readonly logger = new Logger(ServiceManagerService.name);
   private readonly events: ServiceEvent[] = [];
+  private readonly dockerComposeCandidates: ReadonlyArray<
+    Readonly<{ command: string; preArgs: string[] }>
+  > = [
+    { command: 'docker', preArgs: ['compose'] },
+    { command: 'docker-compose', preArgs: [] },
+  ];
 
-  /**
-   * Restart a service (placeholder for Docker/K8s integration)
-   */
   async restartService(
     serviceName: string,
   ): Promise<{ success: boolean; message: string }> {
     this.logger.log(`Restart requested for service: ${serviceName}`);
+    const dockerServiceName = this.mapServiceToDockerName(serviceName);
+
+    if (!dockerServiceName) {
+      throw new BadRequestException(
+        `Service ${serviceName} cannot be restarted from the API`,
+      );
+    }
+
+    this.addEvent({
+      severity: 'info',
+      message: `Restart initiated for ${serviceName}`,
+      service: serviceName,
+    });
 
     try {
-      // Add event
+      const result = await this.runDockerCompose(
+        ['restart', dockerServiceName],
+        30_000,
+      );
+
+      this.logger.log(
+        `Restarted ${serviceName} using "${result.executedCommand}"`,
+      );
       this.addEvent({
-        severity: 'info',
-        message: `Restart initiated for ${serviceName}`,
+        severity: 'resolved',
+        message: `${serviceName} restarted successfully`,
         service: serviceName,
       });
 
-      // In production, this would integrate with Docker or Kubernetes
-      // For now, we'll simulate a restart
-      const dockerServiceName = this.mapServiceToDockerName(serviceName);
-
-      if (!dockerServiceName) {
-        return {
-          success: false,
-          message: `Service ${serviceName} cannot be restarted from the application`,
-        };
-      }
-
-      // Try to restart using docker-compose (if available)
-      try {
-        await execAsync(`docker-compose restart ${dockerServiceName}`, {
-          timeout: 30000,
-        });
-
-        this.addEvent({
-          severity: 'resolved',
-          message: `${serviceName} restarted successfully`,
-          service: serviceName,
-        });
-
-        return {
-          success: true,
-          message: `Service ${serviceName} restarted successfully`,
-        };
-      } catch (dockerError) {
-        const dockerMessage = this.errorMessage(dockerError);
-        this.logger.warn(
-          `Docker restart failed, service may not be containerized: ${dockerMessage}`,
-        );
-
-        // Return a simulated success for demo purposes
-        this.addEvent({
-          severity: 'warning',
-          message: `Restart signal sent to ${serviceName} (manual verification required)`,
-          service: serviceName,
-        });
-
-        return {
-          success: true,
-          message: `Restart signal sent to ${serviceName}. Please verify service status.`,
-        };
-      }
+      return {
+        success: true,
+        message: `Service ${serviceName} restarted successfully`,
+      };
     } catch (error) {
       const message = this.errorMessage(error);
-      this.logger.error(`Failed to restart service ${serviceName}: ${message}`);
+      this.logger.error(`Failed to restart ${serviceName}: ${message}`);
 
       this.addEvent({
         severity: 'error',
@@ -102,90 +84,107 @@ export class ServiceManagerService {
     }
   }
 
-  /**
-   * Get service logs (simplified implementation)
-   */
   async getServiceLogs(
     serviceName: string,
     lines: number = 100,
   ): Promise<ServiceLog[]> {
     this.logger.log(`Fetching logs for service: ${serviceName}`);
-
     const dockerServiceName = this.mapServiceToDockerName(serviceName);
 
     if (!dockerServiceName) {
-      return this.getMockLogs(serviceName, lines);
+      throw new BadRequestException(
+        `Service ${serviceName} does not expose container logs`,
+      );
     }
 
-    try {
-      // Try to get logs from Docker
-      const { stdout } = await execAsync(
-        `docker-compose logs --tail=${lines} ${dockerServiceName}`,
-        {
-          timeout: 10000,
-        },
-      );
-
-      return this.parseLogs(stdout);
-    } catch (error) {
-      this.logger.warn(
-        `Could not fetch Docker logs for ${serviceName}: ${this.errorMessage(error)}`,
-      );
-      // Return mock logs as fallback
-      return this.getMockLogs(serviceName, lines);
-    }
+    const normalizedLines = Math.min(
+      Math.max(Math.floor(lines || 100), 1),
+      500,
+    );
+    const result = await this.runDockerCompose(
+      ['logs', `--tail=${normalizedLines}`, dockerServiceName],
+      10_000,
+    );
+    return this.parseLogs(result.stdout || result.stderr);
   }
 
-  /**
-   * Get recent system events
-   */
   getSystemEvents(limit: number = 50): ServiceEvent[] {
-    return this.events.slice(-limit).reverse();
+    const normalizedLimit = Math.min(Math.max(Math.floor(limit || 50), 1), 500);
+    return this.events.slice(-normalizedLimit).reverse();
   }
 
-  /**
-   * Add a system event
-   */
   private addEvent(event: Omit<ServiceEvent, 'id' | 'time'>): void {
     const newEvent: ServiceEvent = {
-      id: `evt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
       time: new Date().toISOString(),
       ...event,
     };
 
     this.events.push(newEvent);
-
-    // Keep only last 1000 events
     if (this.events.length > 1000) {
       this.events.shift();
     }
   }
 
-  /**
-   * Map service display name to Docker container name
-   */
   private mapServiceToDockerName(serviceName: string): string | null {
     const mapping: Record<string, string | null> = {
       Database: 'postgres',
       'Redis Cache': 'redis',
       'OCPP Gateway': 'ocpp-gateway',
-      'Payment Gateway': null, // External service, can't restart
+      'Payment Gateway': null,
     };
 
     return mapping[serviceName] || null;
   }
 
-  /**
-   * Parse Docker logs into structured format
-   */
+  private async runDockerCompose(
+    args: string[],
+    timeout: number,
+  ): Promise<{
+    stdout: string;
+    stderr: string;
+    executedCommand: string;
+  }> {
+    const failures: string[] = [];
+
+    for (const candidate of this.dockerComposeCandidates) {
+      const commandArgs = [...candidate.preArgs, ...args];
+      try {
+        const { stdout, stderr } = await execFileAsync(
+          candidate.command,
+          commandArgs,
+          {
+            timeout,
+            maxBuffer: 10 * 1024 * 1024,
+          },
+        );
+
+        return {
+          stdout: stdout || '',
+          stderr: stderr || '',
+          executedCommand: `${candidate.command} ${commandArgs.join(' ')}`,
+        };
+      } catch (error) {
+        failures.push(
+          `${candidate.command}: ${this.errorMessage(error).replace(/[\r\n]+/g, ' ')}`,
+        );
+      }
+    }
+
+    throw new Error(
+      `Unable to execute Docker Compose command (${args.join(' ')}): ${failures.join(' | ')}`,
+    );
+  }
+
   private parseLogs(logOutput: string): ServiceLog[] {
-    const lines = logOutput.split('\n').filter((line) => line.trim());
+    const lines = logOutput
+      .split('\n')
+      .filter((line) => line.trim().length > 0);
     const logs: ServiceLog[] = [];
 
     for (const line of lines) {
-      // Try to parse timestamp and level from log line
       const timestampMatch = line.match(
-        /(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z?)/,
+        /(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z?)/,
       );
       const levelMatch = line.match(/\b(error|warn|warning|info|debug)\b/i);
 
@@ -193,26 +192,6 @@ export class ServiceManagerService {
         timestamp: timestampMatch?.[1] || new Date().toISOString(),
         level: this.normalizeLogLevel(levelMatch?.[1]),
         message: line,
-      });
-    }
-
-    return logs.slice(-100); // Return last 100 logs
-  }
-
-  /**
-   * Generate mock logs for demo purposes
-   */
-  private getMockLogs(serviceName: string, lines: number): ServiceLog[] {
-    const logs: ServiceLog[] = [];
-    const now = Date.now();
-
-    for (let i = 0; i < Math.min(lines, 20); i++) {
-      const timestamp = new Date(now - i * 60000).toISOString();
-      logs.push({
-        timestamp,
-        level: i % 10 === 0 ? 'warn' : 'info',
-        message: `[${serviceName}] ${i % 10 === 0 ? 'High memory usage detected' : 'Service operating normally'}`,
-        context: serviceName,
       });
     }
 

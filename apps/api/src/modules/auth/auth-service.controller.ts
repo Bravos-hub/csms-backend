@@ -646,7 +646,10 @@ export class UsersController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   getMe(@Req() req: AuthenticatedRequest) {
-    const userId = this.getAuthenticatedUserId(req) || 'mock-id';
+    const userId = this.getAuthenticatedUserId(req);
+    if (!userId) {
+      throw new BadRequestException('Authenticated user is required');
+    }
     return this.authService.getCurrentUser(userId);
   }
 

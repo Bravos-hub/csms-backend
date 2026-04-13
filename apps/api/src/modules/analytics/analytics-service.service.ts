@@ -1,10 +1,15 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { HealthCheckService } from './health-check.service';
 import { PrismaService } from '../../prisma.service';
 import type {
   OwnerDashboardQueryDto,
   OwnerDashboardResponseDto,
 } from './dto/owner-dashboard.dto';
+import {
+  TenantGuardrailsService,
+  TenantScope,
+} from '../../common/tenant/tenant-guardrails.service';
 
 type Actor = {
   sub?: string;
@@ -84,35 +89,45 @@ export class AnalyticsService {
   constructor(
     private readonly healthCheck: HealthCheckService,
     private readonly prisma: PrismaService,
+    private readonly tenantGuardrails: TenantGuardrailsService,
   ) {}
+
+  private async requireChargeScope(): Promise<TenantScope> {
+    return this.tenantGuardrails.requireTenantScope('charge');
+  }
 
   getHello(): string {
     return 'Analytics Service Operational';
   }
 
   async getDashboard(period: string): Promise<Record<string, unknown>> {
+    const scope = await this.requireChargeScope();
     const now = new Date();
     const startOfDay = this.startOfDay(now);
     const startOf24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const startOf7d = new Date(startOfDay);
     startOf7d.setDate(startOf7d.getDate() - 6);
+    const stations = await this.prisma.station.findMany({
+      where: this.tenantGuardrails.buildOwnedStationWhere(scope),
+      select: {
+        id: true,
+        name: true,
+        status: true,
+      },
+    });
+    const stationIds = stations.map((station) => station.id);
 
     const [
-      stations,
       chargePoints,
       todaySessionsAggregate,
       activeSessionsCount,
       incidents24hCount,
       sessionsLast7Days,
     ] = await Promise.all([
-      this.prisma.station.findMany({
-        select: {
-          id: true,
-          name: true,
-          status: true,
-        },
-      }),
       this.prisma.chargePoint.findMany({
+        where: {
+          stationId: { in: stationIds },
+        },
         select: {
           id: true,
           stationId: true,
@@ -122,6 +137,7 @@ export class AnalyticsService {
       }),
       this.prisma.session.aggregate({
         where: {
+          stationId: { in: stationIds },
           startTime: {
             gte: startOfDay,
           },
@@ -136,6 +152,7 @@ export class AnalyticsService {
       }),
       this.prisma.session.count({
         where: {
+          stationId: { in: stationIds },
           status: {
             in: ['ACTIVE', 'IN_PROGRESS'],
           },
@@ -143,6 +160,7 @@ export class AnalyticsService {
       }),
       this.prisma.incident.count({
         where: {
+          stationId: { in: stationIds },
           createdAt: {
             gte: startOf24h,
           },
@@ -150,6 +168,7 @@ export class AnalyticsService {
       }),
       this.prisma.session.findMany({
         where: {
+          stationId: { in: stationIds },
           startTime: {
             gte: startOf7d,
           },
@@ -320,7 +339,8 @@ export class AnalyticsService {
     query: OwnerDashboardQueryDto,
     actor?: Actor,
   ): Promise<OwnerDashboardResponseDto> {
-    const scopeOrgId = actor?.organizationId || actor?.orgId || null;
+    const scope = await this.requireChargeScope();
+    const scopeOrgId = scope.tenantId;
     const actorId = actor?.sub || null;
     if (!scopeOrgId && !actorId) {
       throw new ForbiddenException(
@@ -329,10 +349,9 @@ export class AnalyticsService {
     }
 
     const window = this.resolveWindow(query);
-    const stationWhere = this.buildOwnerStationWhere(
-      query,
-      scopeOrgId,
-      actorId,
+    const stationWhere = this.tenantGuardrails.buildOwnedStationWhere(
+      scope,
+      this.buildOwnerStationWhere(query, scopeOrgId, actorId),
     );
 
     const ownedStations = (await this.prisma.station.findMany({
@@ -594,9 +613,12 @@ export class AnalyticsService {
   }
 
   async getUptime(stationId?: string): Promise<Record<string, unknown>> {
+    const scope = await this.requireChargeScope();
     if (stationId) {
-      const station = await this.prisma.station.findUnique({
-        where: { id: stationId },
+      const station = await this.prisma.station.findFirst({
+        where: this.tenantGuardrails.buildOwnedStationWhere(scope, {
+          id: stationId,
+        }),
         select: { status: true },
       });
       const bucket = this.resolveStationStatusBucket(station?.status);
@@ -609,6 +631,7 @@ export class AnalyticsService {
     }
 
     const stations = await this.prisma.station.findMany({
+      where: this.tenantGuardrails.buildOwnedStationWhere(scope),
       select: { status: true },
     });
     const total = stations.length;
@@ -625,6 +648,8 @@ export class AnalyticsService {
   }
 
   async getUsage(): Promise<Record<string, unknown>> {
+    const scope = await this.requireChargeScope();
+    const stationIds = await this.tenantGuardrails.listOwnedStationIds(scope);
     const now = new Date();
     const startOfDay = this.startOfDay(now);
     const startOf7d = new Date(startOfDay);
@@ -632,6 +657,7 @@ export class AnalyticsService {
 
     const sessions = await this.prisma.session.findMany({
       where: {
+        stationId: { in: stationIds },
         startTime: {
           gte: startOf7d,
         },
@@ -663,15 +689,21 @@ export class AnalyticsService {
   }
 
   async getRealtime(): Promise<Record<string, unknown>> {
+    const scope = await this.requireChargeScope();
+    const stationIds = await this.tenantGuardrails.listOwnedStationIds(scope);
     const [activeSessions, chargePoints] = await Promise.all([
       this.prisma.session.count({
         where: {
+          stationId: { in: stationIds },
           status: {
             in: ['ACTIVE', 'IN_PROGRESS'],
           },
         },
       }),
       this.prisma.chargePoint.findMany({
+        where: {
+          stationId: { in: stationIds },
+        },
         select: {
           status: true,
           power: true,
@@ -696,7 +728,9 @@ export class AnalyticsService {
   }
 
   async getRegionalMetrics() {
+    const scope = await this.requireChargeScope();
     const stations = await this.prisma.station.findMany({
+      where: this.tenantGuardrails.buildOwnedStationWhere(scope),
       include: {
         zone: {
           include: { parent: { include: { parent: true } } },
@@ -819,8 +853,8 @@ export class AnalyticsService {
     query: OwnerDashboardQueryDto,
     scopeOrgId: string | null,
     actorId: string | null,
-  ) {
-    const and: Array<Record<string, unknown>> = [];
+  ): Prisma.StationWhereInput {
+    const and: Prisma.StationWhereInput[] = [];
 
     if (scopeOrgId) {
       and.push({
@@ -847,8 +881,8 @@ export class AnalyticsService {
     stationIds: string[],
     start: Date,
     end: Date,
-  ) {
-    const where: Record<string, unknown> = {
+  ): Prisma.SessionWhereInput {
+    const where: Prisma.SessionWhereInput = {
       stationId: { in: stationIds },
       startTime: { gte: start, lte: end },
     };

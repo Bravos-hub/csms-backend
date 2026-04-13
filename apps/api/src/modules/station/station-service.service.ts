@@ -1,10 +1,11 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, StationType } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { isIP } from 'net';
 import { PrismaService } from '../../prisma.service';
@@ -27,6 +28,10 @@ import { parsePaginationOptions } from '../../common/utils/pagination';
 import { CommandsService } from '../commands/commands.service';
 import { OcpiService } from '../ocpi/ocpi.service';
 import { EnergyManagementService } from '../energy-management/energy-management.service';
+import {
+  TenantGuardrailsService,
+  TenantScope,
+} from '../../common/tenant/tenant-guardrails.service';
 
 type StationBounds = {
   north: number;
@@ -82,6 +87,7 @@ export class StationService {
     private readonly commands: CommandsService,
     private readonly ocpiService: OcpiService,
     private readonly energyManagement: EnergyManagementService,
+    private readonly tenantGuardrails: TenantGuardrailsService,
   ) {
     this.enableNoAuthBootstrap =
       process.env.OCPP_ENABLE_NOAUTH_BOOTSTRAP === 'true';
@@ -100,6 +106,34 @@ export class StationService {
       process.env.FEATURE_OCPP_FIRMWARE_COMMANDS_ENABLED === 'true';
     this.firmwareStatusPersistenceEnabled =
       process.env.FEATURE_OCPP_FIRMWARE_STATUS_PERSIST_ENABLED === 'true';
+  }
+
+  private async requireTenantScope(
+    resource: 'tenant' | 'charge' | 'swap' = 'tenant',
+  ): Promise<TenantScope> {
+    return this.tenantGuardrails.requireTenantScope(resource);
+  }
+
+  private resolveStationType(
+    requestedType: CreateStationDto['type'] | undefined,
+    scope: TenantScope,
+  ): StationType {
+    if (requestedType === 'BOTH') {
+      throw new BadRequestException(
+        'Station type "BOTH" is not supported by the backend data model',
+      );
+    }
+
+    const mappedType =
+      requestedType === 'SWAP' ? StationType.SWAPPING : StationType.CHARGING;
+
+    if (!this.tenantGuardrails.isStationTypeAllowed(scope, mappedType)) {
+      throw new ForbiddenException(
+        `Tenant CPO type "${scope.cpoType}" cannot manage station type "${mappedType}"`,
+      );
+    }
+
+    return mappedType;
   }
 
   async handleOcppMessage(message: unknown) {
@@ -173,15 +207,25 @@ export class StationService {
 
   // --- Station CRUD ---
   async createStation(createDto: CreateStationDto) {
+    const scope = await this.requireTenantScope('tenant');
+    if (createDto.orgId && createDto.orgId !== scope.tenantId) {
+      throw new ForbiddenException(
+        'Station orgId must match active tenant scope',
+      );
+    }
+
     if (!createDto.siteId) {
       throw new BadRequestException('siteId is required to create a station');
     }
     const site = await this.prisma.site.findUnique({
       where: { id: createDto.siteId },
+      select: { id: true, organizationId: true },
     });
-    if (!site) {
+    if (!site || site.organizationId !== scope.tenantId) {
       throw new NotFoundException('Site not found');
     }
+
+    const stationType = this.resolveStationType(createDto.type, scope);
 
     const stationData: Prisma.StationUncheckedCreateInput = {
       name: createDto.name,
@@ -189,8 +233,9 @@ export class StationService {
       longitude: createDto.longitude,
       address: createDto.address || 'Unknown',
       status: 'ACTIVE',
+      type: stationType,
       siteId: site.id,
-      orgId: createDto.orgId,
+      orgId: scope.tenantId,
       ownerId: createDto.ownerId,
       rating: createDto.rating || 0,
       price: createDto.price || 0,
@@ -240,6 +285,7 @@ export class StationService {
     q?: string,
     paginationInput?: { limit?: string; offset?: string },
   ) {
+    const scope = await this.requireTenantScope('tenant');
     const pagination = parsePaginationOptions(
       {
         limit: paginationInput?.limit,
@@ -264,7 +310,10 @@ export class StationService {
     }
 
     const stations = await this.prisma.station.findMany({
-      where: Object.keys(where).length > 0 ? where : undefined,
+      where: this.tenantGuardrails.buildOwnedStationWhere(
+        scope,
+        Object.keys(where).length > 0 ? where : undefined,
+      ),
       take: pagination.limit,
       skip: pagination.offset,
       include: stationFrontendInclude,
@@ -273,9 +322,10 @@ export class StationService {
     return stations.map((station) => this.mapToFrontendStation(station));
   }
 
-  async findStationById(id: string) {
-    const station = await this.prisma.station.findUnique({
-      where: { id },
+  async findStationById(id: string, scopeOverride?: TenantScope) {
+    const scope = scopeOverride || (await this.requireTenantScope('tenant'));
+    const station = await this.prisma.station.findFirst({
+      where: this.tenantGuardrails.buildOwnedStationWhere(scope, { id }),
       include: stationFrontendInclude,
     });
     if (!station) throw new NotFoundException('Station not found');
@@ -283,9 +333,12 @@ export class StationService {
     return this.mapToFrontendStation(station);
   }
 
-  async findStationByCode(code: string) {
+  async findStationByCode(code: string, scopeOverride?: TenantScope) {
+    const scope = scopeOverride || (await this.requireTenantScope('tenant'));
     const station = await this.prisma.station.findFirst({
-      where: { name: code },
+      where: this.tenantGuardrails.buildOwnedStationWhere(scope, {
+        name: code,
+      }),
       include: stationFrontendInclude,
     });
     if (!station) throw new NotFoundException('Station not found');
@@ -294,18 +347,31 @@ export class StationService {
   }
 
   async updateStation(id: string, updateDto: UpdateStationDto) {
-    await this.findStationById(id); // Ensure exists
+    const scope = await this.requireTenantScope('tenant');
+    await this.findStationById(id, scope);
 
     if (updateDto.siteId) {
       const site = await this.prisma.site.findUnique({
         where: { id: updateDto.siteId },
+        select: { id: true, organizationId: true },
       });
-      if (!site) throw new NotFoundException('Site not found');
+      if (!site || site.organizationId !== scope.tenantId) {
+        throw new NotFoundException('Site not found');
+      }
+    }
+
+    if (updateDto.orgId && updateDto.orgId !== scope.tenantId) {
+      throw new ForbiddenException(
+        'Station cannot be moved outside tenant scope',
+      );
     }
 
     const updated = await this.prisma.station.update({
       where: { id },
-      data: updateDto,
+      data: {
+        ...updateDto,
+        orgId: scope.tenantId,
+      },
       include: { chargePoints: true, site: true },
     });
     // For update, we might want to return the raw entity or the mapped one.
@@ -315,14 +381,18 @@ export class StationService {
   }
 
   async removeStation(id: string) {
+    const scope = await this.requireTenantScope('tenant');
+    await this.findStationById(id, scope);
     return this.prisma.station.delete({ where: { id } });
   }
 
   async getNearbyStations(_lat: number, _lng: number, _radiusKm: number) {
+    const scope = await this.requireTenantScope('tenant');
     void [_lat, _lng, _radiusKm];
     // Geo queries in Prisma are tricky without PostGIS raw queries
     // Returning top 10 for now
     const stations = await this.prisma.station.findMany({
+      where: this.tenantGuardrails.buildOwnedStationWhere(scope),
       take: 10,
       include: stationFrontendInclude,
     });
@@ -385,7 +455,8 @@ export class StationService {
   }
 
   async getStationStats(id: string) {
-    await this.findStationById(id);
+    const scope = await this.requireTenantScope('charge');
+    await this.findStationById(id, scope);
 
     const aggregate = await this.prisma.session.aggregate({
       where: { stationId: id },
@@ -428,9 +499,40 @@ export class StationService {
     };
   }
 
-  getSwapsToday(_id: string) {
-    void _id;
-    return { successful: 10, failed: 0 };
+  async getSwapsToday(id: string) {
+    const scope = await this.requireTenantScope('swap');
+    const station = await this.findStationById(id, scope);
+    if (station.type !== StationType.SWAPPING) {
+      throw new ForbiddenException(
+        'Swaps metrics are available only for swap stations',
+      );
+    }
+
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const grouped = await this.prisma.session.groupBy({
+      by: ['status'],
+      where: {
+        stationId: id,
+        startTime: { gte: startOfDay },
+      },
+      _count: {
+        _all: true,
+      },
+    });
+
+    let successful = 0;
+    let failed = 0;
+    for (const row of grouped) {
+      if (row.status === 'COMPLETED' || row.status === 'STOPPED') {
+        successful += row._count._all;
+      } else if (row.status !== 'ACTIVE' && row.status !== 'IN_PROGRESS') {
+        failed += row._count._all;
+      }
+    }
+
+    return { successful, failed };
   }
 
   // --- ChargePoint CRUD ---
@@ -438,6 +540,7 @@ export class StationService {
     filter?: ChargePointListFilter,
     paginationInput?: { limit?: string; offset?: string },
   ) {
+    const scope = await this.requireTenantScope('charge');
     const pagination = parsePaginationOptions(
       {
         limit: paginationInput?.limit,
@@ -455,7 +558,10 @@ export class StationService {
     }
 
     const chargePoints = await this.prisma.chargePoint.findMany({
-      where: Object.keys(where).length > 0 ? where : undefined,
+      where: this.tenantGuardrails.buildOwnedChargePointWhere(
+        scope,
+        Object.keys(where).length > 0 ? where : undefined,
+      ),
       take: pagination.limit,
       skip: pagination.offset,
       include: {
@@ -471,18 +577,22 @@ export class StationService {
     return this.attachRoamingPublicationList(chargePoints);
   }
 
-  async findChargePointById(id: string) {
-    const chargePoint = await this.prisma.chargePoint.findUnique({
-      where: { id },
+  async findChargePointById(id: string, scopeOverride?: TenantScope) {
+    const scope = scopeOverride || (await this.requireTenantScope('charge'));
+    const chargePoint = await this.prisma.chargePoint.findFirst({
+      where: this.tenantGuardrails.buildOwnedChargePointWhere(scope, { id }),
       include: { station: true },
     });
     if (!chargePoint) return null;
     return this.attachRoamingPublication(chargePoint);
   }
 
-  async findChargePointByOcppId(ocppId: string) {
-    const chargePoint = await this.prisma.chargePoint.findUnique({
-      where: { ocppId },
+  async findChargePointByOcppId(ocppId: string, scopeOverride?: TenantScope) {
+    const scope = scopeOverride || (await this.requireTenantScope('charge'));
+    const chargePoint = await this.prisma.chargePoint.findFirst({
+      where: this.tenantGuardrails.buildOwnedChargePointWhere(scope, {
+        ocppId,
+      }),
       include: { station: true },
     });
     if (!chargePoint) return null;
@@ -490,6 +600,7 @@ export class StationService {
   }
 
   async createChargePoint(createDto: CreateChargePointDto) {
+    const scope = await this.requireTenantScope('charge');
     const authProfile = createDto.authProfile || 'basic';
     const allowedIps = this.normalizeList(createDto.allowedIps);
     const allowedCidrs = this.normalizeList(createDto.allowedCidrs);
@@ -519,10 +630,21 @@ export class StationService {
       .update(oneTimePassword)
       .digest('hex');
 
+    const station = await this.prisma.station.findFirst({
+      where: this.tenantGuardrails.buildOwnedStationWhere(scope, {
+        id: createDto.stationId,
+      }),
+      include: { site: true },
+    });
+
+    if (!station) {
+      throw new NotFoundException('Station not found');
+    }
+
     const cp = await this.prisma.chargePoint.create({
       data: {
         ocppId: createDto.ocppId,
-        stationId: createDto.stationId,
+        stationId: station.id,
         status: 'Offline',
         ocppVersion,
         model: createDto.model,
@@ -571,8 +693,7 @@ export class StationService {
   }
 
   async getChargePointSecurity(id: string) {
-    const cp = await this.prisma.chargePoint.findUnique({ where: { id } });
-    if (!cp) throw new NotFoundException('Charge Point not found');
+    const cp = await this.getExistingChargePoint(id);
     const security = await this.provisioningService.getSecurityState(cp.ocppId);
     return {
       chargePointId: cp.id,
@@ -585,8 +706,7 @@ export class StationService {
     id: string,
     dto: BindChargePointCertificateDto,
   ) {
-    const cp = await this.prisma.chargePoint.findUnique({ where: { id } });
-    if (!cp) throw new NotFoundException('Charge Point not found');
+    const cp = await this.getExistingChargePoint(id);
 
     const normalizedFingerprint = this.normalizeFingerprint(dto.fingerprint);
     this.assertValidFingerprint(normalizedFingerprint);
@@ -622,8 +742,7 @@ export class StationService {
     id: string,
     dto: UpdateChargePointBootstrapDto,
   ) {
-    const cp = await this.prisma.chargePoint.findUnique({ where: { id } });
-    if (!cp) throw new NotFoundException('Charge Point not found');
+    const cp = await this.getExistingChargePoint(id);
     if (dto.enabled && !this.enableNoAuthBootstrap) {
       throw new BadRequestException(
         'No-password bootstrap is currently disabled',
@@ -1232,8 +1351,11 @@ export class StationService {
     };
   }
 
-  private async getExistingChargePoint(id: string) {
-    const chargePoint = await this.findChargePointById(id);
+  private async getExistingChargePoint(
+    id: string,
+    scopeOverride?: TenantScope,
+  ) {
+    const chargePoint = await this.findChargePointById(id, scopeOverride);
     if (!chargePoint) throw new NotFoundException('Charge Point not found');
     return chargePoint;
   }

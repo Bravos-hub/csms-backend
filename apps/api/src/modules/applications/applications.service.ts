@@ -118,6 +118,30 @@ export class ApplicationsService {
     return this.prisma.getControlPlaneClient();
   }
 
+  async isPlatformSuperAdmin(userId: string): Promise<boolean> {
+    const normalizedUserId = userId.trim();
+    if (!normalizedUserId) {
+      return false;
+    }
+
+    const [platformAssignment, user] = await Promise.all([
+      this.controlPlane.platformRoleAssignment.findFirst({
+        where: {
+          userId: normalizedUserId,
+          roleKey: 'PLATFORM_SUPER_ADMIN',
+          status: MembershipStatus.ACTIVE,
+        },
+        select: { id: true },
+      }),
+      this.controlPlane.user.findUnique({
+        where: { id: normalizedUserId },
+        select: { role: true },
+      }),
+    ]);
+
+    return Boolean(platformAssignment) || user?.role === 'SUPER_ADMIN';
+  }
+
   private parseArray(value?: string | null): string[] {
     if (!value) return [];
     try {
