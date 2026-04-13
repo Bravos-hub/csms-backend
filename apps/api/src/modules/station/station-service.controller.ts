@@ -9,10 +9,14 @@ import {
   Put,
   Query,
   Logger,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { EventPattern, Payload } from '@nestjs/microservices';
 import { StationService } from './station-service.service';
 import { KAFKA_TOPICS } from '../../contracts/kafka-topics';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import {
   CreateStationDto,
   UpdateStationDto,
@@ -29,7 +33,16 @@ import {
   FirmwareEventHistoryQueryDto,
 } from './dto/station.dto';
 
+type AuthenticatedRequest = Request & {
+  user?: {
+    role?: string;
+    canonicalRole?: string;
+    permissions?: string[];
+  };
+};
+
 @Controller('stations')
+@UseGuards(JwtAuthGuard)
 export class StationController {
   private readonly logger = new Logger(StationController.name);
   private readonly topicCounters = new Map<string, number>();
@@ -50,28 +63,33 @@ export class StationController {
     @Query('q') q?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Req() req?: AuthenticatedRequest,
   ) {
     const bounds = this.parseBounds(north, south, east, west);
     const pagination =
       limit !== undefined || offset !== undefined
         ? { limit, offset }
         : undefined;
-    return this.stationService.findAllStations(bounds, q, pagination);
+    return this.stationService.findAllStations(bounds, q, pagination, req?.user);
   }
 
   @Get('nearby')
-  findNearby(@Query('lat') lat: number, @Query('lng') lng: number) {
-    return this.stationService.getNearbyStations(lat, lng, 10);
+  findNearby(
+    @Query('lat') lat: number,
+    @Query('lng') lng: number,
+    @Req() req?: AuthenticatedRequest,
+  ) {
+    return this.stationService.getNearbyStations(lat, lng, 10, req?.user);
   }
 
   @Get('code/:code')
-  findByCode(@Param('code') code: string) {
-    return this.stationService.findStationByCode(code);
+  findByCode(@Param('code') code: string, @Req() req?: AuthenticatedRequest) {
+    return this.stationService.findStationByCode(code, undefined, req?.user);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.stationService.findStationById(id);
+  findOne(@Param('id') id: string, @Req() req?: AuthenticatedRequest) {
+    return this.stationService.findStationById(id, undefined, req?.user);
   }
 
   @Patch(':id')
@@ -85,13 +103,13 @@ export class StationController {
   }
 
   @Get(':id/stats')
-  getStats(@Param('id') id: string) {
-    return this.stationService.getStationStats(id);
+  getStats(@Param('id') id: string, @Req() req?: AuthenticatedRequest) {
+    return this.stationService.getStationStats(id, req?.user);
   }
 
   @Get(':id/swaps-today')
-  getSwaps(@Param('id') id: string) {
-    return this.stationService.getSwapsToday(id);
+  getSwaps(@Param('id') id: string, @Req() req?: AuthenticatedRequest) {
+    return this.stationService.getSwapsToday(id, req?.user);
   }
 
   @Get(':id/reliability-history')
@@ -163,6 +181,7 @@ export class StationController {
 }
 
 @Controller('charge-points')
+@UseGuards(JwtAuthGuard)
 export class ChargePointController {
   constructor(private readonly stationService: StationService) {}
 
@@ -172,21 +191,30 @@ export class ChargePointController {
     @Query('status') status?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Req() req?: AuthenticatedRequest,
   ) {
     return this.stationService.findAllChargePoints(
       { stationId, status },
       { limit, offset },
+      req?.user,
     );
   }
 
   @Get('by-ocpp/:ocppId')
-  findByOcppId(@Param('ocppId') ocppId: string) {
-    return this.stationService.findChargePointByOcppId(ocppId);
+  findByOcppId(
+    @Param('ocppId') ocppId: string,
+    @Req() req?: AuthenticatedRequest,
+  ) {
+    return this.stationService.findChargePointByOcppId(
+      ocppId,
+      undefined,
+      req?.user,
+    );
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.stationService.findChargePointById(id);
+  findOne(@Param('id') id: string, @Req() req?: AuthenticatedRequest) {
+    return this.stationService.findChargePointById(id, undefined, req?.user);
   }
 
   @Post()
@@ -208,8 +236,8 @@ export class ChargePointController {
   }
 
   @Get(':id/publication')
-  getPublication(@Param('id') id: string) {
-    return this.stationService.getChargePointPublication(id);
+  getPublication(@Param('id') id: string, @Req() req?: AuthenticatedRequest) {
+    return this.stationService.getChargePointPublication(id, req?.user);
   }
 
   @Put(':id/publication')
@@ -278,13 +306,14 @@ export class ChargePointController {
   getFirmwareEvents(
     @Param('id') id: string,
     @Query() query: FirmwareEventHistoryQueryDto,
+    @Req() req?: AuthenticatedRequest,
   ) {
-    return this.stationService.getFirmwareEvents(id, query);
+    return this.stationService.getFirmwareEvents(id, query, req?.user);
   }
 
   @Get(':id/security')
-  getSecurity(@Param('id') id: string) {
-    return this.stationService.getChargePointSecurity(id);
+  getSecurity(@Param('id') id: string, @Req() req?: AuthenticatedRequest) {
+    return this.stationService.getChargePointSecurity(id, req?.user);
   }
 
   @Post(':id/security/certificate-bind')
