@@ -119,3 +119,55 @@ Configured providers only participate in rollup; unconfigured providers are repo
    - top-up remains pending until webhook success
    - duplicate webhooks do not double-credit wallet
 5. Promote to production with controlled monitoring of payment health and webhook processing.
+
+## Production-Only Cutover Commands
+
+This sequence is for production-first rollout with host-managed `.env` values.
+
+1. Validate endpoint manifest and signature headers:
+
+```bash
+npm run ops:payments:cutover:endpoints
+```
+
+2. Pre-cutover verification (`PAYMENT_ORCHESTRATION_ENABLED=false`):
+
+```bash
+SYSTEM_HEALTH_AUTH_TOKEN="<jwt>" npm run ops:payments:cutover:pre
+```
+
+3. After enabling orchestration (`PAYMENT_ORCHESTRATION_ENABLED=true`), verify provider metadata:
+
+```bash
+SYSTEM_HEALTH_AUTH_TOKEN="<jwt>" npm run ops:payments:cutover:post
+```
+
+Optional arguments for any command:
+
+- `--env-file /path/to/.env`
+- `--api-base-url https://api.evzonecharging.com`
+- `--auth-token <jwt>`
+- `--skip-health true` (env validation and endpoint checks only)
+
+## Provider Webhook Registration (Production)
+
+Register these exact production endpoints in provider dashboards:
+
+- Stripe: `https://api.evzonecharging.com/api/v1/payments/webhooks/stripe`
+- Flutterwave: `https://api.evzonecharging.com/api/v1/payments/webhooks/flutterwave`
+- Alipay: `https://api.evzonecharging.com/api/v1/payments/webhooks/alipay`
+- LianLian: `https://api.evzonecharging.com/api/v1/payments/webhooks/lianlian`
+
+Expected signature headers:
+
+- Stripe: `Stripe-Signature`
+- Flutterwave: `flutterwave-signature`
+- Alipay: `signature`
+- LianLian: `signature`
+
+After registration, store provider-generated webhook signing values in:
+
+- `STRIPE_WEBHOOK_SECRET`
+- `FLUTTERWAVE_WEBHOOK_SECRET_HASH`
+- `ALIPAY_PUBLIC_KEY` (notification verification key)
+- `LIANLIAN_PUBLIC_KEY` (notification verification key)
