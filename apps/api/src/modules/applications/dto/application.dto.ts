@@ -1,25 +1,40 @@
+import { Type } from 'class-transformer';
 import {
+  IsArray,
+  IsBoolean,
+  IsEmail,
+  IsEnum,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
-  IsArray,
-  IsEmail,
-  IsNumber,
-  IsEnum,
+  Max,
+  Min,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { TenantAccountType } from '@prisma/client';
 
-import { ApplicationStatus } from '@prisma/client';
+export const ONBOARDING_TIER_CODES = ['T1', 'T2', 'T3', 'T4'] as const;
+export type OnboardingTierCode = (typeof ONBOARDING_TIER_CODES)[number];
+
+export const ONBOARDING_BILLING_CYCLES = ['MONTHLY', 'ANNUAL'] as const;
+export type OnboardingBillingCycle = (typeof ONBOARDING_BILLING_CYCLES)[number];
+
+export const REVIEW_ACTIONS = ['UNDER_REVIEW', 'APPROVE', 'REJECT'] as const;
+export type ReviewAction = (typeof REVIEW_ACTIONS)[number];
 
 export class CreateApplicationDto {
+  @IsEnum(TenantAccountType)
+  @IsOptional()
+  tenantType?: TenantAccountType;
+
   @IsString()
   @IsNotEmpty()
   organizationName: string;
 
   @IsString()
-  @IsNotEmpty()
-  businessRegistrationNumber: string;
+  @IsOptional()
+  businessRegistrationNumber?: string;
 
   @IsString()
   @IsOptional()
@@ -46,8 +61,8 @@ export class CreateApplicationDto {
   companyWebsite?: string;
 
   @IsString()
-  @IsNotEmpty()
-  yearsInEVBusiness: string; // '<1', '1-3', '3-5', '5+'
+  @IsOptional()
+  yearsInEVBusiness?: string;
 
   @Type(() => Number)
   @IsInt()
@@ -55,22 +70,23 @@ export class CreateApplicationDto {
   existingStationsOperated?: number;
 
   @IsString()
-  @IsNotEmpty()
-  siteId: string;
+  @IsOptional()
+  siteId?: string;
 
   @IsString()
-  @IsNotEmpty()
-  preferredLeaseModel: string; // 'Revenue Share' | 'Fixed Rent' | 'Hybrid'
+  @IsOptional()
+  preferredLeaseModel?: string;
 
   @IsString()
-  @IsNotEmpty()
-  businessPlanSummary: string;
+  @IsOptional()
+  businessPlanSummary?: string;
 
   @IsString()
   @IsOptional()
   sustainabilityCommitments?: string;
 
   @IsArray()
+  @IsString({ each: true })
   @IsOptional()
   additionalServices?: string[];
 
@@ -81,68 +97,215 @@ export class CreateApplicationDto {
   @IsString()
   @IsOptional()
   message?: string;
+
+  @IsString()
+  @IsOptional()
+  applicantPreferredSubdomain?: string;
+
+  @IsString()
+  @IsOptional()
+  applicantPreferredDomain?: string;
 }
 
-export class UpdateApplicationStatusDto {
-  @IsEnum(ApplicationStatus)
-  @IsNotEmpty()
-  status: ApplicationStatus;
+export class UpdateOwnApplicationDto {
+  @IsEnum(TenantAccountType)
+  @IsOptional()
+  tenantType?: TenantAccountType;
+
+  @IsString()
+  @IsOptional()
+  organizationName?: string;
+
+  @IsString()
+  @IsOptional()
+  businessRegistrationNumber?: string;
+
+  @IsString()
+  @IsOptional()
+  taxComplianceNumber?: string;
+
+  @IsString()
+  @IsOptional()
+  contactPersonName?: string;
+
+  @IsEmail()
+  @IsOptional()
+  contactEmail?: string;
+
+  @IsString()
+  @IsOptional()
+  contactPhone?: string;
+
+  @IsString()
+  @IsOptional()
+  physicalAddress?: string;
+
+  @IsString()
+  @IsOptional()
+  companyWebsite?: string;
+
+  @IsString()
+  @IsOptional()
+  yearsInEVBusiness?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  existingStationsOperated?: number;
+
+  @IsString()
+  @IsOptional()
+  siteId?: string;
+
+  @IsString()
+  @IsOptional()
+  preferredLeaseModel?: string;
+
+  @IsString()
+  @IsOptional()
+  businessPlanSummary?: string;
+
+  @IsString()
+  @IsOptional()
+  sustainabilityCommitments?: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  additionalServices?: string[];
+
+  @IsString()
+  @IsOptional()
+  estimatedStartDate?: string;
 
   @IsString()
   @IsOptional()
   message?: string;
+
+  @IsString()
+  @IsOptional()
+  applicantPreferredSubdomain?: string;
+
+  @IsString()
+  @IsOptional()
+  applicantPreferredDomain?: string;
+}
+
+export class ListApplicationsQueryDto {
+  @IsString()
+  @IsOptional()
+  onboardingStage?: string;
+
+  @IsString()
+  @IsOptional()
+  status?: string;
+
+  @IsString()
+  @IsOptional()
+  applicantId?: string;
 }
 
 export class ReviewApplicationDto {
-  @IsEnum(ApplicationStatus)
+  @IsEnum(REVIEW_ACTIONS)
   @IsNotEmpty()
-  status: ApplicationStatus; // APPROVED | REJECTED | INFO_REQUESTED
+  action: ReviewAction;
 
   @IsString()
   @IsOptional()
   notes?: string;
 
-  @IsArray()
+  @IsString()
   @IsOptional()
-  requiredDocuments?: string[];
+  rejectionReason?: string;
+
+  @IsString()
+  @IsOptional()
+  confirmedSubdomain?: string;
+
+  @IsString()
+  @IsOptional()
+  confirmedDomain?: string;
+
+  @IsString()
+  @IsOptional()
+  canonicalRoleKey?: string;
 }
 
-export class RequestInfoDto {
+export class ConfirmTierSelectionDto {
+  @IsEnum(ONBOARDING_TIER_CODES)
+  @IsNotEmpty()
+  tierCode: OnboardingTierCode;
+
+  @IsEnum(ONBOARDING_BILLING_CYCLES)
+  @IsOptional()
+  billingCycle?: OnboardingBillingCycle;
+
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  requestWhiteLabel?: boolean;
+}
+
+export class CreateApplicationPaymentIntentDto {
+  @IsString()
+  @IsOptional()
+  idempotencyKey?: string;
+
+  @IsString()
+  @IsOptional()
+  correlationId?: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(120)
+  @IsOptional()
+  ttlMinutes?: number;
+}
+
+export class SyncApplicationPaymentDto {
+  @IsString()
+  @IsOptional()
+  paymentIntentId?: string;
+
+  @IsString()
+  @IsOptional()
+  status?: string;
+
+  @IsString()
+  @IsOptional()
+  providerReference?: string;
+
+  @IsString()
+  @IsOptional()
+  note?: string;
+
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  markSettled?: boolean;
+}
+
+export class AcceptEnterpriseQuoteDto {
   @IsString()
   @IsNotEmpty()
-  message: string;
+  quoteReference: string;
 
-  @IsArray()
+  @IsString()
   @IsOptional()
-  requiredDocuments?: string[];
+  note?: string;
 }
 
-export class UpdateApplicationTermsDto {
-  @Type(() => Number)
-  @IsNumber()
-  @IsNotEmpty()
-  proposedRent: number;
+export class ActivateApplicationDto {
+  @IsString()
+  @IsOptional()
+  canonicalRoleKey?: string;
 
-  @Type(() => Number)
-  @IsInt()
-  @IsNotEmpty()
-  proposedTerm: number; // months
+  @IsString()
+  @IsOptional()
+  confirmedSubdomain?: string;
 
-  @Type(() => Number)
-  @IsInt()
-  @IsNotEmpty()
-  numberOfChargingPoints: number;
-
-  @Type(() => Number)
-  @IsNumber()
-  @IsNotEmpty()
-  totalPowerRequirement: number; // kW
-
-  @IsArray()
-  @IsNotEmpty()
-  chargingTechnology: string[];
-
-  @IsArray()
-  @IsNotEmpty()
-  targetCustomerSegment: string[];
+  @IsString()
+  @IsOptional()
+  confirmedDomain?: string;
 }

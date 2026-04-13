@@ -47,6 +47,7 @@
     "ops:check-team-user-assignment": "tsx ./scripts/ops/check-team-user-assignment.ts",
     "ops:check-platform-user-org-consistency": "tsx ./scripts/ops/check-platform-user-org-consistency.ts",
     "ops:repair-platform-user-org-consistency": "npm run backfill:user-org-region && npm run ops:check-platform-user-org-consistency",
+    "ops:migrate-open-onboarding-records": "tsx ./scripts/migrate-open-onboarding-records.ts",
     "prisma:refresh": "node scripts/prisma-refresh.js",
     "prisma:check": "node scripts/prisma-check.js",
     "backfill:user-org-region": "tsx ./prisma/backfill-user-org-region.ts",

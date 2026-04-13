@@ -1,14 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ApplicationsController } from './applications.controller';
 import { ApplicationsService } from './applications.service';
-import { DocumentsModule } from '../documents/documents.module';
-import { SignatureService } from './signature.service';
-import { ConfigModule } from '@nestjs/config';
+import { BillingServiceModule } from '../billing/billing-service.module';
+import { TenantProvisioningModule } from '../tenant-provisioning/tenant-provisioning.module';
+import { TenantRbacModule } from '../tenant-rbac/tenant-rbac.module';
 
 @Module({
-  imports: [DocumentsModule, ConfigModule],
+  imports: [BillingServiceModule, TenantProvisioningModule, TenantRbacModule],
   controllers: [ApplicationsController],
-  providers: [ApplicationsService, SignatureService],
+  providers: [ApplicationsService],
   exports: [ApplicationsService],
 })
 export class ApplicationsModule {}

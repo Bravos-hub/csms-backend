@@ -199,6 +199,25 @@ enum TenantTier {
   DEDICATED_DB
 }
 
+enum TenantAccountType {
+  INDIVIDUAL
+  COMPANY
+  STATE
+  ORGANIZATION
+}
+
+enum TenantOnboardingStage {
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED_PENDING_TIER
+  REJECTED
+  TIER_CONFIRMED_PENDING_PAYMENT
+  QUOTE_PENDING
+  PAYMENT_CONFIRMED_PENDING_ACTIVATION
+  QUOTE_ACCEPTED_PENDING_ACTIVATION
+  COMPLETED
+}
+
 enum TenantBrandingRevisionStatus {
   DRAFT
   PUBLISHED
@@ -334,6 +353,7 @@ model Organization {
   wallets     Wallet[]
   paymentMethods PaymentMethod[]
   paymentIntents PaymentIntent[]
+  provisionedApplications TenantApplication[] @relation("ProvisionedOrganizationApplications")
   swapProviders SwapProvider[] @relation("ProviderOrganization")
   ownerProviderRelationships ProviderRelationship[] @relation("OwnerOrganization")
   brandingRevisions TenantBrandingRevision[]
@@ -2036,10 +2056,11 @@ enum ApplicationStatus {
 model TenantApplication {
   id          String  @id @default(uuid())
   applicantId String
+  tenantType  TenantAccountType @default(COMPANY)
   
   // Organization Details
   organizationName           String
-  businessRegistrationNumber String
+  businessRegistrationNumber String?
   taxComplianceNumber        String?
 
   // Contact Information
@@ -2050,16 +2071,20 @@ model TenantApplication {
   companyWebsite    String?
 
   // Business Experience
-  yearsInEVBusiness        String // '<1', '1-3', '3-5', '5+'
+  yearsInEVBusiness        String? // '<1', '1-3', '3-5', '5+'
   existingStationsOperated Int?
 
   // Site & Proposal
-  siteId                     String
-  preferredLeaseModel        String // 'Revenue Share' | 'Fixed Rent' | 'Hybrid'
-  businessPlanSummary        String @db.Text
+  siteId                     String?
+  preferredLeaseModel        String? // 'Revenue Share' | 'Fixed Rent' | 'Hybrid'
+  businessPlanSummary        String? @db.Text
   sustainabilityCommitments  String? @db.Text
   additionalServices         String  @default("[]") // JSON array
   estimatedStartDate         String?
+  applicantPreferredSubdomain String?
+  applicantPreferredDomain    String?
+  confirmedSubdomain          String?
+  confirmedDomain             String?
 
   // Commercial Terms (Set by Site Owner)
   proposedRent            Float?
@@ -2071,7 +2096,25 @@ model TenantApplication {
 
   // Application Status
   status          ApplicationStatus    @default(DRAFT)
+  onboardingStage TenantOnboardingStage @default(SUBMITTED)
   message         String?   @db.Text // Initial application message
+  selectedTierCode        String?
+  selectedPricingVersion  Int?
+  selectedBillingCycle    String?
+  pricingSnapshot         Json?
+  tierConfirmedAt         DateTime?
+  paymentIntentId         String?
+  paymentStatus           String?
+  paymentSettledAt        DateTime?
+  enterpriseQuoteStatus   String?
+  enterpriseQuoteReference String?
+  enterpriseContractSignedAt DateTime?
+  provisionedOrganizationId String?
+  provisionedAt             DateTime?
+  reviewerCanonicalRoleKey CanonicalRoleKey?
+  approvedAt                DateTime?
+  rejectedAt                DateTime?
+  activatedBy               String?
   
   // Review
   reviewedBy    String?
@@ -2100,14 +2143,21 @@ model TenantApplication {
   negotiationRounds NegotiationRound[]
 
   // Relations
-  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  site Site? @relation(fields: [siteId], references: [id], onDelete: SetNull)
   applicant         User                 @relation("Applications", fields: [applicantId], references: [id])
   reviewer          User?                @relation("ReviewedApplications", fields: [reviewedBy], references: [id])
+  provisionedOrganization Organization? @relation("ProvisionedOrganizationApplications", fields: [provisionedOrganizationId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("tenant_applications")
+  @@index([applicantId, onboardingStage])
+  @@index([onboardingStage, updatedAt])
+  @@index([provisionedOrganizationId])
+  @@index([selectedTierCode, onboardingStage])
+  @@index([confirmedSubdomain])
+  @@index([confirmedDomain])
 }
 
 model SiteDocument {

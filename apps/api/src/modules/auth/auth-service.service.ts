@@ -1653,112 +1653,50 @@ export class AuthService {
     }
 
     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
-    const requestedRole =
-      (createUserDto.role as UserRole) || UserRole.SITE_OWNER;
+    const geography = await this.resolveGeography(
+      {
+        zoneId: createUserDto.zoneId,
+        region: createUserDto.region,
+        country: createUserDto.country,
+      },
+      'register',
+      this.prisma,
+    );
 
-    // Registration Transaction
-    const result = await this.prisma.$transaction(async (tx) => {
-      const geography = await this.resolveGeography(
-        {
-          zoneId: createUserDto.zoneId,
-          region: createUserDto.region,
-          country: createUserDto.country,
-        },
-        'register',
-        tx,
-      );
-
-      const orgType = createUserDto.accountType || 'COMPANY';
-      const organization = this.isEvzoneRole(requestedRole)
-        ? await this.ensureEvzoneOrganization(tx)
-        : await tx.organization.create({
-            data: {
-              name:
-                orgType === 'COMPANY'
-                  ? createUserDto.companyName || `${createUserDto.name}'s Corp`
-                  : createUserDto.companyName || createUserDto.name,
-              type: orgType,
-            },
-          });
-
-      // 2. Create User linked to Org
-      const user = await tx.user.create({
-        data: {
-          email: createUserDto.email,
-          name: createUserDto.name,
-          phone: createUserDto.phone,
-          role: requestedRole,
-          status: 'Pending', // User starts as Pending (email not verified)
-          passwordHash: hashedPassword,
-          country: createUserDto.country,
-          region: geography.region,
-          zoneId: geography.zoneId,
-          subscribedPackage: createUserDto.subscribedPackage || 'Free',
-          ownerCapability:
-            (createUserDto.ownerCapability as StationOwnerCapability | null) ||
-            null,
-          organizationId: organization.id,
-        },
-      });
-
-      await tx.organizationMembership.create({
-        data: {
-          userId: user.id,
-          organizationId: organization.id,
-          role: requestedRole,
-          canonicalRoleKey: resolveCanonicalRoleKey(requestedRole),
-          ownerCapability:
-            (createUserDto.ownerCapability as StationOwnerCapability | null) ||
-            null,
-          status: MembershipStatus.ACTIVE,
-        },
-      });
-
-      await this.enforceEvzoneOrganizationAssignment(
-        {
-          userId: user.id,
-          role: requestedRole,
-          ownerCapability:
-            (createUserDto.ownerCapability as unknown as StationOwnerCapability) ||
-            null,
-          membershipStatus: MembershipStatus.ACTIVE,
-        },
-        tx,
-      );
-
-      // 3. Create User Application for Admin Approval
-      await tx.userApplication.create({
-        data: {
-          userId: user.id,
-          companyName: createUserDto.companyName,
-          taxId: createUserDto.taxId,
-          country: createUserDto.country || 'Unknown',
-          region: geography.region,
-          accounttype: orgType,
-          role: requestedRole,
-          subscribedPackage: createUserDto.subscribedPackage,
-          status: 'PENDING',
-        },
-      });
-
-      return { user, organization };
+    const user = await this.prisma.user.create({
+      data: {
+        email: createUserDto.email,
+        name: createUserDto.name,
+        phone: createUserDto.phone,
+        role: UserRole.SITE_OWNER,
+        status: 'Pending',
+        passwordHash: hashedPassword,
+        country: createUserDto.country,
+        region: geography.region,
+        zoneId: geography.zoneId,
+        subscribedPackage: createUserDto.subscribedPackage || 'Free',
+        ownerCapability:
+          (createUserDto.ownerCapability as StationOwnerCapability | null) ||
+          null,
+        organizationId: null,
+      },
     });
 
-    await this.syncOcpiTokenSafe(result.user);
+    await this.syncOcpiTokenSafe(user);
 
     try {
       const verificationToken = await this.generateEmailVerificationToken(
-        result.user.id,
+        user.id,
       );
       await this.mailService.sendVerificationEmail(
         createUserDto.email,
         verificationToken,
         createUserDto.frontendUrl,
         {
-          userId: result.user.id,
-          zoneId: result.user.zoneId,
-          country: result.user.country,
-          region: result.user.region,
+          userId: user.id,
+          zoneId: user.zoneId,
+          country: user.country,
+          region: user.region,
         },
       );
     } catch (error) {
@@ -1772,9 +1710,9 @@ export class AuthService {
       success: true,
       message: 'Registration successful. Please check your email.',
       user: {
-        id: result.user.id,
-        email: result.user.email,
-        organizationId: result.organization.id,
+        id: user.id,
+        email: user.email,
+        organizationId: null,
       },
     };
   }
@@ -3799,12 +3737,12 @@ export class AuthService {
       throw new BadRequestException('Verification token has expired');
     }
 
-    // Mark email as verified and update status to AwaitingApproval
+    // Mark email as verified and activate the account for onboarding actions.
     const user = await this.prisma.user.update({
       where: { id: verificationToken.userId },
       data: {
         emailVerifiedAt: new Date(),
-        status: 'AwaitingApproval', // Move to approval stage after email verification
+        status: 'Active',
       },
     });
 
@@ -3834,9 +3772,7 @@ export class AuthService {
       );
     }
 
-    this.logger.log(
-      `Email verified for user ${user.id}, now awaiting admin approval`,
-    );
+    this.logger.log(`Email verified for user ${user.id}, account activated`);
     return { userId: user.id, email: user.email || '' };
   }
 

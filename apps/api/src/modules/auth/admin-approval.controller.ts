@@ -6,6 +6,7 @@ import {
   Body,
   Req,
   BadRequestException,
+  GoneException,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
@@ -17,28 +18,6 @@ type AuthHeaderRequest = Request & { user?: { sub?: string } };
 @Controller('admin/applications')
 export class AdminApprovalController {
   constructor(private readonly approvalService: AdminApprovalService) {}
-
-  private getHeaderValue(
-    value: string | string[] | undefined,
-  ): string | undefined {
-    if (Array.isArray(value)) {
-      return value.find(
-        (entry): entry is string =>
-          typeof entry === 'string' && entry.trim().length > 0,
-      );
-    }
-    return typeof value === 'string' && value.trim().length > 0
-      ? value
-      : undefined;
-  }
-
-  private getAdminId(req: AuthHeaderRequest): string {
-    return (
-      req.user?.sub ||
-      this.getHeaderValue(req.headers['x-user-id']) ||
-      'mock-id'
-    );
-  }
 
   @Get('pending')
   @ApiOperation({ summary: 'Get all pending user applications' })
@@ -62,14 +41,17 @@ export class AdminApprovalController {
     description: 'Application approved successfully',
   })
   @ApiResponse({ status: 403, description: 'Application already reviewed' })
-  async approveApplication(
+  approveApplication(
     @Param('id') id: string,
     @Req() req: AuthHeaderRequest,
     @Body() body: { notes?: string },
   ) {
-    const adminId = this.getAdminId(req);
-
-    return this.approvalService.approveApplication(id, adminId, body.notes);
+    void id;
+    void req;
+    void body;
+    throw new GoneException(
+      'Legacy user application approvals are deprecated. Use /applications canonical onboarding APIs.',
+    );
   }
 
   @Post(':id/reject')
@@ -80,22 +62,18 @@ export class AdminApprovalController {
   })
   @ApiResponse({ status: 400, description: 'Rejection reason required' })
   @ApiResponse({ status: 403, description: 'Application already reviewed' })
-  async rejectApplication(
+  rejectApplication(
     @Param('id') id: string,
     @Req() req: AuthHeaderRequest,
     @Body() body: { reason: string; notes?: string },
   ) {
+    void id;
+    void req;
     if (!body.reason) {
       throw new BadRequestException('Rejection reason is required');
     }
-
-    const adminId = this.getAdminId(req);
-
-    return this.approvalService.rejectApplication(
-      id,
-      adminId,
-      body.reason,
-      body.notes,
+    throw new GoneException(
+      'Legacy user application approvals are deprecated. Use /applications canonical onboarding APIs.',
     );
   }
 }

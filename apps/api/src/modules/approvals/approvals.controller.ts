@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Param, Body, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  GoneException,
+  Param,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { ApprovalsService, type ApprovalType } from './approvals.service';
 
@@ -27,25 +35,29 @@ export class ApprovalsController {
   @Post('kyc/:userId/approve')
   @ApiOperation({ summary: 'Approve KYC verification' })
   @ApiResponse({ status: 200, description: 'KYC approved successfully' })
-  async approveKyc(
+  approveKyc(
     @Param('userId') userId: string,
     @Body() body: { reviewedBy: string; notes?: string },
   ) {
-    return this.approvalsService.approveKyc(
-      userId,
-      body.reviewedBy,
-      body.notes,
+    void userId;
+    void body;
+    throw new GoneException(
+      'Legacy approvals write API is deprecated. Use canonical onboarding workflows under /applications.',
     );
   }
 
   @Post('kyc/:userId/reject')
   @ApiOperation({ summary: 'Reject KYC verification' })
   @ApiResponse({ status: 200, description: 'KYC rejected successfully' })
-  async rejectKyc(
+  rejectKyc(
     @Param('userId') userId: string,
     @Body() body: { reviewedBy: string; notes: string },
   ) {
-    return this.approvalsService.rejectKyc(userId, body.reviewedBy, body.notes);
+    void userId;
+    void body;
+    throw new GoneException(
+      'Legacy approvals write API is deprecated. Use canonical onboarding workflows under /applications.',
+    );
   }
 
   @Post('application/:applicationId/approve')
@@ -54,14 +66,14 @@ export class ApprovalsController {
     status: 200,
     description: 'Application approved successfully',
   })
-  async approveApplication(
+  approveApplication(
     @Param('applicationId') applicationId: string,
     @Body() body: { reviewedBy: string; notes?: string },
   ) {
-    return this.approvalsService.approveApplication(
-      applicationId,
-      body.reviewedBy,
-      body.notes,
+    void applicationId;
+    void body;
+    throw new GoneException(
+      'Legacy approvals write API is deprecated. Use canonical onboarding workflows under /applications.',
     );
   }
 
@@ -71,14 +83,14 @@ export class ApprovalsController {
     status: 200,
     description: 'Application rejected successfully',
   })
-  async rejectApplication(
+  rejectApplication(
     @Param('applicationId') applicationId: string,
     @Body() body: { reviewedBy: string; notes: string },
   ) {
-    return this.approvalsService.rejectApplication(
-      applicationId,
-      body.reviewedBy,
-      body.notes,
+    void applicationId;
+    void body;
+    throw new GoneException(
+      'Legacy approvals write API is deprecated. Use canonical onboarding workflows under /applications.',
     );
   }
 }

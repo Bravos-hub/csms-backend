@@ -1,227 +1,204 @@
 import {
+  BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Patch,
   Post,
   Query,
-  Request,
-  UploadedFile,
-  UseInterceptors,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import type { Request } from 'express';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { RequirePermissions } from '../auth/permissions.decorator';
 import { ApplicationsService } from './applications.service';
 import {
+  AcceptEnterpriseQuoteDto,
+  ActivateApplicationDto,
+  ConfirmTierSelectionDto,
   CreateApplicationDto,
-  UpdateApplicationStatusDto,
-  UpdateApplicationTermsDto,
+  CreateApplicationPaymentIntentDto,
+  ListApplicationsQueryDto,
   ReviewApplicationDto,
-  RequestInfoDto,
+  SyncApplicationPaymentDto,
+  UpdateOwnApplicationDto,
 } from './dto/application.dto';
-import {
-  CreateNegotiationDto,
-  CounterProposalDto,
-  AcceptProposalDto,
-  RejectProposalDto,
-} from './dto/negotiation.dto';
-import { SignLeaseDto, VerifyLeaseDto } from './dto/lease.dto';
-import { ApplicationStatus } from '@prisma/client';
 
-interface RequestWithUser {
+type ApplicationsRequest = Request & {
   user?: {
-    id?: string;
+    sub?: string;
+    role?: string;
+    canonicalRole?: string;
+    accessProfile?: {
+      canonicalRole?: string;
+    };
   };
-}
+};
 
 @Controller('applications')
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class ApplicationsController {
   constructor(private readonly applicationsService: ApplicationsService) {}
 
-  private resolveUserId(req: unknown, fallbackId: string): string {
-    if (typeof req !== 'object' || req === null) {
-      return fallbackId;
+  private assertUserId(req: ApplicationsRequest): string {
+    const userId = req.user?.sub;
+    if (!userId) {
+      throw new BadRequestException('Authenticated user is required');
     }
 
-    const userId = (req as RequestWithUser).user?.id;
-    return typeof userId === 'string' && userId.length > 0
-      ? userId
-      : fallbackId;
+    return userId;
   }
 
-  @Get()
-  findAll(@Query() query: { status?: ApplicationStatus; siteId?: string }) {
-    return this.applicationsService.findAll(query);
-  }
+  private isSuperAdmin(req: ApplicationsRequest): boolean {
+    const canonicalRole =
+      req.user?.canonicalRole || req.user?.accessProfile?.canonicalRole;
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.applicationsService.findOne(id);
-  }
-
-  @Post()
-  create(@Body() createDto: CreateApplicationDto, @Request() req?: unknown) {
-    // For now, use a mock applicant ID. In production, this would come from the authenticated user
-    const applicantId = this.resolveUserId(req, 'mock-id');
-    return this.applicationsService.create(applicantId, createDto);
-  }
-
-  @Patch(':id/status')
-  updateStatus(
-    @Param('id') id: string,
-    @Body() updateDto: UpdateApplicationStatusDto,
-  ) {
-    return this.applicationsService.updateStatus(id, updateDto);
-  }
-
-  @Patch(':id/review')
-  reviewApplication(
-    @Param('id') id: string,
-    @Body() reviewDto: ReviewApplicationDto,
-    @Request() req?: unknown,
-  ) {
-    const reviewerId = this.resolveUserId(req, 'mock-admin-id');
-    return this.applicationsService.reviewApplication(
-      id,
-      reviewDto,
-      reviewerId,
+    return (
+      canonicalRole === 'PLATFORM_SUPER_ADMIN' ||
+      req.user?.role === 'SUPER_ADMIN'
     );
   }
 
-  @Patch(':id/request-info')
-  requestInfo(
-    @Param('id') id: string,
-    @Body() requestDto: RequestInfoDto,
-    @Request() req?: unknown,
-  ) {
-    const reviewerId = this.resolveUserId(req, 'mock-admin-id');
-    return this.applicationsService.requestInfo(id, requestDto, reviewerId);
-  }
-
-  @Patch(':id/terms')
-  updateTerms(
-    @Param('id') id: string,
-    @Body() updateDto: UpdateApplicationTermsDto,
-  ) {
-    return this.applicationsService.updateTerms(id, updateDto);
-  }
-
-  // Negotiation Endpoints
-
-  @Get(':id/negotiations')
-  getNegotiations(@Param('id') id: string) {
-    return this.applicationsService.getNegotiations(id);
-  }
-
-  @Post(':id/negotiations')
-  proposeTerms(
-    @Param('id') id: string,
-    @Body() dto: CreateNegotiationDto,
-    @Request() req?: unknown,
-  ) {
-    const userId = this.resolveUserId(req, 'mock-id');
-    return this.applicationsService.proposeTerms(id, dto, userId);
-  }
-
-  @Post(':id/negotiations/:roundId/counter')
-  counterProposal(
-    @Param('id') id: string,
-    @Param('roundId') roundId: string,
-    @Body() dto: CounterProposalDto,
-    @Request() req?: unknown,
-  ) {
-    const userId = this.resolveUserId(req, 'mock-id');
-    return this.applicationsService.counterProposal(id, roundId, dto, userId);
-  }
-
-  @Post(':id/negotiations/:roundId/accept')
-  acceptProposal(
-    @Param('id') id: string,
-    @Param('roundId') roundId: string,
-    @Body() dto: AcceptProposalDto,
-    @Request() req?: unknown,
-  ) {
-    const userId = this.resolveUserId(req, 'mock-id');
-    return this.applicationsService.acceptProposal(id, roundId, dto, userId);
-  }
-
-  @Post(':id/negotiations/:roundId/reject')
-  rejectProposal(
-    @Param('id') id: string,
-    @Param('roundId') roundId: string,
-    @Body() dto: RejectProposalDto,
-    @Request() req?: unknown,
-  ) {
-    const userId = this.resolveUserId(req, 'mock-id');
-    return this.applicationsService.rejectProposal(id, roundId, dto, userId);
-  }
-
-  // Lease Endpoints
-
-  @Post(':id/lease/generate')
-  generateLease(@Param('id') id: string) {
-    return this.applicationsService.generateLease(id);
-  }
-
-  @Post(':id/lease/send-signature')
-  sendLeaseForSignature(@Param('id') id: string) {
-    return this.applicationsService.sendLeaseForSignature(id);
-  }
-
-  @Post(':id/lease/upload')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
-    }),
-  )
-  async uploadSignedLease(
-    @Param('id') id: string,
-    @UploadedFile() file: Express.Multer.File,
-    @Request() req: unknown,
-  ) {
-    try {
-      if (!file) {
-        throw new Error('No file uploaded');
-      }
-
-      const userId = this.resolveUserId(req, 'system');
-      return await this.applicationsService.uploadSignedLease(id, file, userId);
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Failed to upload signed lease';
-      throw new Error(`Lease upload failed: ${message}`);
+  private assertSuperAdmin(req: ApplicationsRequest): string {
+    const actorId = this.assertUserId(req);
+    if (!this.isSuperAdmin(req)) {
+      throw new ForbiddenException(
+        'Only platform super admins can perform this action',
+      );
     }
+
+    return actorId;
   }
 
-  @Post(':id/deposit/verify')
-  verifySecurityDeposit(@Param('id') id: string) {
-    return this.applicationsService.verifySecurityDeposit(id);
+  @Get('me')
+  listMine(@Req() req: ApplicationsRequest) {
+    const applicantId = this.assertUserId(req);
+    return this.applicationsService.listMine(applicantId);
   }
 
-  @Get(':id/lease')
-  getLease(@Param('id') id: string) {
-    return this.applicationsService.getLease(id);
+  @Get('onboarding/tiers')
+  listApplicantTierPricing() {
+    return this.applicationsService.listPublishedTierPricingForApplicants();
   }
 
-  @Post(':id/lease/sign/owner')
-  signLeaseOwner(@Param('id') id: string, @Body() dto: SignLeaseDto) {
-    return this.applicationsService.signLeaseOwner(id, dto);
+  @Get('onboarding/canonical-roles')
+  @RequirePermissions('platform.tenants.read')
+  listTenantScopedCanonicalRoles(@Req() req: ApplicationsRequest) {
+    this.assertSuperAdmin(req);
+    return this.applicationsService.listTenantScopedCanonicalRoles();
   }
 
-  @Post(':id/lease/sign/operator')
-  signLeaseOperator(@Param('id') id: string, @Body() dto: SignLeaseDto) {
-    return this.applicationsService.signLeaseOperator(id, dto);
+  @Get()
+  @RequirePermissions('platform.tenants.read')
+  listForAdmin(
+    @Req() req: ApplicationsRequest,
+    @Query() filters: ListApplicationsQueryDto,
+  ) {
+    this.assertSuperAdmin(req);
+    return this.applicationsService.listForAdmin(filters);
   }
 
-  @Patch(':id/lease/verify')
-  verifyLease(@Param('id') id: string, @Body() dto: VerifyLeaseDto) {
-    return this.applicationsService.verifyLease(id, dto);
+  @Get(':id')
+  async getOne(@Param('id') id: string, @Req() req: ApplicationsRequest) {
+    const userId = this.assertUserId(req);
+    if (this.isSuperAdmin(req)) {
+      return this.applicationsService.getOneForAdmin(id);
+    }
+    return this.applicationsService.getOneForApplicant(id, userId);
+  }
+
+  @Post()
+  create(@Body() dto: CreateApplicationDto, @Req() req: ApplicationsRequest) {
+    const applicantId = this.assertUserId(req);
+    return this.applicationsService.create(applicantId, dto);
+  }
+
+  @Patch(':id')
+  updateOwn(
+    @Param('id') id: string,
+    @Body() dto: UpdateOwnApplicationDto,
+    @Req() req: ApplicationsRequest,
+  ) {
+    const applicantId = this.assertUserId(req);
+    return this.applicationsService.updateOwn(id, applicantId, dto);
+  }
+
+  @Patch(':id/review')
+  @RequirePermissions('platform.tenants.write')
+  review(
+    @Param('id') id: string,
+    @Body() dto: ReviewApplicationDto,
+    @Req() req: ApplicationsRequest,
+  ) {
+    const reviewerId = this.assertSuperAdmin(req);
+    return this.applicationsService.review(id, reviewerId, dto);
+  }
+
+  @Post(':id/tier-confirmation')
+  confirmTier(
+    @Param('id') id: string,
+    @Body() dto: ConfirmTierSelectionDto,
+    @Req() req: ApplicationsRequest,
+  ) {
+    const applicantId = this.assertUserId(req);
+    return this.applicationsService.confirmTier(id, applicantId, dto);
+  }
+
+  @Post(':id/payment-intent')
+  createPaymentIntent(
+    @Param('id') id: string,
+    @Body() dto: CreateApplicationPaymentIntentDto,
+    @Req() req: ApplicationsRequest,
+  ) {
+    const applicantId = this.assertUserId(req);
+    return this.applicationsService.createPaymentIntent(id, applicantId, dto);
+  }
+
+  async resolvePaymentSyncActor(
+    id: string,
+    req: ApplicationsRequest,
+  ): Promise<string> {
+    const requesterId = this.assertUserId(req);
+    if (!this.isSuperAdmin(req)) {
+      return requesterId;
+    }
+
+    const application = await this.applicationsService.getOneForAdmin(id);
+    return application.applicantId;
+  }
+
+  @Patch(':id/payment-intent/sync')
+  async syncPaymentIntent(
+    @Param('id') id: string,
+    @Body() dto: SyncApplicationPaymentDto,
+    @Req() req: ApplicationsRequest,
+  ) {
+    const applicantId = await this.resolvePaymentSyncActor(id, req);
+    return this.applicationsService.syncPaymentStatus(id, applicantId, dto);
+  }
+
+  @Post(':id/quote/accept')
+  acceptEnterpriseQuote(
+    @Param('id') id: string,
+    @Body() dto: AcceptEnterpriseQuoteDto,
+    @Req() req: ApplicationsRequest,
+  ) {
+    const applicantId = this.assertUserId(req);
+    return this.applicationsService.acceptEnterpriseQuote(id, applicantId, dto);
   }
 
   @Post(':id/activate')
-  activate(@Param('id') id: string) {
-    return this.applicationsService.activate(id);
+  @RequirePermissions('platform.tenants.write')
+  activate(
+    @Param('id') id: string,
+    @Body() dto: ActivateApplicationDto,
+    @Req() req: ApplicationsRequest,
+  ) {
+    const reviewerId = this.assertSuperAdmin(req);
+    return this.applicationsService.activate(id, reviewerId, dto);
   }
 }
