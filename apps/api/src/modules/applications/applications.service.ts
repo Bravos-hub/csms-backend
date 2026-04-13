@@ -6,7 +6,9 @@ import {
 } from '@nestjs/common';
 import {
   ApplicationStatus,
+  CpoServiceType,
   MembershipStatus,
+  type PlatformTierPricingVersion,
   Prisma,
   TenantOnboardingStage,
   TenantTier,
@@ -70,9 +72,14 @@ type PricingSnapshot = {
   tierCode: string;
   tierLabel: string;
   pricingVersion: number;
+  cpoType: CpoServiceType;
   currency: string;
   billingCycle: string | null;
   isCustomPricing: boolean;
+  baseRecurringAmount: number | null;
+  baseSetupFee: number;
+  cpoRecurringAddon: number;
+  cpoSetupAddon: number;
   recurringAmount: number | null;
   setupFee: number | null;
   whiteLabelRequested: boolean;
@@ -164,9 +171,14 @@ export class ApplicationsService {
     const tierCode = candidate.tierCode;
     const tierLabel = candidate.tierLabel;
     const pricingVersion = candidate.pricingVersion;
+    const cpoType = candidate.cpoType;
     const currency = candidate.currency;
     const billingCycle = candidate.billingCycle;
     const isCustomPricing = candidate.isCustomPricing;
+    const baseRecurringAmount = candidate.baseRecurringAmount;
+    const baseSetupFee = candidate.baseSetupFee;
+    const cpoRecurringAddon = candidate.cpoRecurringAddon;
+    const cpoSetupAddon = candidate.cpoSetupAddon;
     const recurringAmount = candidate.recurringAmount;
     const setupFee = candidate.setupFee;
     const whiteLabelRequested = candidate.whiteLabelRequested;
@@ -191,9 +203,28 @@ export class ApplicationsService {
       tierCode,
       tierLabel,
       pricingVersion,
+      cpoType:
+        cpoType === CpoServiceType.SWAP || cpoType === CpoServiceType.HYBRID
+          ? cpoType
+          : CpoServiceType.CHARGE,
       currency,
       billingCycle: typeof billingCycle === 'string' ? billingCycle : null,
       isCustomPricing,
+      baseRecurringAmount:
+        typeof baseRecurringAmount === 'number'
+          ? baseRecurringAmount
+          : typeof recurringAmount === 'number'
+            ? recurringAmount
+            : null,
+      baseSetupFee:
+        typeof baseSetupFee === 'number'
+          ? baseSetupFee
+          : typeof setupFee === 'number'
+            ? setupFee
+            : 0,
+      cpoRecurringAddon:
+        typeof cpoRecurringAddon === 'number' ? cpoRecurringAddon : 0,
+      cpoSetupAddon: typeof cpoSetupAddon === 'number' ? cpoSetupAddon : 0,
       recurringAmount:
         typeof recurringAmount === 'number' ? recurringAmount : null,
       setupFee: typeof setupFee === 'number' ? setupFee : null,
@@ -242,6 +273,54 @@ export class ApplicationsService {
     throw new BadRequestException(`Unsupported tier code "${tierCode}"`);
   }
 
+  private resolveCpoPricingAddons(
+    pricing: PlatformTierPricingVersion,
+    cpoType: CpoServiceType,
+    billingCycle: 'MONTHLY' | 'ANNUAL',
+  ): { recurringAddon: number; setupAddon: number } {
+    if (cpoType === CpoServiceType.CHARGE) {
+      return {
+        recurringAddon: 0,
+        setupAddon: 0,
+      };
+    }
+
+    if (cpoType === CpoServiceType.SWAP) {
+      const recurringAddon =
+        billingCycle === 'ANNUAL'
+          ? this.toMoneyNumber(pricing.swapAnnualAddon)
+          : this.toMoneyNumber(pricing.swapMonthlyAddon);
+      const setupAddon = this.toMoneyNumber(pricing.swapSetupAddon);
+      if (recurringAddon === null || setupAddon === null) {
+        throw new BadRequestException(
+          'SWAP pricing add-ons are not configured for this tier',
+        );
+      }
+
+      return {
+        recurringAddon,
+        setupAddon,
+      };
+    }
+
+    const recurringAddon =
+      billingCycle === 'ANNUAL'
+        ? this.toMoneyNumber(pricing.hybridAnnualAddon)
+        : this.toMoneyNumber(pricing.hybridMonthlyAddon);
+    const setupAddon = this.toMoneyNumber(pricing.hybridSetupAddon);
+
+    if (recurringAddon === null || setupAddon === null) {
+      throw new BadRequestException(
+        'HYBRID pricing add-ons are not configured for this tier',
+      );
+    }
+
+    return {
+      recurringAddon,
+      setupAddon,
+    };
+  }
+
   private ensureTenantScopedRole(roleKey: string): CanonicalRoleKey {
     if (!isCanonicalRoleKey(roleKey)) {
       throw new BadRequestException(`Invalid canonical role key "${roleKey}"`);
@@ -262,6 +341,7 @@ export class ApplicationsService {
       id: application.id,
       applicantId: application.applicantId,
       tenantType: application.tenantType,
+      cpoType: application.cpoType,
       organizationName: application.organizationName,
       businessRegistrationNumber: application.businessRegistrationNumber,
       taxComplianceNumber: application.taxComplianceNumber,
@@ -504,6 +584,7 @@ export class ApplicationsService {
       data: {
         applicantId,
         tenantType: dto.tenantType,
+        cpoType: dto.cpoType,
         organizationName: dto.organizationName.trim(),
         businessRegistrationNumber: this.normalizeOptionalString(
           dto.businessRegistrationNumber,
@@ -582,6 +663,7 @@ export class ApplicationsService {
       where: { id },
       data: {
         tenantType: dto.tenantType,
+        cpoType: dto.cpoType,
         organizationName:
           dto.organizationName !== undefined
             ? dto.organizationName.trim()
@@ -782,6 +864,12 @@ export class ApplicationsService {
       monthlyPrice: this.toMoneyNumber(tier.monthlyPrice),
       annualPrice: this.toMoneyNumber(tier.annualPrice),
       setupFee: this.toMoneyNumber(tier.setupFee),
+      swapMonthlyAddon: this.toMoneyNumber(tier.swapMonthlyAddon),
+      swapAnnualAddon: this.toMoneyNumber(tier.swapAnnualAddon),
+      swapSetupAddon: this.toMoneyNumber(tier.swapSetupAddon),
+      hybridMonthlyAddon: this.toMoneyNumber(tier.hybridMonthlyAddon),
+      hybridAnnualAddon: this.toMoneyNumber(tier.hybridAnnualAddon),
+      hybridSetupAddon: this.toMoneyNumber(tier.hybridSetupAddon),
       whiteLabelAvailable: tier.whiteLabelAvailable,
       whiteLabelMonthlyAddon: this.toMoneyNumber(tier.whiteLabelMonthlyAddon),
       whiteLabelSetupFee: this.toMoneyNumber(tier.whiteLabelSetupFee),
@@ -853,9 +941,14 @@ export class ApplicationsService {
 
     const isCustomPricing = pricing.isCustomPricing || tierCode === 'T4';
     const billingCycle = dto.billingCycle || null;
+    const cpoType = current.cpoType;
 
+    let baseRecurringAmount: number | null = null;
+    const baseSetupFee = this.toMoneyNumber(pricing.setupFee) || 0;
+    let cpoRecurringAddon = 0;
+    let cpoSetupAddon = 0;
     let recurringAmount: number | null = null;
-    let setupFee = this.toMoneyNumber(pricing.setupFee) || 0;
+    let setupFee: number | null = null;
     let whiteLabelMonthlyAddon =
       this.toMoneyNumber(pricing.whiteLabelMonthlyAddon) || 0;
     let whiteLabelSetupFee =
@@ -869,33 +962,49 @@ export class ApplicationsService {
         );
       }
 
-      recurringAmount =
+      baseRecurringAmount =
         billingCycle === 'ANNUAL'
           ? this.toMoneyNumber(pricing.annualPrice)
           : this.toMoneyNumber(pricing.monthlyPrice);
 
-      if (recurringAmount === null) {
+      if (baseRecurringAmount === null) {
         throw new BadRequestException(
           `Tier "${tierCode}" is missing ${billingCycle.toLowerCase()} pricing`,
         );
       }
+
+      const cpoAddons = this.resolveCpoPricingAddons(
+        pricing,
+        cpoType,
+        billingCycle,
+      );
+      cpoRecurringAddon = cpoAddons.recurringAddon;
+      cpoSetupAddon = cpoAddons.setupAddon;
 
       if (!whiteLabelRequested) {
         whiteLabelMonthlyAddon = 0;
         whiteLabelSetupFee = 0;
       }
 
-      dueNowAmount = Number(
+      recurringAmount = Number(
         (
-          recurringAmount +
-          setupFee +
-          whiteLabelMonthlyAddon +
-          whiteLabelSetupFee
+          baseRecurringAmount +
+          cpoRecurringAddon +
+          whiteLabelMonthlyAddon
         ).toFixed(2),
       );
+
+      setupFee = Number(
+        (baseSetupFee + cpoSetupAddon + whiteLabelSetupFee).toFixed(2),
+      );
+
+      dueNowAmount = Number((recurringAmount + setupFee).toFixed(2));
     } else {
+      baseRecurringAmount = null;
+      cpoRecurringAddon = 0;
+      cpoSetupAddon = 0;
       recurringAmount = null;
-      setupFee = 0;
+      setupFee = null;
       whiteLabelMonthlyAddon = whiteLabelRequested ? whiteLabelMonthlyAddon : 0;
       whiteLabelSetupFee = whiteLabelRequested ? whiteLabelSetupFee : 0;
       dueNowAmount = null;
@@ -905,9 +1014,14 @@ export class ApplicationsService {
       tierCode,
       tierLabel: pricing.tierLabel,
       pricingVersion: pricing.version,
+      cpoType,
       currency: pricing.currency,
       billingCycle,
       isCustomPricing,
+      baseRecurringAmount,
+      baseSetupFee,
+      cpoRecurringAddon,
+      cpoSetupAddon,
       recurringAmount,
       setupFee,
       whiteLabelRequested,

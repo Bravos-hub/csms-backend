@@ -24,6 +24,12 @@ type TierPricingView = {
   monthlyPrice: number | null;
   annualPrice: number | null;
   setupFee: number | null;
+  swapMonthlyAddon: number | null;
+  swapAnnualAddon: number | null;
+  swapSetupAddon: number | null;
+  hybridMonthlyAddon: number | null;
+  hybridAnnualAddon: number | null;
+  hybridSetupAddon: number | null;
   whiteLabelAvailable: boolean;
   whiteLabelMonthlyAddon: number | null;
   whiteLabelSetupFee: number | null;
@@ -54,6 +60,12 @@ type TierPricingDefaults = {
   monthlyPrice: number | null;
   annualPrice: number | null;
   setupFee: number | null;
+  swapMonthlyAddon: number | null;
+  swapAnnualAddon: number | null;
+  swapSetupAddon: number | null;
+  hybridMonthlyAddon: number | null;
+  hybridAnnualAddon: number | null;
+  hybridSetupAddon: number | null;
   whiteLabelAvailable: boolean;
   whiteLabelMonthlyAddon: number | null;
   whiteLabelSetupFee: number | null;
@@ -69,6 +81,12 @@ const TIER_DEFAULTS: Record<TierCode, TierPricingDefaults> = {
     monthlyPrice: 99,
     annualPrice: 1010,
     setupFee: 0,
+    swapMonthlyAddon: 49,
+    swapAnnualAddon: 500,
+    swapSetupAddon: 100,
+    hybridMonthlyAddon: 119,
+    hybridAnnualAddon: 1214,
+    hybridSetupAddon: 150,
     whiteLabelAvailable: false,
     whiteLabelMonthlyAddon: null,
     whiteLabelSetupFee: null,
@@ -82,6 +100,12 @@ const TIER_DEFAULTS: Record<TierCode, TierPricingDefaults> = {
     monthlyPrice: 299,
     annualPrice: 3050,
     setupFee: 250,
+    swapMonthlyAddon: 149,
+    swapAnnualAddon: 1520,
+    swapSetupAddon: 300,
+    hybridMonthlyAddon: 239,
+    hybridAnnualAddon: 2438,
+    hybridSetupAddon: 450,
     whiteLabelAvailable: false,
     whiteLabelMonthlyAddon: null,
     whiteLabelSetupFee: null,
@@ -95,6 +119,12 @@ const TIER_DEFAULTS: Record<TierCode, TierPricingDefaults> = {
     monthlyPrice: 1490,
     annualPrice: 15198,
     setupFee: 2000,
+    swapMonthlyAddon: 590,
+    swapAnnualAddon: 6018,
+    swapSetupAddon: 2500,
+    hybridMonthlyAddon: 890,
+    hybridAnnualAddon: 9078,
+    hybridSetupAddon: 3500,
     whiteLabelAvailable: true,
     whiteLabelMonthlyAddon: 350,
     whiteLabelSetupFee: 600,
@@ -108,6 +138,12 @@ const TIER_DEFAULTS: Record<TierCode, TierPricingDefaults> = {
     monthlyPrice: null,
     annualPrice: null,
     setupFee: null,
+    swapMonthlyAddon: null,
+    swapAnnualAddon: null,
+    swapSetupAddon: null,
+    hybridMonthlyAddon: null,
+    hybridAnnualAddon: null,
+    hybridSetupAddon: null,
     whiteLabelAvailable: true,
     whiteLabelMonthlyAddon: null,
     whiteLabelSetupFee: null,
@@ -198,6 +234,30 @@ export class PlatformTierPricingService {
       annualPrice:
         dto.annualPrice !== undefined ? dto.annualPrice : base.annualPrice,
       setupFee: dto.setupFee !== undefined ? dto.setupFee : base.setupFee,
+      swapMonthlyAddon:
+        dto.swapMonthlyAddon !== undefined
+          ? dto.swapMonthlyAddon
+          : base.swapMonthlyAddon,
+      swapAnnualAddon:
+        dto.swapAnnualAddon !== undefined
+          ? dto.swapAnnualAddon
+          : base.swapAnnualAddon,
+      swapSetupAddon:
+        dto.swapSetupAddon !== undefined
+          ? dto.swapSetupAddon
+          : base.swapSetupAddon,
+      hybridMonthlyAddon:
+        dto.hybridMonthlyAddon !== undefined
+          ? dto.hybridMonthlyAddon
+          : base.hybridMonthlyAddon,
+      hybridAnnualAddon:
+        dto.hybridAnnualAddon !== undefined
+          ? dto.hybridAnnualAddon
+          : base.hybridAnnualAddon,
+      hybridSetupAddon:
+        dto.hybridSetupAddon !== undefined
+          ? dto.hybridSetupAddon
+          : base.hybridSetupAddon,
       whiteLabelAvailable:
         dto.whiteLabelAvailable !== undefined
           ? dto.whiteLabelAvailable
@@ -220,11 +280,30 @@ export class PlatformTierPricingService {
           'Monthly and annual prices are required unless custom pricing is enabled',
         );
       }
+
+      if (
+        merged.swapMonthlyAddon == null ||
+        merged.swapAnnualAddon == null ||
+        merged.swapSetupAddon == null ||
+        merged.hybridMonthlyAddon == null ||
+        merged.hybridAnnualAddon == null ||
+        merged.hybridSetupAddon == null
+      ) {
+        throw new BadRequestException(
+          'SWAP and HYBRID add-ons are required unless custom pricing is enabled',
+        );
+      }
     }
 
     if (merged.isCustomPricing) {
       merged.monthlyPrice = null;
       merged.annualPrice = null;
+      merged.swapMonthlyAddon = null;
+      merged.swapAnnualAddon = null;
+      merged.swapSetupAddon = null;
+      merged.hybridMonthlyAddon = null;
+      merged.hybridAnnualAddon = null;
+      merged.hybridSetupAddon = null;
     }
 
     if (!merged.whiteLabelAvailable) {
@@ -245,6 +324,12 @@ export class PlatformTierPricingService {
           monthlyPrice: merged.monthlyPrice,
           annualPrice: merged.annualPrice,
           setupFee: merged.setupFee,
+          swapMonthlyAddon: merged.swapMonthlyAddon,
+          swapAnnualAddon: merged.swapAnnualAddon,
+          swapSetupAddon: merged.swapSetupAddon,
+          hybridMonthlyAddon: merged.hybridMonthlyAddon,
+          hybridAnnualAddon: merged.hybridAnnualAddon,
+          hybridSetupAddon: merged.hybridSetupAddon,
           whiteLabelAvailable: merged.whiteLabelAvailable,
           whiteLabelMonthlyAddon: merged.whiteLabelMonthlyAddon,
           whiteLabelSetupFee: merged.whiteLabelSetupFee,
@@ -331,6 +416,12 @@ export class PlatformTierPricingService {
       monthlyPrice: this.toNumber(row.monthlyPrice),
       annualPrice: this.toNumber(row.annualPrice),
       setupFee: this.toNumber(row.setupFee),
+      swapMonthlyAddon: this.toNumber(row.swapMonthlyAddon),
+      swapAnnualAddon: this.toNumber(row.swapAnnualAddon),
+      swapSetupAddon: this.toNumber(row.swapSetupAddon),
+      hybridMonthlyAddon: this.toNumber(row.hybridMonthlyAddon),
+      hybridAnnualAddon: this.toNumber(row.hybridAnnualAddon),
+      hybridSetupAddon: this.toNumber(row.hybridSetupAddon),
       whiteLabelAvailable: row.whiteLabelAvailable,
       whiteLabelMonthlyAddon: this.toNumber(row.whiteLabelMonthlyAddon),
       whiteLabelSetupFee: this.toNumber(row.whiteLabelSetupFee),
@@ -368,6 +459,12 @@ export class PlatformTierPricingService {
       monthlyPrice: this.toNumber(row.monthlyPrice),
       annualPrice: this.toNumber(row.annualPrice),
       setupFee: this.toNumber(row.setupFee),
+      swapMonthlyAddon: this.toNumber(row.swapMonthlyAddon),
+      swapAnnualAddon: this.toNumber(row.swapAnnualAddon),
+      swapSetupAddon: this.toNumber(row.swapSetupAddon),
+      hybridMonthlyAddon: this.toNumber(row.hybridMonthlyAddon),
+      hybridAnnualAddon: this.toNumber(row.hybridAnnualAddon),
+      hybridSetupAddon: this.toNumber(row.hybridSetupAddon),
       whiteLabelAvailable: row.whiteLabelAvailable,
       whiteLabelMonthlyAddon: this.toNumber(row.whiteLabelMonthlyAddon),
       whiteLabelSetupFee: this.toNumber(row.whiteLabelSetupFee),

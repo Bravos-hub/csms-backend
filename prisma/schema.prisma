@@ -206,6 +206,12 @@ enum TenantAccountType {
   ORGANIZATION
 }
 
+enum CpoServiceType {
+  CHARGE
+  SWAP
+  HYBRID
+}
+
 enum TenantOnboardingStage {
   SUBMITTED
   UNDER_REVIEW
@@ -2057,6 +2063,7 @@ model TenantApplication {
   id          String  @id @default(uuid())
   applicantId String
   tenantType  TenantAccountType @default(COMPANY)
+  cpoType     CpoServiceType    @default(CHARGE) @map("cpo_type")
   
   // Organization Details
   organizationName           String
@@ -2639,6 +2646,12 @@ model PlatformTierPricingVersion {
   monthlyPrice           Decimal?  @db.Decimal(10, 2) @map("monthly_price")
   annualPrice            Decimal?  @db.Decimal(10, 2) @map("annual_price")
   setupFee               Decimal?  @db.Decimal(10, 2) @map("setup_fee")
+  swapMonthlyAddon       Decimal?  @db.Decimal(10, 2) @map("swap_monthly_addon")
+  swapAnnualAddon        Decimal?  @db.Decimal(10, 2) @map("swap_annual_addon")
+  swapSetupAddon         Decimal?  @db.Decimal(10, 2) @map("swap_setup_addon")
+  hybridMonthlyAddon     Decimal?  @db.Decimal(10, 2) @map("hybrid_monthly_addon")
+  hybridAnnualAddon      Decimal?  @db.Decimal(10, 2) @map("hybrid_annual_addon")
+  hybridSetupAddon       Decimal?  @db.Decimal(10, 2) @map("hybrid_setup_addon")
   whiteLabelAvailable    Boolean   @default(false) @map("white_label_available")
   whiteLabelMonthlyAddon Decimal?  @db.Decimal(10, 2) @map("white_label_monthly_addon")
   whiteLabelSetupFee     Decimal?  @db.Decimal(10, 2) @map("white_label_setup_fee")

@@ -24,6 +24,9 @@ export const ACCOUNT_TYPES = [
 ] as const;
 export type AccountType = (typeof ACCOUNT_TYPES)[number];
 
+export const CPO_TYPES = ['CHARGE', 'SWAP', 'HYBRID'] as const;
+export type CpoServiceType = (typeof CPO_TYPES)[number];
+
 export class CreateTierPricingDraftDto {
   @IsString()
   @IsOptional()
@@ -63,6 +66,42 @@ export class CreateTierPricingDraftDto {
   @Min(0)
   @IsOptional()
   setupFee?: number | null;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  swapMonthlyAddon?: number | null;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  swapAnnualAddon?: number | null;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  swapSetupAddon?: number | null;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  hybridMonthlyAddon?: number | null;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  hybridAnnualAddon?: number | null;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  hybridSetupAddon?: number | null;
 
   @IsBoolean()
   @IsOptional()

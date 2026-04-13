@@ -12,7 +12,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import { TenantAccountType } from '@prisma/client';
+import { CpoServiceType, TenantAccountType } from '@prisma/client';
 
 export const ONBOARDING_TIER_CODES = ['T1', 'T2', 'T3', 'T4'] as const;
 export type OnboardingTierCode = (typeof ONBOARDING_TIER_CODES)[number];
@@ -27,6 +27,10 @@ export class CreateApplicationDto {
   @IsEnum(TenantAccountType)
   @IsOptional()
   tenantType?: TenantAccountType;
+
+  @IsEnum(CpoServiceType)
+  @IsOptional()
+  cpoType?: CpoServiceType;
 
   @IsString()
   @IsNotEmpty()
@@ -111,6 +115,10 @@ export class UpdateOwnApplicationDto {
   @IsEnum(TenantAccountType)
   @IsOptional()
   tenantType?: TenantAccountType;
+
+  @IsEnum(CpoServiceType)
+  @IsOptional()
+  cpoType?: CpoServiceType;
 
   @IsString()
   @IsOptional()
