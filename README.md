@@ -98,6 +98,31 @@ FRONTEND_URL=http://localhost:5173
 OCPP_PUBLIC_WS_BASE_URL=wss://ocpp.evzonecharging.com
 ```
 
+### Payment Orchestration (China vs Global)
+
+Payment routing is feature-flagged and market-aware:
+
+- Set `PAYMENT_ORCHESTRATION_ENABLED=true` to enable provider-backed orchestration.
+- Market split:
+  - `CHINA` for Mainland China (`CN`).
+  - `GLOBAL` for all other countries.
+- Provider chain:
+  - China: `LianLian -> Alipay`
+  - Global: `Stripe -> Flutterwave`
+- Webhook endpoints (public):
+  - `POST /api/v1/payments/webhooks/stripe`
+  - `POST /api/v1/payments/webhooks/flutterwave`
+  - `POST /api/v1/payments/webhooks/alipay`
+  - `POST /api/v1/payments/webhooks/lianlian`
+- Wallet top-ups are now settled asynchronously in orchestration mode:
+  - top-up creates pending payment + pending credit transaction
+  - wallet is credited only after verified provider webhook/reconciliation success
+  - failed/canceled webhook events do not credit wallet
+- Legacy health URL checks remain only for compatibility when orchestration is disabled:
+  - `PAYMENT_HEALTHCHECK_URL`, `PAYMENT_HEALTHCHECK_BEARER_TOKEN`, `PAYMENT_HEALTHCHECK_TIMEOUT_MS`
+
+Operational runbook: [`docs/operations/payment-orchestration-runbook.md`](./docs/operations/payment-orchestration-runbook.md)
+
 ### Geo-Routed Messaging (Email + SMS)
 
 Provider selection is now **per recipient**, not global.

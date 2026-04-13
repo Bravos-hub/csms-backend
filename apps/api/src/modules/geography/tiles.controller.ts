@@ -1,6 +1,6 @@
 import { Controller, Get, Param, Res, Header, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiParam, ApiQuery } from '@nestjs/swagger';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { GeographyService } from './geography.service';
 
 @ApiTags('Geography')

@@ -9,6 +9,12 @@ import { TenantContextService } from '@app/db';
 import { PaymentIntent, PaymentMethod, Prisma, Wallet } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma.service';
+import { PaymentOrchestrationService } from '../payments/payment-orchestration.service';
+import { PaymentSettlementService } from '../payments/payment-settlement.service';
+import {
+  PaymentIntentFinalStatus,
+  PaymentProvider,
+} from '../payments/payment.types';
 import {
   CreatePaymentMethodDto,
   UpdatePaymentMethodDto,
@@ -56,6 +62,9 @@ type PaymentIntentResponse = {
   amount: number;
   currency: string;
   status: string;
+  provider: string | null;
+  market: string | null;
+  providerPaymentId: string | null;
   idempotencyKey: string;
   correlationId: string | null;
   reconciliationState: string;
@@ -74,6 +83,8 @@ export class CommerceService {
     private readonly prisma: PrismaService,
     private readonly tenantContext: TenantContextService,
     private readonly configService: ConfigService,
+    private readonly orchestration: PaymentOrchestrationService,
+    private readonly settlement: PaymentSettlementService,
   ) {}
 
   async listPaymentMethods(
@@ -333,7 +344,75 @@ export class CommerceService {
       };
     }
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    if (!this.isPaymentOrchestrationEnabled()) {
+      const result = await this.prisma.$transaction(async (tx) => {
+        const intent = await tx.paymentIntent.create({
+          data: {
+            userId,
+            organizationId: wallet.organizationId,
+            walletId: wallet.id,
+            paymentMethodId: paymentMethod?.id || null,
+            amount,
+            currency,
+            status: 'SETTLED',
+            idempotencyKey: meta.idempotencyKey,
+            correlationId: meta.correlationId,
+            reconciliationState: 'RECONCILED',
+            settledAt: new Date(),
+            expiresAt: meta.expiresAt,
+            metadata: dto.note
+              ? ({ note: dto.note } as Prisma.InputJsonValue)
+              : undefined,
+          },
+        });
+
+        const updatedWallet = await tx.wallet.update({
+          where: { id: wallet.id },
+          data: { balance: { increment: amount }, currency },
+        });
+
+        const transaction = await tx.transaction.create({
+          data: {
+            walletId: wallet.id,
+            paymentIntentId: intent.id,
+            amount,
+            type: 'CREDIT',
+            status: 'POSTED',
+            reconciliationState: 'RECONCILED',
+            description: dto.note || 'Wallet top-up',
+            reference: `TOPUP_${Date.now()}`,
+            correlationId: meta.correlationId,
+            idempotencyKey: meta.idempotencyKey,
+            occurredAt: new Date(),
+          },
+        });
+
+        return { updatedWallet, intent, transactionId: transaction.id };
+      });
+
+      return {
+        wallet: this.mapWallet(result.updatedWallet),
+        paymentIntent: this.mapPaymentIntent(result.intent),
+        transactionId: result.transactionId,
+      };
+    }
+
+    const marketContext = await this.resolveUserForScope(userId);
+    const orchestration = await this.orchestration.createPayment({
+      userId,
+      amount,
+      currency,
+      idempotencyKey: meta.idempotencyKey,
+      correlationId: meta.correlationId,
+      customerEmail: marketContext.email,
+      description: dto.note || 'Wallet top-up',
+      metadata: {
+        flow: 'WALLET_TOPUP',
+        walletId: wallet.id,
+      },
+    });
+
+    const created = await this.prisma.$transaction(async (tx) => {
       const intent = await tx.paymentIntent.create({
         data: {
           userId,
@@ -342,21 +421,29 @@ export class CommerceService {
           paymentMethodId: paymentMethod?.id || null,
           amount,
           currency,
-          status: 'SETTLED',
+          status: 'PENDING',
+          provider: orchestration.provider,
+          market: orchestration.market,
+          providerPaymentId: orchestration.providerPaymentId,
           idempotencyKey: meta.idempotencyKey,
           correlationId: meta.correlationId,
-          reconciliationState: 'RECONCILED',
-          settledAt: new Date(),
+          reconciliationState: 'RECONCILING',
+          checkoutUrl: orchestration.checkoutUrl,
+          checkoutQrPayload: orchestration.checkoutQrPayload,
+          providerReference: orchestration.providerReference,
           expiresAt: meta.expiresAt,
-          metadata: dto.note
-            ? ({ note: dto.note } as Prisma.InputJsonValue)
-            : undefined,
+          metadata: {
+            flow: 'WALLET_TOPUP',
+            note: dto.note || null,
+            orchestration: {
+              attempts: orchestration.attempts,
+              marketReason: orchestration.marketResolution.reason,
+              country: orchestration.marketResolution.country,
+              region: orchestration.marketResolution.region,
+              zoneId: orchestration.marketResolution.zoneId,
+            },
+          } as Prisma.InputJsonValue,
         },
-      });
-
-      const updatedWallet = await tx.wallet.update({
-        where: { id: wallet.id },
-        data: { balance: { increment: amount }, currency },
       });
 
       const transaction = await tx.transaction.create({
@@ -365,23 +452,23 @@ export class CommerceService {
           paymentIntentId: intent.id,
           amount,
           type: 'CREDIT',
-          status: 'POSTED',
-          reconciliationState: 'RECONCILED',
-          description: dto.note || 'Wallet top-up',
-          reference: `TOPUP_${Date.now()}`,
+          status: 'PENDING',
+          reconciliationState: 'RECONCILING',
+          description: dto.note || 'Wallet top-up pending settlement',
+          reference: `TOPUP_PENDING_${Date.now()}`,
           correlationId: meta.correlationId,
           idempotencyKey: meta.idempotencyKey,
           occurredAt: new Date(),
         },
       });
 
-      return { updatedWallet, intent, transactionId: transaction.id };
+      return { intent, transactionId: transaction.id };
     });
 
     return {
-      wallet: this.mapWallet(result.updatedWallet),
-      paymentIntent: this.mapPaymentIntent(result.intent),
-      transactionId: result.transactionId,
+      wallet: this.mapWallet(await this.ensureWallet(userId)),
+      paymentIntent: this.mapPaymentIntent(created.intent),
+      transactionId: created.transactionId,
     };
   }
 
@@ -650,6 +737,51 @@ export class CommerceService {
       return this.mapPaymentIntent(existing);
     }
 
+    if (!this.isPaymentOrchestrationEnabled()) {
+      const created = await this.prisma.paymentIntent.create({
+        data: {
+          userId,
+          organizationId: wallet.organizationId,
+          walletId: wallet.id,
+          paymentMethodId: paymentMethod?.id || null,
+          invoiceId: this.optionalTrimmed(dto.invoiceId),
+          sessionId: this.optionalTrimmed(dto.sessionId),
+          amount: this.normalizeAmount(dto.amount, 'amount'),
+          currency: this.normalizeCurrencyCode(dto.currency, wallet.currency),
+          status: 'PENDING',
+          idempotencyKey: meta.idempotencyKey,
+          correlationId: meta.correlationId,
+          reconciliationState: 'RECONCILING',
+          checkoutUrl: meta.checkoutUrl,
+          checkoutQrPayload: meta.checkoutQrPayload,
+          expiresAt: meta.expiresAt,
+          metadata: dto.metadata
+            ? (dto.metadata as Prisma.InputJsonValue)
+            : undefined,
+        },
+      });
+
+      return this.mapPaymentIntent(created);
+    }
+
+    const amount = this.normalizeAmount(dto.amount, 'amount');
+    const currency = this.normalizeCurrencyCode(dto.currency, wallet.currency);
+    const marketContext = await this.resolveUserForScope(userId);
+    const orchestration = await this.orchestration.createPayment({
+      userId,
+      amount,
+      currency,
+      idempotencyKey: meta.idempotencyKey,
+      correlationId: meta.correlationId,
+      customerEmail: marketContext.email,
+      description: 'EVZone payment intent',
+      metadata: {
+        invoiceId: this.optionalTrimmed(dto.invoiceId),
+        sessionId: this.optionalTrimmed(dto.sessionId),
+        ...(dto.metadata || {}),
+      },
+    });
+
     const created = await this.prisma.paymentIntent.create({
       data: {
         userId,
@@ -658,18 +790,30 @@ export class CommerceService {
         paymentMethodId: paymentMethod?.id || null,
         invoiceId: this.optionalTrimmed(dto.invoiceId),
         sessionId: this.optionalTrimmed(dto.sessionId),
-        amount: this.normalizeAmount(dto.amount, 'amount'),
-        currency: this.normalizeCurrencyCode(dto.currency, wallet.currency),
+        amount,
+        currency,
         status: 'PENDING',
+        provider: orchestration.provider,
+        market: orchestration.market,
+        providerPaymentId: orchestration.providerPaymentId,
         idempotencyKey: meta.idempotencyKey,
         correlationId: meta.correlationId,
         reconciliationState: 'RECONCILING',
-        checkoutUrl: meta.checkoutUrl,
-        checkoutQrPayload: meta.checkoutQrPayload,
+        checkoutUrl: orchestration.checkoutUrl || meta.checkoutUrl,
+        checkoutQrPayload:
+          orchestration.checkoutQrPayload || meta.checkoutQrPayload,
+        providerReference: orchestration.providerReference,
         expiresAt: meta.expiresAt,
-        metadata: dto.metadata
-          ? (dto.metadata as Prisma.InputJsonValue)
-          : undefined,
+        metadata: {
+          ...(dto.metadata || {}),
+          orchestration: {
+            attempts: orchestration.attempts,
+            marketReason: orchestration.marketResolution.reason,
+            country: orchestration.marketResolution.country,
+            region: orchestration.marketResolution.region,
+            zoneId: orchestration.marketResolution.zoneId,
+          },
+        } as Prisma.InputJsonValue,
       },
     });
 
@@ -697,22 +841,88 @@ export class CommerceService {
       };
     }
 
+    const amount = this.normalizeAmount(dto.amount, 'amount');
+    const currency = this.normalizeCurrencyCode(dto.currency);
+
+    if (!this.isPaymentOrchestrationEnabled()) {
+      const created = await this.prisma.paymentIntent.create({
+        data: {
+          organizationId: this.resolveTenantId(),
+          amount,
+          currency,
+          status: 'PENDING',
+          idempotencyKey: meta.idempotencyKey,
+          correlationId: meta.correlationId,
+          reconciliationState: 'RECONCILING',
+          checkoutUrl: meta.checkoutUrl,
+          checkoutQrPayload: meta.checkoutQrPayload,
+          expiresAt: meta.expiresAt,
+          sessionId: this.optionalTrimmed(dto.sessionId),
+          invoiceId: this.optionalTrimmed(dto.invoiceId),
+          metadata: {
+            callbackUrl: this.optionalTrimmed(dto.callbackUrl),
+            ...(dto.metadata || {}),
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      return {
+        paymentIntent: this.mapPaymentIntent(created),
+        deepLink: created.checkoutUrl || meta.checkoutUrl,
+        qrPayload: created.checkoutQrPayload || meta.checkoutQrPayload,
+      };
+    }
+
+    const orchestration = await this.orchestration.createPayment({
+      amount,
+      currency,
+      idempotencyKey: meta.idempotencyKey,
+      correlationId: meta.correlationId,
+      description: 'EVZone guest checkout',
+      guestGeo: {
+        zoneId: this.optionalTrimmed(dto.zoneId) || null,
+        country: this.optionalTrimmed(dto.country) || null,
+        region: this.optionalTrimmed(dto.region) || null,
+      },
+      metadata: {
+        callbackUrl: this.optionalTrimmed(dto.callbackUrl),
+        sessionId: this.optionalTrimmed(dto.sessionId),
+        invoiceId: this.optionalTrimmed(dto.invoiceId),
+        ...(dto.metadata || {}),
+      },
+    });
+
     const created = await this.prisma.paymentIntent.create({
       data: {
         organizationId: this.resolveTenantId(),
-        amount: this.normalizeAmount(dto.amount, 'amount'),
-        currency: this.normalizeCurrencyCode(dto.currency),
+        amount,
+        currency,
         status: 'PENDING',
+        provider: orchestration.provider,
+        market: orchestration.market,
+        providerPaymentId: orchestration.providerPaymentId,
         idempotencyKey: meta.idempotencyKey,
         correlationId: meta.correlationId,
         reconciliationState: 'RECONCILING',
-        checkoutUrl: meta.checkoutUrl,
-        checkoutQrPayload: meta.checkoutQrPayload,
+        checkoutUrl: orchestration.checkoutUrl || meta.checkoutUrl,
+        checkoutQrPayload:
+          orchestration.checkoutQrPayload || meta.checkoutQrPayload,
+        providerReference: orchestration.providerReference,
         expiresAt: meta.expiresAt,
         sessionId: this.optionalTrimmed(dto.sessionId),
         invoiceId: this.optionalTrimmed(dto.invoiceId),
         metadata: {
           callbackUrl: this.optionalTrimmed(dto.callbackUrl),
+          zoneId: this.optionalTrimmed(dto.zoneId),
+          country: this.optionalTrimmed(dto.country),
+          region: this.optionalTrimmed(dto.region),
+          orchestration: {
+            attempts: orchestration.attempts,
+            marketReason: orchestration.marketResolution.reason,
+            country: orchestration.marketResolution.country,
+            region: orchestration.marketResolution.region,
+            zoneId: orchestration.marketResolution.zoneId,
+          },
           ...(dto.metadata || {}),
         } as Prisma.InputJsonValue,
       },
@@ -739,6 +949,21 @@ export class CommerceService {
 
     const status = this.normalizePaymentIntentStatus(dto.status);
     const markSettled = Boolean(dto.markSettled) || status === 'SETTLED';
+
+    if (markSettled || this.isFinalIntentStatus(status)) {
+      const finalStatus: PaymentIntentFinalStatus = markSettled
+        ? 'SETTLED'
+        : (status as PaymentIntentFinalStatus);
+      const updated = await this.settlement.applyFinalStatus({
+        intentId: intent.id,
+        provider: this.normalizeProvider(intent.provider),
+        providerPaymentId: intent.providerPaymentId,
+        status: finalStatus,
+        providerReference: this.nullableOptionalTrimmed(dto.providerReference),
+        note: this.optionalTrimmed(dto.note),
+      });
+      return this.mapPaymentIntent(updated);
+    }
 
     const updated = await this.prisma.paymentIntent.update({
       where: { id: intent.id },
@@ -787,11 +1012,22 @@ export class CommerceService {
   private async resolveUserForScope(userId: string): Promise<{
     id: string;
     organizationId: string | null;
+    email: string | null;
+    country: string | null;
+    region: string | null;
+    zoneId: string | null;
   }> {
     const normalizedUserId = this.requiredTrimmed(userId, 'userId');
     const user = await this.prisma.user.findUnique({
       where: { id: normalizedUserId },
-      select: { id: true, organizationId: true },
+      select: {
+        id: true,
+        organizationId: true,
+        email: true,
+        country: true,
+        region: true,
+        zoneId: true,
+      },
     });
     if (!user) {
       throw new NotFoundException('User not found');
@@ -939,6 +1175,9 @@ export class CommerceService {
       amount: intent.amount,
       currency: intent.currency,
       status: intent.status,
+      provider: intent.provider,
+      market: intent.market,
+      providerPaymentId: intent.providerPaymentId,
       idempotencyKey: intent.idempotencyKey,
       correlationId: intent.correlationId,
       reconciliationState: intent.reconciliationState,
@@ -963,6 +1202,35 @@ export class CommerceService {
         'Payment intent is outside the active tenant scope',
       );
     }
+  }
+
+  private isPaymentOrchestrationEnabled(): boolean {
+    return (
+      this.configService
+        .get<string>('PAYMENT_ORCHESTRATION_ENABLED')
+        ?.trim()
+        .toLowerCase() === 'true'
+    );
+  }
+
+  private isFinalIntentStatus(value: PaymentIntent['status']): boolean {
+    return ['SETTLED', 'FAILED', 'CANCELED', 'EXPIRED'].includes(value);
+  }
+
+  private normalizeProvider(
+    value?: string | null,
+  ): PaymentProvider | undefined {
+    const normalized = value?.trim().toUpperCase();
+    if (
+      normalized === 'STRIPE' ||
+      normalized === 'FLUTTERWAVE' ||
+      normalized === 'ALIPAY' ||
+      normalized === 'LIANLIAN'
+    ) {
+      return normalized;
+    }
+
+    return undefined;
   }
 
   private normalizeAmount(value: number, field: string): number {

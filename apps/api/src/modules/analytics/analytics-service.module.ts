@@ -4,9 +4,10 @@ import { AnalyticsService } from './analytics-service.service';
 import { HealthCheckService } from './health-check.service';
 import { ServiceManagerService } from './service-manager.service';
 import { PrismaModule } from '../../prisma.module';
+import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, PaymentsModule],
   controllers: [AnalyticsController],
   providers: [AnalyticsService, HealthCheckService, ServiceManagerService],
   exports: [AnalyticsService, HealthCheckService],

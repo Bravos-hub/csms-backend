@@ -6,6 +6,7 @@ import { HttpAdapterHost, NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import type { SASLOptions } from 'kafkajs';
 import { json, urlencoded } from 'express';
+import type { Request } from 'express';
 import { RequestMethod } from '@nestjs/common';
 import { AppModule } from './app.module';
 import {
@@ -67,7 +68,21 @@ async function bootstrap() {
     const tenantResolution = app.get(TenantResolutionService);
     app.use(createTenantResolutionMiddleware(tenantContext, tenantResolution));
     app.use(requestLoggingMiddleware);
-    app.use(json({ limit: bodyLimit }));
+    app.use(
+      json({
+        limit: bodyLimit,
+        verify: (
+          req: Request & { rawBody?: string },
+          _res: unknown,
+          buffer: Buffer,
+        ) => {
+          const requestUrl = req.originalUrl || req.url;
+          if (shouldCaptureRawBody(requestUrl)) {
+            req.rawBody = buffer.toString('utf8');
+          }
+        },
+      }),
+    );
     app.use(urlencoded({ extended: true, limit: bodyLimit }));
 
     // Enable cookie parser middleware
@@ -173,6 +188,15 @@ function parseList(value?: string): string[] {
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function shouldCaptureRawBody(url: string): boolean {
+  return (
+    url.includes('/payments/webhooks/stripe') ||
+    url.includes('/payments/webhooks/flutterwave') ||
+    url.includes('/payments/webhooks/alipay') ||
+    url.includes('/payments/webhooks/lianlian')
+  );
 }
 
 function buildCorsOrigins(): string[] {

@@ -1839,6 +1839,9 @@ model PaymentIntent {
   amount              Float
   currency            String   @default("USD")
   status              String   @default("PENDING")
+  provider            String?
+  market              String?
+  providerPaymentId   String?
   idempotencyKey      String   @unique
   correlationId       String?
   reconciliationState String   @default("UNRECONCILED")
@@ -1857,12 +1860,36 @@ model PaymentIntent {
   paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
   invoice       Invoice?       @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   transactions  Transaction[]
+  webhookEvents PaymentWebhookEvent[]
 
   @@map("payment_intents")
   @@index([organizationId, status, createdAt], map: "payment_intents_organization_id_status_created_at_idx")
   @@index([userId, status, createdAt], map: "payment_intents_user_id_status_created_at_idx")
   @@index([correlationId], map: "payment_intents_correlation_id_idx")
   @@index([reconciliationState, createdAt], map: "payment_intents_reconciliation_state_created_at_idx")
+  @@index([provider, providerPaymentId], map: "payment_intents_provider_provider_payment_id_idx")
+}
+
+model PaymentWebhookEvent {
+  id              String   @id @default(uuid())
+  provider        String
+  eventId         String
+  eventType       String?
+  paymentIntentId String?
+  status          String   @default("RECEIVED")
+  payload         Json?
+  errorMessage    String?
+  receivedAt      DateTime @default(now())
+  processedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  paymentIntent   PaymentIntent? @relation(fields: [paymentIntentId], references: [id], onDelete: SetNull)
+
+  @@map("payment_webhook_events")
+  @@unique([provider, eventId], map: "payment_webhook_events_provider_event_id_key")
+  @@index([status, createdAt], map: "payment_webhook_events_status_created_at_idx")
+  @@index([paymentIntentId, createdAt], map: "payment_webhook_events_payment_intent_id_created_at_idx")
 }
 
 model Incident {

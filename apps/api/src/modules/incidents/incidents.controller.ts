@@ -8,7 +8,8 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { IncidentQuery, IncidentsService } from './incidents.service';
+import type { IncidentQuery } from './incidents.service';
+import { IncidentsService } from './incidents.service';
 
 @Controller('incidents')
 export class IncidentsController {

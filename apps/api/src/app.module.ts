@@ -61,6 +61,7 @@ import { EnterpriseIamModule } from './modules/enterprise-iam/enterprise-iam.mod
 import { DeveloperPlatformModule } from './modules/developer-platform/developer-platform.module';
 import { VendorBaselineModule } from './modules/vendor-baseline/vendor-baseline.module';
 import { TenantBrandingModule } from './modules/tenant-branding/tenant-branding.module';
+import { PaymentsModule } from './modules/payments/payments.module';
 
 @Module({
   imports: [
@@ -128,6 +129,7 @@ import { TenantBrandingModule } from './modules/tenant-branding/tenant-branding.
     DeveloperPlatformModule,
     VendorBaselineModule,
     TenantBrandingModule,
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
 import Redis from 'ioredis';
 import { ConfigService } from '@nestjs/config';
+import { PaymentProviderHealthService } from '../payments/payment-provider-health.service';
 
 export interface ServiceHealth {
   name: string;
@@ -31,6 +32,7 @@ export class HealthCheckService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly paymentProviderHealth: PaymentProviderHealthService,
   ) {
     // Initialize Redis client for health checks
     const redisUrl = this.config.get<string>('REDIS_URL');
@@ -328,6 +330,18 @@ export class HealthCheckService {
     let timeoutId: NodeJS.Timeout | null = null;
 
     try {
+      if (this.isPaymentOrchestrationEnabled()) {
+        const providerHealth =
+          await this.paymentProviderHealth.checkGatewayHealth();
+        return {
+          name,
+          status: providerHealth.status,
+          responseTime: providerHealth.responseTime,
+          lastCheck: new Date().toISOString(),
+          metadata: providerHealth.metadata as Record<string, unknown>,
+        };
+      }
+
       const healthcheckUrl = this.config
         .get<string>('PAYMENT_HEALTHCHECK_URL')
         ?.trim();
@@ -405,6 +419,15 @@ export class HealthCheckService {
         clearTimeout(timeoutId);
       }
     }
+  }
+
+  private isPaymentOrchestrationEnabled(): boolean {
+    return (
+      this.config
+        .get<string>('PAYMENT_ORCHESTRATION_ENABLED')
+        ?.trim()
+        .toLowerCase() === 'true'
+    );
   }
 
   private errorMessage(error: unknown): string {

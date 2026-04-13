@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma.service';
 import { HealthCheckService } from './health-check.service';
+import { PaymentProviderHealthService } from '../payments/payment-provider-health.service';
 
 describe('HealthCheckService', () => {
   const originalFetch = global.fetch;
@@ -17,7 +18,10 @@ describe('HealthCheckService', () => {
     const config = {
       get: jest.fn((key: string) => configValues[key]),
     } as unknown as ConfigService;
-    return new HealthCheckService(prisma, config);
+    const paymentProviderHealth = {
+      checkGatewayHealth: jest.fn(),
+    } as unknown as PaymentProviderHealthService;
+    return new HealthCheckService(prisma, config, paymentProviderHealth);
   }
 
   it('marks payment gateway degraded when health URL is missing', async () => {
@@ -70,5 +74,46 @@ describe('HealthCheckService', () => {
         Authorization: 'Bearer token-123',
       }),
     );
+  });
+
+  it('uses provider health service when payment orchestration is enabled', async () => {
+    const checkGatewayHealth = jest.fn().mockResolvedValue({
+      status: 'Degraded',
+      responseTime: 123,
+      metadata: {
+        configuredProviders: 4,
+        healthyConfiguredProviders: 3,
+      },
+    });
+    const prisma = {
+      $queryRaw: jest.fn(),
+    } as unknown as PrismaService;
+    const config = {
+      get: jest.fn((key: string) =>
+        key === 'PAYMENT_ORCHESTRATION_ENABLED' ? 'true' : undefined,
+      ),
+    } as unknown as ConfigService;
+    const paymentProviderHealth = {
+      checkGatewayHealth,
+    } as unknown as PaymentProviderHealthService;
+
+    const service = new HealthCheckService(
+      prisma,
+      config,
+      paymentProviderHealth,
+    );
+    const result = await (
+      service as unknown as {
+        checkPaymentGateway: () => Promise<{
+          status: string;
+          responseTime: number;
+          metadata?: Record<string, unknown>;
+        }>;
+      }
+    ).checkPaymentGateway();
+
+    expect(checkGatewayHealth).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe('Degraded');
+    expect(result.responseTime).toBe(123);
   });
 });

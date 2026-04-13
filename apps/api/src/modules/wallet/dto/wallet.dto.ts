@@ -208,6 +208,18 @@ export class GuestCheckoutDto {
   callbackUrl?: string;
 
   @IsOptional()
+  @IsString()
+  zoneId?: string;
+
+  @IsOptional()
+  @IsString()
+  country?: string;
+
+  @IsOptional()
+  @IsString()
+  region?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(1)
