@@ -14,6 +14,8 @@ import {
 type Actor = {
   sub?: string;
   role?: string;
+  canonicalRole?: string;
+  permissions?: string[];
   organizationId?: string;
   orgId?: string;
 };
@@ -96,19 +98,64 @@ export class AnalyticsService {
     return this.tenantGuardrails.requireTenantScope('charge');
   }
 
+  private canReadChargeDataAcrossTenants(actor?: Actor): boolean {
+    if (!actor) {
+      return false;
+    }
+
+    const canonicalRole = (actor.canonicalRole || '').trim().toUpperCase();
+    const legacyRole = (actor.role || '').trim().toUpperCase();
+    const isPlatformOperator =
+      canonicalRole === 'PLATFORM_SUPER_ADMIN' ||
+      canonicalRole === 'PLATFORM_NOC_LEAD' ||
+      legacyRole === 'SUPER_ADMIN' ||
+      legacyRole === 'EVZONE_ADMIN' ||
+      legacyRole === 'EVZONE_OPERATOR';
+
+    if (!isPlatformOperator) {
+      return false;
+    }
+
+    const permissions = Array.isArray(actor.permissions)
+      ? actor.permissions
+      : [];
+    if (permissions.length === 0) {
+      return true;
+    }
+
+    return (
+      permissions.includes('stations.read') &&
+      permissions.includes('sessions.read')
+    );
+  }
+
+  private async resolveDashboardStationWhere(
+    actor?: Actor,
+  ): Promise<Prisma.StationWhereInput | undefined> {
+    if (this.canReadChargeDataAcrossTenants(actor)) {
+      return undefined;
+    }
+
+    const scope = await this.requireChargeScope();
+    return this.tenantGuardrails.buildOwnedStationWhere(scope);
+  }
+
   getHello(): string {
     return 'Analytics Service Operational';
   }
 
-  async getDashboard(period: string): Promise<Record<string, unknown>> {
-    const scope = await this.requireChargeScope();
+  async getDashboard(
+    period: string,
+    actor?: Actor,
+  ): Promise<Record<string, unknown>> {
+    const stationWhere = await this.resolveDashboardStationWhere(actor);
     const now = new Date();
     const startOfDay = this.startOfDay(now);
     const startOf24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const startOf7d = new Date(startOfDay);
     startOf7d.setDate(startOf7d.getDate() - 6);
     const stations = await this.prisma.station.findMany({
-      where: this.tenantGuardrails.buildOwnedStationWhere(scope),
+      where: stationWhere,
       select: {
         id: true,
         name: true,

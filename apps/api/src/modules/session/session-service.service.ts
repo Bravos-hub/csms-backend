@@ -12,6 +12,11 @@ import {
 } from '../../common/tenant/tenant-guardrails.service';
 
 type OcppSessionPayload = Record<string, unknown>;
+type Actor = {
+  role?: string;
+  canonicalRole?: string;
+  permissions?: string[];
+};
 
 @Injectable()
 export class SessionService {
@@ -39,9 +44,55 @@ export class SessionService {
     );
   }
 
-  async getActiveSessions(limit?: unknown, offset?: unknown) {
+  private canReadChargeDataAcrossTenants(actor?: Actor): boolean {
+    if (!actor) {
+      return false;
+    }
+
+    const canonicalRole = (actor.canonicalRole || '').trim().toUpperCase();
+    const legacyRole = (actor.role || '').trim().toUpperCase();
+    const isPlatformOperator =
+      canonicalRole === 'PLATFORM_SUPER_ADMIN' ||
+      canonicalRole === 'PLATFORM_NOC_LEAD' ||
+      legacyRole === 'SUPER_ADMIN' ||
+      legacyRole === 'EVZONE_ADMIN' ||
+      legacyRole === 'EVZONE_OPERATOR';
+
+    if (!isPlatformOperator) {
+      return false;
+    }
+
+    const permissions = Array.isArray(actor.permissions)
+      ? actor.permissions
+      : [];
+    if (permissions.length === 0) {
+      return true;
+    }
+
+    return (
+      permissions.includes('stations.read') &&
+      permissions.includes('sessions.read')
+    );
+  }
+
+  private async resolveChargeStationIds(
+    actor?: Actor,
+    stationId?: string,
+  ): Promise<string[]> {
+    if (this.canReadChargeDataAcrossTenants(actor)) {
+      const stations = await this.prisma.station.findMany({
+        where: stationId ? { id: stationId } : undefined,
+        select: { id: true },
+      });
+      return stations.map((station) => station.id);
+    }
+
     const scope = await this.requireChargeScope();
-    const stationIds = await this.listScopedStationIds(scope);
+    return this.listScopedStationIds(scope, stationId);
+  }
+
+  async getActiveSessions(limit?: unknown, offset?: unknown, actor?: Actor) {
+    const stationIds = await this.resolveChargeStationIds(actor);
     if (stationIds.length === 0) {
       return [];
     }
@@ -58,9 +109,10 @@ export class SessionService {
     });
   }
 
-  async findById(id: string, scopeOverride?: TenantScope) {
-    const scope = scopeOverride || (await this.requireChargeScope());
-    const stationIds = await this.listScopedStationIds(scope);
+  async findById(id: string, scopeOverride?: TenantScope, actor?: Actor) {
+    const stationIds = scopeOverride
+      ? await this.listScopedStationIds(scopeOverride)
+      : await this.resolveChargeStationIds(actor);
     if (stationIds.length === 0) {
       throw new NotFoundException('Session not found');
     }
@@ -75,10 +127,9 @@ export class SessionService {
     return session;
   }
 
-  async getHistory(filter: SessionFilterDto) {
-    const scope = await this.requireChargeScope();
-    const scopedStationIds = await this.listScopedStationIds(
-      scope,
+  async getHistory(filter: SessionFilterDto, actor?: Actor) {
+    const scopedStationIds = await this.resolveChargeStationIds(
+      actor,
       filter.stationId,
     );
     if (scopedStationIds.length === 0) {
@@ -153,9 +204,8 @@ export class SessionService {
     }
   }
 
-  async getStatsSummary() {
-    const scope = await this.requireChargeScope();
-    const stationIds = await this.listScopedStationIds(scope);
+  async getStatsSummary(actor?: Actor) {
+    const stationIds = await this.resolveChargeStationIds(actor);
     if (stationIds.length === 0) {
       return {
         totalEnergy: 0,

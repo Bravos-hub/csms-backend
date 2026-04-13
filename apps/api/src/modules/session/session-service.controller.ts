@@ -1,31 +1,47 @@
-import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, Req } from '@nestjs/common';
+import type { Request } from 'express';
 import { EventPattern, Payload } from '@nestjs/microservices';
 import { SessionService } from './session-service.service';
 import { StopSessionDto, SessionFilterDto } from './dto/session.dto';
 import { KAFKA_TOPICS } from '../../contracts/kafka-topics';
+
+type AuthenticatedRequest = Request & {
+  user?: {
+    role?: string;
+    canonicalRole?: string;
+    permissions?: string[];
+  };
+};
 
 @Controller('sessions')
 export class SessionController {
   constructor(private readonly sessionService: SessionService) {}
 
   @Get('active')
-  getActive(@Query('limit') limit?: string, @Query('offset') offset?: string) {
-    return this.sessionService.getActiveSessions(limit, offset);
+  getActive(
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+    @Req() req?: AuthenticatedRequest,
+  ) {
+    return this.sessionService.getActiveSessions(limit, offset, req?.user);
   }
 
   @Get('stats/summary')
-  getStats() {
-    return this.sessionService.getStatsSummary();
+  getStats(@Req() req?: AuthenticatedRequest) {
+    return this.sessionService.getStatsSummary(req?.user);
   }
 
   @Get('history/all')
-  getAllHistory(@Query() filter: SessionFilterDto) {
-    return this.sessionService.getHistory(filter);
+  getAllHistory(
+    @Query() filter: SessionFilterDto,
+    @Req() req?: AuthenticatedRequest,
+  ) {
+    return this.sessionService.getHistory(filter, req?.user);
   }
 
   @Get(':id')
-  getOne(@Param('id') id: string) {
-    return this.sessionService.findById(id);
+  getOne(@Param('id') id: string, @Req() req?: AuthenticatedRequest) {
+    return this.sessionService.findById(id, undefined, req?.user);
   }
 
   @Post(':id/stop')

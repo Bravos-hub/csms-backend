@@ -18,6 +18,17 @@ import { Roles } from '../auth/roles.decorator';
 import { UserRole } from '@prisma/client';
 import { OwnerDashboardQueryDto } from './dto/owner-dashboard.dto';
 
+type AuthenticatedRequest = Request & {
+  user?: {
+    sub?: string;
+    role?: string;
+    canonicalRole?: string;
+    permissions?: string[];
+    organizationId?: string;
+    orgId?: string;
+  };
+};
+
 @Controller('analytics')
 @UseGuards(JwtAuthGuard)
 export class AnalyticsController {
@@ -27,24 +38,19 @@ export class AnalyticsController {
   ) {}
 
   @Get('dashboard')
-  getDashboard(@Query('period') period = 'today') {
-    return this.analyticsService.getDashboard(period);
+  getDashboard(
+    @Query('period') period = 'today',
+    @Req() req?: AuthenticatedRequest,
+  ) {
+    return this.analyticsService.getDashboard(period, req?.user);
   }
 
   @Get('owner/dashboard')
   getOwnerDashboard(
     @Query() query: OwnerDashboardQueryDto,
-    @Req()
-    req: Request & {
-      user?: {
-        sub?: string;
-        role?: string;
-        organizationId?: string;
-        orgId?: string;
-      };
-    },
+    @Req() req?: AuthenticatedRequest,
   ) {
-    return this.analyticsService.getOwnerDashboard(query, req.user);
+    return this.analyticsService.getOwnerDashboard(query, req?.user);
   }
 
   @Get('uptime')
