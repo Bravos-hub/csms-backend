@@ -110,6 +110,22 @@ enum ProviderSettlementStatus {
   DISPUTED
 }
 
+enum MqttIntegrationType {
+  BATTERY_SWAP
+  LEGACY_EVSE
+  SITE_CONTROLLER
+  BMS
+}
+
+enum MqttVendorType {
+  NAE_BATTERY
+  CHARGEPOINT
+  ABB
+  WALLBOX
+  RIPPLE
+  CUSTOM
+}
+
 enum MarketplaceContactEntityKind {
   SITE
   OPERATOR
@@ -1974,10 +1990,11 @@ model Site {
   owner              User                 @relation(fields: [ownerId], references: [id])
   organization       Organization?        @relation(fields: [organizationId], references: [id])
   stations           Station[]
-  tenants            SiteTenant[]
-  leaseDetails       SiteLeaseDetails?
-  documents          SiteDocument[]
-  tenantApplications TenantApplication[]
+  tenants               SiteTenant[]
+  leaseDetails          SiteLeaseDetails?
+  documents             SiteDocument[]
+  tenantApplications    TenantApplication[]
+  mqttDeviceRegistries  MqttDeviceRegistry[]  @relation("MqttDeviceRegistry")
 
   // Document Verification
   documentsVerified   Boolean  @default(false)
@@ -2376,6 +2393,58 @@ model NegotiationRound {
   
   @@map("negotiation_rounds")
   @@index([applicationId])
+}
+
+model MqttDeviceRegistry {
+  id String @id @default(cuid())
+  tenantId String
+  vendorDeviceId String
+  vendorType MqttVendorType
+  integrationType MqttIntegrationType
+  vendorProviderId String?
+  stationId String?
+  siteId String
+  chargePointId String?
+  capabilities Json
+  isActive Boolean @default(true)
+  lastSyncedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  site Site? @relation("MqttDeviceRegistry", fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, vendorDeviceId])
+  @@index([tenantId, siteId])
+  @@map("mqtt_device_registry")
+}
+
+model MqttVendorPayloadLog {
+  id String @id @default(cuid())
+  tenantId String
+  vendorDeviceId String
+  topic String
+  payload Json
+  normalizedEventType String?
+  processedAt DateTime
+  errorMessage String?
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, vendorDeviceId, createdAt])
+  @@map("mqtt_vendor_payload_logs")
+}
+
+model MqttSubscriptionState {
+  id String @id @default(cuid())
+  tenantId String
+  serviceName String
+  topicPattern String
+  qos Int
+  isActive Boolean @default(true)
+  subscribedAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, serviceName, topicPattern])
+  @@map("mqtt_subscription_states")
 }
 
 

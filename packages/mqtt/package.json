@@ -1,0 +1,24 @@
+{
+  "name": "@evzone/mqtt",
+  "version": "0.0.1",
+  "description": "MQTT infrastructure and tenant-aware publishing for EVZONE",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "nest build"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.12",
+    "@nestjs/core": "^11.1.12",
+    "@nestjs/microservices": "^11.1.12",
+    "@nestjs/config": "^4.0.2",
+    "@nestjs/schedule": "^6.1.0",
+    "mqtt": "^5.15.1",
+    "typescript": "^5.3.3"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0"
+  }
+}

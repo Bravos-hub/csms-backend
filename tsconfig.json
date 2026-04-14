@@ -57,6 +57,12 @@
       ],
       "@app/db/*": [
         "packages/db/src/*"
+      ],
+      "@app/mqtt": [
+        "packages/mqtt/src"
+      ],
+      "@app/mqtt/*": [
+        "packages/mqtt/src/*"
       ]
     }
   }

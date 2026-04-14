@@ -62,6 +62,7 @@ import { DeveloperPlatformModule } from './modules/developer-platform/developer-
 import { VendorBaselineModule } from './modules/vendor-baseline/vendor-baseline.module';
 import { TenantBrandingModule } from './modules/tenant-branding/tenant-branding.module';
 import { PaymentsModule } from './modules/payments/payments.module';
+import { MqttModule } from '@app/mqtt';
 
 @Module({
   imports: [
@@ -130,6 +131,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
     VendorBaselineModule,
     TenantBrandingModule,
     PaymentsModule,
+    MqttModule,
   ],
   controllers: [AppController],
   providers: [
