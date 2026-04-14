@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -11,6 +12,7 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma.service';
 import { PaymentOrchestrationService } from '../payments/payment-orchestration.service';
 import { PaymentSettlementService } from '../payments/payment-settlement.service';
+import { NotificationService } from '../notification/notification-service.service';
 import {
   PaymentIntentFinalStatus,
   PaymentProvider,
@@ -79,12 +81,15 @@ type PaymentIntentResponse = {
 
 @Injectable()
 export class CommerceService {
+  private readonly logger = new Logger(CommerceService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenantContext: TenantContextService,
     private readonly configService: ConfigService,
     private readonly orchestration: PaymentOrchestrationService,
     private readonly settlement: PaymentSettlementService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async listPaymentMethods(
@@ -761,6 +766,7 @@ export class CommerceService {
         },
       });
 
+      await this.notifyPaymentRequestSentSafe(created);
       return this.mapPaymentIntent(created);
     }
 
@@ -817,6 +823,7 @@ export class CommerceService {
       },
     });
 
+    await this.notifyPaymentRequestSentSafe(created);
     return this.mapPaymentIntent(created);
   }
 
@@ -1189,6 +1196,29 @@ export class CommerceService {
       createdAt: intent.createdAt.toISOString(),
       updatedAt: intent.updatedAt.toISOString(),
     };
+  }
+
+  private async notifyPaymentRequestSentSafe(
+    intent: PaymentIntent,
+  ): Promise<void> {
+    if (!intent.userId) {
+      return;
+    }
+
+    try {
+      await this.notificationService.notifyPaymentRequestSent({
+        userId: intent.userId,
+        paymentIntentId: intent.id,
+        amount: intent.amount,
+        currency: intent.currency,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to dispatch payment request notification for ${intent.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   private assertIntentInScope(intent: PaymentIntent): void {

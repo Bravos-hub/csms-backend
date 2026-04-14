@@ -1,6 +1,7 @@
 import { PaymentIntent } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { PaymentSettlementService } from './payment-settlement.service';
+import { NotificationService } from '../notification/notification-service.service';
 
 describe('PaymentSettlementService', () => {
   const tx = {
@@ -26,8 +27,13 @@ describe('PaymentSettlementService', () => {
       .mockImplementation((fn: (client: typeof tx) => unknown) => fn(tx)),
   };
 
+  const notificationService = {
+    notifyPaymentStatusChanged: jest.fn(),
+  };
+
   const service = new PaymentSettlementService(
     prisma as unknown as PrismaService,
+    notificationService as unknown as NotificationService,
   );
 
   const baseIntent: PaymentIntent = {
@@ -77,6 +83,11 @@ describe('PaymentSettlementService', () => {
     });
     tx.wallet.update.mockResolvedValue({ id: 'wallet_1' });
     tx.transaction.update.mockResolvedValue({ id: 'txn_1' });
+    notificationService.notifyPaymentStatusChanged.mockResolvedValue({
+      push: 'sent',
+      sms: 'sent',
+      email: 'sent',
+    });
   });
 
   it('credits wallet once when settling pending wallet top-up', async () => {
@@ -90,6 +101,15 @@ describe('PaymentSettlementService', () => {
     expect(result.status).toBe('SETTLED');
     expect(tx.wallet.update).toHaveBeenCalledTimes(1);
     expect(tx.transaction.update).toHaveBeenCalledTimes(1);
+    expect(notificationService.notifyPaymentStatusChanged).toHaveBeenCalledWith(
+      {
+        userId: 'user_1',
+        paymentIntentId: 'pi_1',
+        amount: 25,
+        currency: 'USD',
+        status: 'SETTLED',
+      },
+    );
   });
 
   it('does not credit wallet again when top-up transaction is already posted', async () => {

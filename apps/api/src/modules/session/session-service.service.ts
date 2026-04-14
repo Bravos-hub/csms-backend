@@ -187,19 +187,19 @@ export class SessionService {
   private async notifyUserOfStop(
     userId: string,
     session: { totalEnergy: number; amount?: number | null },
-  ) {
+  ): Promise<void> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (user && user.phone) {
+    if (user) {
       const recordedAmount =
         typeof session.amount === 'number' && Number.isFinite(session.amount)
           ? session.amount
           : 0;
-      const msg = `EvZone: Charging Stopped. Energy: ${session.totalEnergy}Wh. Cost: $${recordedAmount.toFixed(2)}`;
-      await this.notificationService.sendSms(user.phone, msg, {
+      await this.notificationService.notifySessionEnded({
         userId: user.id,
-        zoneId: user.zoneId,
-        country: user.country,
-        region: user.region,
+        energyWh: session.totalEnergy,
+        amount: recordedAmount,
+        currency: 'USD',
+        sessionType: 'charging',
       });
     }
   }

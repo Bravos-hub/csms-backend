@@ -9,10 +9,11 @@ import { SubmailSmsService } from './submail-sms.service';
 import { SubmailService } from '../../common/services/submail.service';
 import { AfricasTalkingService } from './africas-talking.service';
 import { MailModule } from '../mail/mail.module';
+import { SseModule } from '../sse/sse.module';
 // import { Notification } from './notifications/entities/notification.entity'; (Removed)
 
 @Module({
-  imports: [ConfigModule, DatabaseModule, MailModule],
+  imports: [ConfigModule, DatabaseModule, MailModule, SseModule],
   controllers: [NotificationController],
   providers: [
     NotificationService,

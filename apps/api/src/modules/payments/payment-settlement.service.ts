@@ -1,11 +1,13 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PaymentIntent, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { PaymentIntentFinalStatus, PaymentProvider } from './payment.types';
+import { NotificationService } from '../notification/notification-service.service';
 
 interface ApplyFinalStatusInput {
   intentId?: string;
@@ -21,7 +23,12 @@ interface ApplyFinalStatusInput {
 
 @Injectable()
 export class PaymentSettlementService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(PaymentSettlementService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   async resolveIntent(input: {
     intentId?: string;
@@ -76,7 +83,7 @@ export class PaymentSettlementService {
       input.currency,
     );
 
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       const metadata = this.toRecord(existing.metadata) || {};
       const nextMetadata =
         input.note && input.note.trim().length > 0
@@ -116,6 +123,12 @@ export class PaymentSettlementService {
 
       return updated;
     });
+
+    if (updated.userId && existing.status !== updated.status) {
+      await this.notifyPaymentStatusSafe(updated, input.status);
+    }
+
+    return updated;
   }
 
   private async creditPendingWalletTopUp(
@@ -224,5 +237,30 @@ export class PaymentSettlementService {
     }
 
     return value as Record<string, unknown>;
+  }
+
+  private async notifyPaymentStatusSafe(
+    intent: PaymentIntent,
+    status: PaymentIntentFinalStatus,
+  ): Promise<void> {
+    if (!intent.userId) {
+      return;
+    }
+
+    try {
+      await this.notificationService.notifyPaymentStatusChanged({
+        userId: intent.userId,
+        paymentIntentId: intent.id,
+        amount: intent.amount,
+        currency: intent.currency,
+        status,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to dispatch payment status notification for ${intent.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 }

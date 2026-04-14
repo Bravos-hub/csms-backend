@@ -3,6 +3,9 @@ import { TwilioService } from './twilio.service';
 import { SubmailSmsService } from './submail-sms.service';
 import { AfricasTalkingService } from './africas-talking.service';
 import { MessagingRoutingService } from '../../common/services/messaging-routing.service';
+import { MailService } from '../mail/mail.service';
+import { EventStreamService } from '../sse/sse.service';
+import { PrismaService } from '../../prisma.service';
 
 describe('NotificationService', () => {
   const twilioService = {
@@ -17,12 +20,26 @@ describe('NotificationService', () => {
   const routingService = {
     resolveSmsRoute: jest.fn(),
   };
+  const mailService = {
+    sendMail: jest.fn(),
+  };
+  const eventStreamService = {
+    emit: jest.fn(),
+  };
+  const prisma = {
+    user: {
+      findUnique: jest.fn(),
+    },
+  };
 
   const service = new NotificationService(
     twilioService as unknown as TwilioService,
     submailSmsService as unknown as SubmailSmsService,
     africasTalkingService as unknown as AfricasTalkingService,
     routingService as unknown as MessagingRoutingService,
+    mailService as unknown as MailService,
+    eventStreamService as unknown as EventStreamService,
+    prisma as unknown as PrismaService,
   );
 
   beforeEach(() => {

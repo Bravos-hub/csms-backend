@@ -1567,6 +1567,11 @@ export class AuthService {
       return {
         invitationId: invitation.id,
         organizationId: invitation.organizationId,
+        organizationName:
+          invitation.organization?.name || this.evzoneOrganizationName,
+        invitedBy: invitation.invitedBy,
+        inviteeEmail: invitation.email,
+        role: invitation.role,
         usedTempPassword,
         materializedAssignmentCount,
       };
@@ -1582,6 +1587,22 @@ export class AuthService {
         assignmentSeedCount: activation.materializedAssignmentCount,
       },
     });
+
+    try {
+      await this.notificationService.notifyInvitationAccepted({
+        invitedUserId: input.userId,
+        inviterUserId: activation.invitedBy,
+        inviteeEmail: activation.inviteeEmail,
+        organizationName: activation.organizationName,
+        role: activation.role,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to dispatch invitation acceptance notifications: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
 
     return {
       organizationId: activation.organizationId,
@@ -1775,6 +1796,7 @@ export class AuthService {
       select: {
         id: true,
         email: true,
+        phone: true,
         name: true,
         country: true,
         region: true,
@@ -1952,12 +1974,13 @@ export class AuthService {
       where: { id: organizationId },
       select: { name: true },
     });
+    const organizationName = organization?.name || this.evzoneOrganizationName;
 
     try {
       await this.mailService.sendInvitationEmail(
         normalizedEmail,
         this.toRoleLabel(inviteRole),
-        organization?.name || this.evzoneOrganizationName,
+        organizationName,
         inviteDto.frontendUrl,
         inviteToken,
         invitationResult.tempPassword,
@@ -1973,6 +1996,50 @@ export class AuthService {
         'Failed to send invitation email',
         String(error).replace(/[\n\r]/g, ''),
       );
+    }
+
+    if (existingUser?.phone) {
+      try {
+        await this.notificationService.sendSms(
+          existingUser.phone,
+          `EVzone: You have been invited to join ${organizationName}. Check your email to accept the invitation.`,
+          {
+            userId: existingUser.id,
+            zoneId: inviteDto.zoneId || existingUser.zoneId || inviter.zoneId,
+            country: existingUser.country || inviter.country,
+            region: inviteDto.region || existingUser.region || inviter.region,
+          },
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Failed to send invitation SMS: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
+    if (existingUser?.id) {
+      try {
+        this.notificationService.sendPush(
+          existingUser.id,
+          'Team invitation',
+          `You have been invited to join ${organizationName}.`,
+          {
+            type: 'invite.sent',
+            metadata: {
+              organizationId,
+              role: inviteRole,
+            },
+          },
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Failed to queue invitation push notification: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
 
     await this.recordAuditEvent({

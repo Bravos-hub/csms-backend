@@ -10,6 +10,14 @@ class SendSmsDto {
   region?: string;
 }
 
+class SendPushDto {
+  userId: string;
+  title: string;
+  message: string;
+  type?: string;
+  metadata?: Record<string, unknown>;
+}
+
 @Controller('notifications')
 export class NotificationController {
   constructor(private readonly notificationService: NotificationService) {}
@@ -27,5 +35,18 @@ export class NotificationController {
       country: dto.country,
       region: dto.region,
     });
+  }
+
+  @Post('push')
+  sendPush(@Body() dto: SendPushDto) {
+    return this.notificationService.sendPush(
+      dto.userId,
+      dto.title,
+      dto.message,
+      {
+        type: dto.type,
+        metadata: dto.metadata,
+      },
+    );
   }
 }

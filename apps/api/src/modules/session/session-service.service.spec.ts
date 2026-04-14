@@ -25,6 +25,7 @@ describe('SessionService OCPP TransactionEvent handling', () => {
 
   const notificationService = {
     sendSms: jest.fn(),
+    notifySessionEnded: jest.fn(),
   };
 
   const ocpiTokenSync = {
@@ -59,6 +60,7 @@ describe('SessionService OCPP TransactionEvent handling', () => {
     prisma.user.findUnique.mockReset();
     ocpiTokenSync.syncIdTagToken.mockReset();
     notificationService.sendSms.mockReset();
+    notificationService.notifySessionEnded.mockReset();
     energyManagement.recalculateStation.mockReset();
     tenantGuardrails.requireTenantScope.mockReset();
     tenantGuardrails.requireTenantScope.mockResolvedValue({
@@ -185,7 +187,7 @@ describe('SessionService OCPP TransactionEvent handling', () => {
     });
   });
 
-  it('passes geo context when sending stop-session SMS notifications', async () => {
+  it('sends a multi-channel session-ended notification on stop', async () => {
     prisma.session.findFirst.mockResolvedValue({
       id: 'session-1',
       status: 'ACTIVE',
@@ -206,20 +208,21 @@ describe('SessionService OCPP TransactionEvent handling', () => {
       country: 'Uganda',
       region: 'AFRICA',
     });
-    notificationService.sendSms.mockResolvedValue({ sid: 'sms-1' });
+    notificationService.notifySessionEnded.mockResolvedValue({
+      push: 'sent',
+      sms: 'sent',
+      email: 'sent',
+    });
 
     await service.stopSession('session-1', {});
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(notificationService.sendSms).toHaveBeenCalledWith(
-      '+256700000001',
-      'EvZone: Charging Stopped. Energy: 2500Wh. Cost: $1250.00',
-      {
-        userId: 'user-1',
-        zoneId: 'zone-af-1',
-        country: 'Uganda',
-        region: 'AFRICA',
-      },
-    );
+    expect(notificationService.notifySessionEnded).toHaveBeenCalledWith({
+      userId: 'user-1',
+      energyWh: 2500,
+      amount: 1250,
+      currency: 'USD',
+      sessionType: 'charging',
+    });
   });
 });

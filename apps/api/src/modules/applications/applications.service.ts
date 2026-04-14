@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -22,6 +23,7 @@ import { PrismaService } from '../../prisma.service';
 import { CommerceService } from '../billing/commerce.service';
 import { TenantProvisioningService } from '../tenant-provisioning/tenant-provisioning.service';
 import { TenantRbacService } from '../tenant-rbac/tenant-rbac.service';
+import { NotificationService } from '../notification/notification-service.service';
 import {
   AcceptEnterpriseQuoteDto,
   ActivateApplicationDto,
@@ -107,11 +109,14 @@ const REVIEWABLE_STAGES = new Set<TenantOnboardingStage>([
 
 @Injectable()
 export class ApplicationsService {
+  private readonly logger = new Logger(ApplicationsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerce: CommerceService,
     private readonly tenantProvisioning: TenantProvisioningService,
     private readonly tenantRbac: TenantRbacService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   private get controlPlane() {
@@ -1347,6 +1352,20 @@ export class ApplicationsService {
       },
       include: tenantApplicationInclude,
     });
+
+    try {
+      await this.notificationService.notifyOnboardingCompleted({
+        userId: updated.applicantId,
+        organizationName: updated.organizationName,
+        tierCode: updated.selectedTierCode,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to dispatch onboarding completion notification: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
 
     return this.mapApplication(updated);
   }

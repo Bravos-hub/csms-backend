@@ -7,9 +7,10 @@ import { PaymentProviderHealthService } from './payment-provider-health.service'
 import { PaymentSettlementService } from './payment-settlement.service';
 import { PaymentWebhooksController } from './payment-webhooks.controller';
 import { PaymentWebhooksService } from './payment-webhooks.service';
+import { NotificationServiceModule } from '../notification/notification-service.module';
 
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, NotificationServiceModule],
   controllers: [PaymentWebhooksController],
   providers: [
     PaymentMarketResolverService,
