@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnApplicationShutdown } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnApplicationShutdown,
+} from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ClientProxy } from '@nestjs/microservices';
@@ -44,9 +49,11 @@ export class MqttConnectionManagerService implements OnModuleInit, OnApplication
   }
 
   @Cron(CronExpression.EVERY_30_SECONDS)
-  async healthCheck(): Promise<void> {
+  healthCheck(): void {
     try {
-      this.mqttClient.emit('$SYS/healthcheck', { timestamp: new Date().toISOString() });
+      this.mqttClient.emit('$SYS/healthcheck', {
+        timestamp: new Date().toISOString(),
+      });
       if (!this.isConnected) {
         this.logger.log('MQTT health check passed, connection restored');
         this.isConnected = true;

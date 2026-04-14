@@ -35,7 +35,13 @@ export interface BatterySwapSessionEvent extends MqttEventBase {
   vehicleId?: string;
   inboundPackSerialNumber: string;
   outboundPackSerialNumber: string;
-  stage: 'INITIATED' | 'DOCKING' | 'DISCONNECTING_OLD' | 'RECONNECTING_NEW' | 'UNDOCKING' | 'COMPLETE';
+  stage:
+    | 'INITIATED'
+    | 'DOCKING'
+    | 'DISCONNECTING_OLD'
+    | 'RECONNECTING_NEW'
+    | 'UNDOCKING'
+    | 'COMPLETE';
   duration?: number;
   error?: string;
 }
@@ -71,7 +77,11 @@ export interface MeterReadingEvent extends MqttEventBase {
 
 export interface SmartChargingCommandEvent extends MqttEventBase {
   chargerId: string;
-  commandType: 'SET_POWER_LIMIT' | 'REMOTE_START' | 'REMOTE_STOP' | 'SET_AVAILABILITY';
+  commandType:
+    | 'SET_POWER_LIMIT'
+    | 'REMOTE_START'
+    | 'REMOTE_STOP'
+    | 'SET_AVAILABILITY';
   payload: Record<string, unknown>;
 }
 

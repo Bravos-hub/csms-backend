@@ -5,12 +5,12 @@ import { ClientProxy } from '@nestjs/microservices';
 export class MqttTenantContextService {
   private readonly logger = new Logger(MqttTenantContextService.name);
 
-  async publish(
+  publish(
     tenant: string | null,
     topic: string,
     payload: unknown,
     client: ClientProxy,
-  ): Promise<void> {
+  ): void {
     const topicTenant = this.extractTenantFromTopic(topic);
     if (!topicTenant) {
       throw new ForbiddenException(

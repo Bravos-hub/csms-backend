@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ClientsModule, Transport, ClientProvider } from '@nestjs/microservices';
+import {
+  ClientsModule,
+  ClientProvider,
+  Transport,
+} from '@nestjs/microservices';
 import { ScheduleModule } from '@nestjs/schedule';
 import { MqttConfigService } from './mqtt.config';
 import { MqttTenantContextService } from './mqtt-tenant-context.service';

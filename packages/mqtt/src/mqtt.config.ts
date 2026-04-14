@@ -30,11 +30,16 @@ export class MqttConfigService {
 
     return {
       url,
-      username: this.configService.get<string>('MQTT_USERNAME') || 'api-service',
-      password: this.configService.get<string>('MQTT_PASSWORD') || 'changeme',
+      username:
+        this.configService.get<string>('MQTT_USERNAME') || 'api-service',
+      password:
+        this.configService.get<string>('MQTT_PASSWORD') || 'changeme',
       poolSize: this.configService.get<number>('MQTT_POOL_SIZE') || 10,
-      reconnectDelayMs: this.configService.get<number>('MQTT_RECONNECT_DELAY_MS') || 3000,
-      healthCheckIntervalMs: this.configService.get<number>('MQTT_HEALTH_CHECK_INTERVAL_MS') || 30000,
+      reconnectDelayMs:
+        this.configService.get<number>('MQTT_RECONNECT_DELAY_MS') || 3000,
+      healthCheckIntervalMs:
+        this.configService.get<number>('MQTT_HEALTH_CHECK_INTERVAL_MS') ||
+        30000,
       qosCommand: this.configService.get<number>('MQTT_QOS_COMMANDS') || 1,
       qosTelemetry: this.configService.get<number>('MQTT_QOS_TELEMETRY') || 0,
     };
@@ -48,8 +53,11 @@ export class MqttConfigService {
 
     return {
       url,
-      username: this.configService.get<string>('VENDOR_MQTT_USERNAME') || 'vendor-ingress',
-      password: this.configService.get<string>('VENDOR_MQTT_PASSWORD') || 'changeme',
+      username:
+        this.configService.get<string>('VENDOR_MQTT_USERNAME') ||
+        'vendor-ingress',
+      password:
+        this.configService.get<string>('VENDOR_MQTT_PASSWORD') || 'changeme',
     };
   }
 }
