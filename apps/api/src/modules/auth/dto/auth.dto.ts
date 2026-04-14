@@ -7,6 +7,7 @@ import {
   IsOptional,
   IsEnum,
   IsArray,
+  IsObject,
   ValidateNested,
   IsBoolean,
 } from 'class-validator';
@@ -34,6 +35,10 @@ export class LoginDto {
   @IsString()
   @IsOptional()
   twoFactorToken?: string;
+
+  @IsString()
+  @IsOptional()
+  recoveryCode?: string;
 }
 
 export class RefreshTokenDto {
@@ -62,6 +67,93 @@ export class Disable2faDto {
   @IsString()
   @IsNotEmpty()
   currentPassword: string;
+}
+
+export class PasskeyLoginOptionsDto {
+  @IsEmail()
+  @IsOptional()
+  email?: string;
+
+  @IsString()
+  @IsOptional()
+  phone?: string;
+}
+
+export class PasskeyRegistrationOptionsDto {
+  @IsString()
+  @IsNotEmpty()
+  currentPassword: string;
+
+  @IsString()
+  @IsOptional()
+  twoFactorToken?: string;
+}
+
+export class PasskeyRegistrationVerifyDto {
+  @IsString()
+  @IsNotEmpty()
+  challengeId: string;
+
+  @IsObject()
+  response: Record<string, unknown>;
+
+  @IsString()
+  @IsOptional()
+  label?: string;
+}
+
+export class PasskeyAuthenticationVerifyDto {
+  @IsString()
+  @IsNotEmpty()
+  challengeId: string;
+
+  @IsObject()
+  response: Record<string, unknown>;
+}
+
+export class StepUpPasskeyVerifyDto {
+  @IsString()
+  @IsNotEmpty()
+  challengeId: string;
+
+  @IsObject()
+  response: Record<string, unknown>;
+}
+
+export class RegenerateRecoveryCodesDto {
+  @IsString()
+  @IsNotEmpty()
+  currentPassword: string;
+
+  @IsString()
+  @IsOptional()
+  twoFactorToken?: string;
+
+  @IsString()
+  @IsOptional()
+  stepUpToken?: string;
+
+  @IsString()
+  @IsOptional()
+  recoveryCode?: string;
+}
+
+export class RemovePasskeyDto {
+  @IsString()
+  @IsNotEmpty()
+  currentPassword: string;
+
+  @IsString()
+  @IsOptional()
+  twoFactorToken?: string;
+
+  @IsString()
+  @IsOptional()
+  stepUpToken?: string;
+
+  @IsString()
+  @IsOptional()
+  recoveryCode?: string;
 }
 
 export class CreateUserDto {

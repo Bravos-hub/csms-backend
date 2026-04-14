@@ -241,6 +241,7 @@ model User {
   ownerCapability StationOwnerCapability? // Only for STATION_OWNER
   twoFactorSecret String?
   twoFactorEnabled Boolean @default(false)
+  mfaRequired Boolean @default(false) @map("mfa_required")
   mustChangePassword Boolean @default(false)
   otpCode         String?
   otpExpiresAt    DateTime?
@@ -305,6 +306,9 @@ model User {
   ownedSites                 Site[]
   reviewedTenantApplications TenantApplication[] @relation("ReviewedApplications")
   emailVerificationTokens    EmailVerificationToken[]
+  passkeyCredentials         PasskeyCredential[]
+  mfaChallenges              MfaChallenge[]
+  mfaRecoveryCodes           MfaRecoveryCode[]
   vehicles                   Vehicle[]
 
   sessions                   Session[]
@@ -2599,6 +2603,62 @@ model EmailVerificationToken {
   @@index([token])
   @@index([userId])
   @@index([expiresAt])
+}
+
+model PasskeyCredential {
+  id           String    @id @default(uuid())
+  userId       String    @map("user_id")
+  credentialId String    @unique @map("credential_id")
+  publicKey    String    @map("public_key")
+  counter      Int       @default(0)
+  transports   String[]  @default([])
+  aaguid       String?
+  deviceType   String?   @map("device_type")
+  backedUp     Boolean?  @map("backed_up")
+  label        String?
+  lastUsedAt   DateTime? @map("last_used_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("passkey_credentials")
+  @@index([userId, createdAt], map: "passkey_credentials_user_id_created_at_idx")
+  @@index([lastUsedAt], map: "passkey_credentials_last_used_at_idx")
+}
+
+model MfaChallenge {
+  id             String    @id @default(uuid())
+  userId         String?   @map("user_id")
+  challenge      String
+  purpose        String
+  relyingPartyId String    @map("relying_party_id")
+  expiresAt      DateTime  @map("expires_at")
+  consumedAt     DateTime? @map("consumed_at")
+  ipAddress      String?   @map("ip_address")
+  userAgent      String?   @map("user_agent")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("mfa_challenges")
+  @@index([userId, purpose, expiresAt], map: "mfa_challenges_user_id_purpose_expires_at_idx")
+  @@index([expiresAt], map: "mfa_challenges_expires_at_idx")
+  @@index([createdAt], map: "mfa_challenges_created_at_idx")
+}
+
+model MfaRecoveryCode {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  codeHash  String    @map("code_hash")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("mfa_recovery_codes")
+  @@unique([userId, codeHash], map: "mfa_recovery_codes_user_id_code_hash_key")
+  @@index([userId, usedAt], map: "mfa_recovery_codes_user_id_used_at_idx")
 }
 
 model RefreshToken {

@@ -12,6 +12,7 @@ import {
   InvitationStatus,
   MembershipStatus,
   Prisma,
+  PasskeyCredential,
   PayoutMethod,
   CustomRoleStatus,
   StationOwnerCapability,
@@ -21,6 +22,9 @@ import {
 } from '@prisma/client';
 import {
   LoginDto,
+  PasskeyLoginOptionsDto,
+  RegenerateRecoveryCodesDto,
+  RemovePasskeyDto,
   CreateUserDto,
   UpdateUserDto,
   InviteUserDto,
@@ -57,6 +61,21 @@ import {
   AccessStationContextSummary,
 } from './access-profile.service';
 import { TenantDirectoryService } from '../../common/tenant/tenant-directory.service';
+import {
+  type AuthenticatorAssertionResponseJSON,
+  type AuthenticatorAttestationResponseJSON,
+  generateAuthenticationOptions,
+  generateRegistrationOptions,
+  verifyAuthenticationResponse,
+  verifyRegistrationResponse,
+  type AuthenticationResponseJSON,
+  type AuthenticatorTransportFuture,
+  type PublicKeyCredentialCreationOptionsJSON,
+  type PublicKeyCredentialRequestOptionsJSON,
+  type RegistrationResponseJSON,
+  type WebAuthnCredential,
+} from '@simplewebauthn/server';
+import { isoBase64URL } from '@simplewebauthn/server/helpers';
 
 type AuthUserContextInput = Pick<
   User,
@@ -71,6 +90,7 @@ type AuthUserContextInput = Pick<
   | 'ownerCapability'
   | 'lastStationAssignmentId'
   | 'mustChangePassword'
+  | 'mfaRequired'
   | 'region'
   | 'zoneId'
 > & {
@@ -79,6 +99,12 @@ type AuthUserContextInput = Pick<
     name: string;
     type: string;
   } | null;
+};
+
+type MfaConfirmationInput = {
+  twoFactorToken?: string;
+  stepUpToken?: string;
+  recoveryCode?: string;
 };
 
 @Injectable()
@@ -157,6 +183,7 @@ export class AuthService {
     organizationId: true,
     ownerCapability: true,
     twoFactorEnabled: true,
+    mfaRequired: true,
     mustChangePassword: true,
     lastStationAssignmentId: true,
     createdAt: true,
@@ -183,10 +210,29 @@ export class AuthService {
   private readonly twoFactorMaxFailures = 5;
   private readonly twoFactorFailureWindowMs = 10 * 60 * 1000;
   private readonly twoFactorLockMs = 15 * 60 * 1000;
+  private readonly mfaChallengeTtlMs = 5 * 60 * 1000;
+  private readonly stepUpTokenTtl = '10m';
+  private readonly recoveryCodeCount = 8;
+  private readonly passkeyMaxLabelLength = 64;
   private readonly twoFactorAttempts = new Map<
     string,
     { failures: number; lastFailedAt: number; lockedUntil: number }
   >();
+  private readonly webauthnPurposes = {
+    passkeyRegistration: 'PASSKEY_REGISTRATION',
+    passkeyLogin: 'PASSKEY_LOGIN',
+    passkeyStepUp: 'PASSKEY_STEP_UP',
+  } as const;
+  private readonly supportedAuthenticatorTransports =
+    new Set<AuthenticatorTransportFuture>([
+      'ble',
+      'cable',
+      'hybrid',
+      'internal',
+      'nfc',
+      'smart-card',
+      'usb',
+    ]);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -1274,60 +1320,7 @@ export class AuthService {
         throw new UnauthorizedException('Invalid credentials');
       }
 
-      if (user.twoFactorEnabled) {
-        if (!user.twoFactorSecret) {
-          throw new BadRequestException(
-            'Two-factor authentication is enabled but not configured. Disable and reconfigure 2FA.',
-          );
-        }
-
-        const twoFactorToken = loginDto.twoFactorToken?.trim();
-        if (!twoFactorToken) {
-          await this.recordAuditEvent({
-            actor: user.id,
-            action: '2FA_LOGIN_CHALLENGE_REQUIRED',
-            resource: 'User',
-            resourceId: user.id,
-            status: 'FAILED',
-          });
-          throw new BadRequestException(
-            'Two-factor authentication code required',
-          );
-        }
-
-        this.assertTwoFactorAttemptAllowed(user.id, 'login');
-        const resolvedSecret = this.decryptTwoFactorSecret(
-          user.twoFactorSecret,
-        );
-        const isTwoFactorTokenValid = speakeasy.totp.verify({
-          secret: resolvedSecret,
-          encoding: 'base32',
-          token: twoFactorToken,
-          window: 1,
-        });
-
-        if (!isTwoFactorTokenValid) {
-          this.registerTwoFactorFailure(user.id, 'login');
-          await this.recordAuditEvent({
-            actor: user.id,
-            action: '2FA_LOGIN_FAILED',
-            resource: 'User',
-            resourceId: user.id,
-            status: 'FAILED',
-          });
-          throw new BadRequestException(
-            'Invalid two-factor authentication code',
-          );
-        }
-
-        this.clearTwoFactorFailures(user.id, 'login');
-        await this.recordAuditEvent({
-          actor: user.id,
-          action: '2FA_LOGIN_VERIFIED',
-          resource: 'User',
-          resourceId: user.id,
-        });
-      }
+      await this.enforceLoginMfa(user, loginDto);
 
       let preferredOrganizationId: string | undefined;
       if (loginDto.inviteToken) {
@@ -2547,6 +2540,7 @@ export class AuthService {
       zoneId?: string | null;
       ownerCapability?: StationOwnerCapability | null;
       mustChangePassword?: boolean | null;
+      mfaRequired?: boolean | null;
       organizationId?: string | null;
     },
     context: {
@@ -2613,6 +2607,7 @@ export class AuthService {
       activeStationContext: context.activeStationContext,
       accessProfile,
       mustChangePassword: Boolean(user.mustChangePassword),
+      mfaRequired: Boolean(user.mfaRequired),
     };
   }
 
@@ -3948,24 +3943,1371 @@ export class AuthService {
    * Update whether a user is required to use MFA
    */
   async toggleMfaRequirement(userId: string, required: boolean): Promise<void> {
+    const existing = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { status: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('User not found');
+    }
+
     await this.prisma.user.update({
       where: { id: userId },
-      data: { status: required ? 'MfaRequired' : 'Active' },
+      data: {
+        mfaRequired: required,
+        status:
+          required && existing.status === 'Active'
+            ? 'MfaRequired'
+            : !required && existing.status === 'MfaRequired'
+              ? 'Active'
+              : existing.status,
+      },
     });
+  }
+
+  async generatePasskeyLoginOptions(
+    input: PasskeyLoginOptionsDto,
+    context?: AuthMonitoringContext,
+  ): Promise<{
+    challengeId: string;
+    options: PublicKeyCredentialRequestOptionsJSON;
+    expiresAt: string;
+  }> {
+    const { email, phone } = this.resolveLoginIdentifiers({
+      email: input.email,
+      phone: input.phone,
+      password: 'unused',
+    });
+    const monitoringContext = this.createMonitoringContext(
+      context,
+      'passkey_login_options',
+      email || phone,
+    );
+
+    try {
+      if (!email && !phone) {
+        throw new BadRequestException('Email or phone is required');
+      }
+
+      const user = await this.findUserForLogin(email, phone);
+      if (!user) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
+
+      const passkeys = await this.prisma.passkeyCredential.findMany({
+        where: { userId: user.id },
+        select: {
+          credentialId: true,
+          transports: true,
+        },
+      });
+      if (passkeys.length === 0) {
+        throw new BadRequestException(
+          'No passkey is enrolled for this account',
+        );
+      }
+
+      const expectedOrigins = this.resolveWebAuthnExpectedOrigins();
+      const rpId = this.resolveWebAuthnRpId(expectedOrigins);
+      const options = await generateAuthenticationOptions({
+        rpID: rpId,
+        userVerification: 'required',
+        allowCredentials: passkeys.map((passkey) => ({
+          id: passkey.credentialId,
+          transports: this.normalizeAuthenticatorTransports(passkey.transports),
+        })),
+      });
+
+      const challenge = await this.createMfaChallenge({
+        userId: user.id,
+        challenge: options.challenge,
+        purpose: this.webauthnPurposes.passkeyLogin,
+        relyingPartyId: rpId,
+        context: monitoringContext,
+      });
+
+      this.anomalyMonitor.recordSuccess(monitoringContext);
+      return {
+        challengeId: challenge.id,
+        options,
+        expiresAt: challenge.expiresAt.toISOString(),
+      };
+    } catch (error) {
+      this.anomalyMonitor.recordFailure(
+        monitoringContext,
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
+    }
+  }
+
+  async verifyPasskeyLogin(
+    challengeId: string,
+    responsePayload: Record<string, unknown>,
+    context?: AuthMonitoringContext,
+  ) {
+    const monitoringContext = this.createMonitoringContext(
+      context,
+      'passkey_login_verify',
+    );
+
+    try {
+      const challenge = await this.getActiveMfaChallenge(
+        challengeId,
+        this.webauthnPurposes.passkeyLogin,
+      );
+      if (!challenge.userId) {
+        throw new UnauthorizedException('Challenge is not bound to a user');
+      }
+
+      const response = this.parseAuthenticationResponsePayload(responsePayload);
+      const credential = await this.prisma.passkeyCredential.findFirst({
+        where: {
+          userId: challenge.userId,
+          credentialId: response.id,
+        },
+      });
+      if (!credential) {
+        throw new UnauthorizedException('Credential not recognized');
+      }
+
+      const verification = await verifyAuthenticationResponse({
+        response,
+        expectedChallenge: challenge.challenge,
+        expectedOrigin: this.resolveWebAuthnExpectedOrigins(),
+        expectedRPID: challenge.relyingPartyId,
+        credential: this.toWebAuthnCredential(credential),
+      });
+      if (!verification.verified) {
+        throw new UnauthorizedException('Passkey verification failed');
+      }
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.passkeyCredential.update({
+          where: { id: credential.id },
+          data: {
+            counter: verification.authenticationInfo.newCounter,
+            lastUsedAt: new Date(),
+          },
+        });
+        await tx.mfaChallenge.update({
+          where: { id: challenge.id },
+          data: { consumedAt: new Date() },
+        });
+      });
+
+      const user = await this.prisma.user.findUnique({
+        where: { id: challenge.userId },
+      });
+      if (!user) {
+        throw new UnauthorizedException('User not found');
+      }
+
+      await this.recordAuditEvent({
+        actor: user.id,
+        action: 'PASSKEY_LOGIN_SUCCEEDED',
+        resource: 'User',
+        resourceId: user.id,
+        details: {
+          credentialId: credential.credentialId,
+        },
+      });
+
+      const authResponse = await this.generateAuthResponse(user);
+      this.anomalyMonitor.recordSuccess(monitoringContext);
+      return authResponse;
+    } catch (error) {
+      this.anomalyMonitor.recordFailure(
+        monitoringContext,
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
+    }
+  }
+
+  async generatePasskeyRegistrationOptions(
+    userId: string,
+    input: { currentPassword: string; twoFactorToken?: string },
+  ): Promise<{
+    challengeId: string;
+    options: PublicKeyCredentialCreationOptionsJSON;
+    expiresAt: string;
+  }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        phone: true,
+        name: true,
+        passwordHash: true,
+        twoFactorEnabled: true,
+        twoFactorSecret: true,
+      },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    await this.assertCurrentPasswordForTwoFactor(user, input.currentPassword);
+    if (user.twoFactorEnabled) {
+      const providedToken = input.twoFactorToken?.trim();
+      if (!providedToken) {
+        throw new BadRequestException(
+          'twoFactorToken is required when 2FA is enabled',
+        );
+      }
+      this.verifyTotpForUser(
+        user.id,
+        user.twoFactorSecret,
+        providedToken,
+        'sensitive',
+      );
+    }
+
+    const passkeys = await this.prisma.passkeyCredential.findMany({
+      where: { userId: user.id },
+      select: {
+        credentialId: true,
+        transports: true,
+      },
+    });
+
+    const expectedOrigins = this.resolveWebAuthnExpectedOrigins();
+    const rpId = this.resolveWebAuthnRpId(expectedOrigins);
+    const options = await generateRegistrationOptions({
+      rpName: this.resolveWebAuthnRpName(),
+      rpID: rpId,
+      userName: user.email || user.phone || `user-${user.id}`,
+      userDisplayName: user.name,
+      userID: Buffer.from(user.id, 'utf8'),
+      attestationType: 'none',
+      authenticatorSelection: {
+        residentKey: 'preferred',
+        userVerification: 'required',
+      },
+      excludeCredentials: passkeys.map((passkey) => ({
+        id: passkey.credentialId,
+        transports: this.normalizeAuthenticatorTransports(passkey.transports),
+      })),
+    });
+
+    const challenge = await this.createMfaChallenge({
+      userId: user.id,
+      challenge: options.challenge,
+      purpose: this.webauthnPurposes.passkeyRegistration,
+      relyingPartyId: rpId,
+    });
+
+    return {
+      challengeId: challenge.id,
+      options,
+      expiresAt: challenge.expiresAt.toISOString(),
+    };
+  }
+
+  async verifyPasskeyRegistration(
+    userId: string,
+    input: {
+      challengeId: string;
+      response: Record<string, unknown>;
+      label?: string;
+    },
+  ): Promise<{
+    success: boolean;
+    passkey: {
+      id: string;
+      credentialId: string;
+      label: string | null;
+      deviceType: string | null;
+      backedUp: boolean | null;
+      transports: string[];
+      createdAt: Date;
+      lastUsedAt: Date | null;
+    };
+    recoveryCodes?: string[];
+  }> {
+    const challenge = await this.getActiveMfaChallenge(
+      input.challengeId,
+      this.webauthnPurposes.passkeyRegistration,
+      userId,
+    );
+    const response = this.parseRegistrationResponsePayload(input.response);
+    const verification = await verifyRegistrationResponse({
+      response,
+      expectedChallenge: challenge.challenge,
+      expectedOrigin: this.resolveWebAuthnExpectedOrigins(),
+      expectedRPID: challenge.relyingPartyId,
+      requireUserVerification: true,
+    });
+    if (!verification.verified || !verification.registrationInfo) {
+      throw new BadRequestException('Passkey registration verification failed');
+    }
+
+    const registrationInfo = verification.registrationInfo;
+    const parsedLabel = this.normalizePasskeyLabel(input.label);
+    const transports = this.normalizeAuthenticatorTransports(
+      response.response.transports,
+    );
+
+    const passkey = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.passkeyCredential.findUnique({
+        where: { credentialId: registrationInfo.credential.id },
+      });
+      if (existing && existing.userId !== userId) {
+        throw new ConflictException(
+          'This passkey is already registered to another account',
+        );
+      }
+
+      const saved = await tx.passkeyCredential.upsert({
+        where: { credentialId: registrationInfo.credential.id },
+        create: {
+          userId,
+          credentialId: registrationInfo.credential.id,
+          publicKey: isoBase64URL.fromBuffer(
+            registrationInfo.credential.publicKey,
+          ),
+          counter: registrationInfo.credential.counter,
+          transports: transports || [],
+          aaguid: registrationInfo.aaguid,
+          deviceType: registrationInfo.credentialDeviceType,
+          backedUp: registrationInfo.credentialBackedUp,
+          label: parsedLabel,
+        },
+        update: {
+          publicKey: isoBase64URL.fromBuffer(
+            registrationInfo.credential.publicKey,
+          ),
+          counter: registrationInfo.credential.counter,
+          transports: transports || [],
+          aaguid: registrationInfo.aaguid,
+          deviceType: registrationInfo.credentialDeviceType,
+          backedUp: registrationInfo.credentialBackedUp,
+          label: parsedLabel ?? existing?.label ?? null,
+          updatedAt: new Date(),
+        },
+        select: {
+          id: true,
+          credentialId: true,
+          label: true,
+          deviceType: true,
+          backedUp: true,
+          transports: true,
+          createdAt: true,
+          lastUsedAt: true,
+        },
+      });
+
+      await tx.mfaChallenge.update({
+        where: { id: challenge.id },
+        data: { consumedAt: new Date() },
+      });
+
+      return saved;
+    });
+
+    let recoveryCodes: string[] | undefined;
+    const activeRecoveryCodeCount = await this.prisma.mfaRecoveryCode.count({
+      where: { userId, usedAt: null },
+    });
+    if (activeRecoveryCodeCount === 0) {
+      recoveryCodes = await this.replaceRecoveryCodes(userId);
+    }
+
+    const userForAlert = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        zoneId: true,
+        country: true,
+        region: true,
+      },
+    });
+    await this.recordAuditEvent({
+      actor: userId,
+      action: 'PASSKEY_ENROLLED',
+      resource: 'User',
+      resourceId: userId,
+      details: {
+        credentialId: passkey.credentialId,
+      },
+    });
+    await this.sendMfaSecurityAlert(
+      userForAlert,
+      'Passkey Added',
+      'A passkey was added to your account.',
+    );
+
+    return {
+      success: true,
+      passkey: {
+        id: passkey.id,
+        credentialId: passkey.credentialId,
+        label: passkey.label,
+        deviceType: passkey.deviceType,
+        backedUp: passkey.backedUp,
+        transports: passkey.transports,
+        createdAt: passkey.createdAt,
+        lastUsedAt: passkey.lastUsedAt,
+      },
+      recoveryCodes,
+    };
+  }
+
+  async listPasskeys(userId: string): Promise<
+    Array<{
+      id: string;
+      credentialId: string;
+      label: string | null;
+      deviceType: string | null;
+      backedUp: boolean | null;
+      transports: string[];
+      createdAt: Date;
+      lastUsedAt: Date | null;
+    }>
+  > {
+    const passkeys = await this.prisma.passkeyCredential.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        credentialId: true,
+        label: true,
+        deviceType: true,
+        backedUp: true,
+        transports: true,
+        createdAt: true,
+        lastUsedAt: true,
+      },
+    });
+
+    return passkeys.map((passkey) => ({
+      id: passkey.id,
+      credentialId: passkey.credentialId,
+      label: passkey.label,
+      deviceType: passkey.deviceType,
+      backedUp: passkey.backedUp,
+      transports: passkey.transports,
+      createdAt: passkey.createdAt,
+      lastUsedAt: passkey.lastUsedAt,
+    }));
+  }
+
+  async removePasskey(
+    userId: string,
+    credentialId: string,
+    input: RemovePasskeyDto,
+  ): Promise<{ success: boolean; message: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        passwordHash: true,
+        twoFactorEnabled: true,
+        twoFactorSecret: true,
+        mfaRequired: true,
+        zoneId: true,
+        country: true,
+        region: true,
+      },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    await this.assertCurrentPasswordForTwoFactor(user, input.currentPassword);
+    await this.assertSensitiveActionMfa(
+      user,
+      'PASSKEY_REMOVAL',
+      input,
+      'Removing a passkey requires recent MFA verification',
+    );
+
+    const credential = await this.prisma.passkeyCredential.findFirst({
+      where: {
+        userId,
+        credentialId,
+      },
+      select: {
+        id: true,
+        credentialId: true,
+      },
+    });
+    if (!credential) {
+      throw new NotFoundException('Passkey not found');
+    }
+
+    const passkeyCount = await this.prisma.passkeyCredential.count({
+      where: { userId },
+    });
+    if (user.mfaRequired && !user.twoFactorEnabled && passkeyCount <= 1) {
+      throw new BadRequestException(
+        'Cannot remove the last MFA method while MFA is required',
+      );
+    }
+
+    await this.prisma.passkeyCredential.delete({
+      where: { id: credential.id },
+    });
+
+    await this.forceLogoutUser(userId);
+    await this.recordAuditEvent({
+      actor: userId,
+      action: 'PASSKEY_REMOVED',
+      resource: 'User',
+      resourceId: userId,
+      details: {
+        credentialId: credential.credentialId,
+      },
+    });
+    await this.sendMfaSecurityAlert(
+      user,
+      'Passkey Removed',
+      'A passkey was removed from your account.',
+    );
+
+    return {
+      success: true,
+      message: 'Passkey removed successfully',
+    };
+  }
+
+  async generatePasskeyStepUpOptions(userId: string): Promise<{
+    challengeId: string;
+    options: PublicKeyCredentialRequestOptionsJSON;
+    expiresAt: string;
+  }> {
+    const passkeys = await this.prisma.passkeyCredential.findMany({
+      where: { userId },
+      select: {
+        credentialId: true,
+        transports: true,
+      },
+    });
+    if (passkeys.length === 0) {
+      throw new BadRequestException('No passkeys are enrolled for this user');
+    }
+
+    const expectedOrigins = this.resolveWebAuthnExpectedOrigins();
+    const rpId = this.resolveWebAuthnRpId(expectedOrigins);
+    const options = await generateAuthenticationOptions({
+      rpID: rpId,
+      userVerification: 'required',
+      allowCredentials: passkeys.map((passkey) => ({
+        id: passkey.credentialId,
+        transports: this.normalizeAuthenticatorTransports(passkey.transports),
+      })),
+    });
+
+    const challenge = await this.createMfaChallenge({
+      userId,
+      challenge: options.challenge,
+      purpose: this.webauthnPurposes.passkeyStepUp,
+      relyingPartyId: rpId,
+    });
+
+    return {
+      challengeId: challenge.id,
+      options,
+      expiresAt: challenge.expiresAt.toISOString(),
+    };
+  }
+
+  async verifyPasskeyStepUp(
+    userId: string,
+    challengeId: string,
+    responsePayload: Record<string, unknown>,
+  ): Promise<{ success: boolean; stepUpToken: string; expiresIn: string }> {
+    const challenge = await this.getActiveMfaChallenge(
+      challengeId,
+      this.webauthnPurposes.passkeyStepUp,
+      userId,
+    );
+    const response = this.parseAuthenticationResponsePayload(responsePayload);
+
+    const credential = await this.prisma.passkeyCredential.findFirst({
+      where: {
+        userId,
+        credentialId: response.id,
+      },
+    });
+    if (!credential) {
+      throw new UnauthorizedException('Credential not recognized');
+    }
+
+    const verification = await verifyAuthenticationResponse({
+      response,
+      expectedChallenge: challenge.challenge,
+      expectedOrigin: this.resolveWebAuthnExpectedOrigins(),
+      expectedRPID: challenge.relyingPartyId,
+      credential: this.toWebAuthnCredential(credential),
+    });
+    if (!verification.verified) {
+      throw new UnauthorizedException('Passkey verification failed');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.passkeyCredential.update({
+        where: { id: credential.id },
+        data: {
+          counter: verification.authenticationInfo.newCounter,
+          lastUsedAt: new Date(),
+        },
+      });
+      await tx.mfaChallenge.update({
+        where: { id: challenge.id },
+        data: { consumedAt: new Date() },
+      });
+    });
+
+    await this.recordAuditEvent({
+      actor: userId,
+      action: 'MFA_STEP_UP_VERIFIED',
+      resource: 'User',
+      resourceId: userId,
+      details: {
+        method: 'passkey',
+        credentialId: credential.credentialId,
+      },
+    });
+
+    return {
+      success: true,
+      stepUpToken: this.issueStepUpToken(userId),
+      expiresIn: this.stepUpTokenTtl,
+    };
+  }
+
+  async regenerateRecoveryCodes(
+    userId: string,
+    input: RegenerateRecoveryCodesDto,
+  ): Promise<{ success: boolean; recoveryCodes: string[] }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        passwordHash: true,
+        twoFactorEnabled: true,
+        twoFactorSecret: true,
+        mfaRequired: true,
+        zoneId: true,
+        country: true,
+        region: true,
+      },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    await this.assertCurrentPasswordForTwoFactor(user, input.currentPassword);
+    await this.assertSensitiveActionMfa(
+      user,
+      'RECOVERY_CODES_REGENERATED',
+      input,
+      'Regenerating recovery codes requires recent MFA verification',
+    );
+
+    const recoveryCodes = await this.replaceRecoveryCodes(userId);
+
+    await this.forceLogoutUser(userId);
+    await this.recordAuditEvent({
+      actor: userId,
+      action: 'MFA_RECOVERY_CODES_REGENERATED',
+      resource: 'User',
+      resourceId: userId,
+    });
+    await this.sendMfaSecurityAlert(
+      user,
+      'Recovery Codes Regenerated',
+      'Your account recovery codes were regenerated.',
+    );
+
+    return {
+      success: true,
+      recoveryCodes,
+    };
+  }
+
+  private async enforceLoginMfa(user: User, loginDto: LoginDto): Promise<void> {
+    const [passkeyCount, hasRecoveryCodes] = await Promise.all([
+      this.prisma.passkeyCredential.count({
+        where: { userId: user.id },
+      }),
+      this.hasActiveRecoveryCodes(user.id),
+    ]);
+    const hasPasskeys = passkeyCount > 0;
+    const mfaEnforced =
+      user.mfaRequired || user.twoFactorEnabled || hasPasskeys;
+
+    if (!mfaEnforced) {
+      return;
+    }
+
+    const twoFactorToken = loginDto.twoFactorToken?.trim();
+    if (twoFactorToken) {
+      if (!user.twoFactorEnabled) {
+        throw new UnauthorizedException(
+          'Two-factor authentication is not enabled for this account',
+        );
+      }
+      this.verifyTotpForUser(
+        user.id,
+        user.twoFactorSecret,
+        twoFactorToken,
+        'login',
+      );
+      return;
+    }
+
+    const recoveryCode = loginDto.recoveryCode?.trim();
+    if (recoveryCode) {
+      this.assertTwoFactorAttemptAllowed(user.id, 'login');
+      const consumed = await this.consumeRecoveryCode(user.id, recoveryCode);
+      if (!consumed) {
+        this.registerTwoFactorFailure(user.id, 'login');
+        throw new UnauthorizedException('Invalid recovery code');
+      }
+      this.clearTwoFactorFailures(user.id, 'login');
+      await this.recordAuditEvent({
+        actor: user.id,
+        action: 'MFA_RECOVERY_CODE_USED',
+        resource: 'User',
+        resourceId: user.id,
+        details: {
+          context: 'login',
+        },
+      });
+      return;
+    }
+
+    if (user.mfaRequired && !user.twoFactorEnabled && !hasPasskeys) {
+      throw new UnauthorizedException(
+        'MFA is required but no MFA method is enrolled for this account',
+      );
+    }
+
+    if (hasPasskeys && !user.twoFactorEnabled) {
+      throw new UnauthorizedException(
+        hasRecoveryCodes
+          ? 'Passkey verification is required. Use passkey login or a recovery code.'
+          : 'Passkey verification is required. Use passkey login.',
+      );
+    }
+
+    throw new UnauthorizedException('MFA token is required');
+  }
+
+  private resolveWebAuthnRpName(): string {
+    return this.config.get<string>('APP_NAME') || 'EVZONE';
+  }
+
+  private parseCsvInput(value?: string | null): string[] {
+    if (!value) return [];
+    return value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  private normalizeOrigin(candidate: string): string | null {
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return null;
+      }
+      return parsed.origin;
+    } catch {
+      return null;
+    }
+  }
+
+  private resolveWebAuthnExpectedOrigins(): string[] {
+    const configuredFrontend =
+      this.config.get<string>('FRONTEND_URL') || process.env.FRONTEND_URL;
+    const configuredCors =
+      this.config.get<string>('CORS_ORIGINS') || process.env.CORS_ORIGINS;
+    const defaults = ['http://localhost:5173'];
+    const candidates = [
+      ...(configuredFrontend ? [configuredFrontend] : []),
+      ...this.parseCsvInput(configuredCors),
+      ...defaults,
+    ];
+
+    const normalized = candidates
+      .map((entry) => this.normalizeOrigin(entry))
+      .filter((entry): entry is string => Boolean(entry));
+
+    return Array.from(new Set(normalized));
+  }
+
+  private normalizeRpId(hostname: string): string {
+    const normalized = hostname.trim().toLowerCase();
+    if (
+      normalized === '127.0.0.1' ||
+      normalized === '[::1]' ||
+      normalized === '::1'
+    ) {
+      return 'localhost';
+    }
+    return normalized || 'localhost';
+  }
+
+  private resolveWebAuthnRpId(origins?: string[]): string {
+    const configuredFrontend =
+      this.config.get<string>('FRONTEND_URL') || process.env.FRONTEND_URL;
+    const preferredOrigin =
+      (configuredFrontend && this.normalizeOrigin(configuredFrontend)) ||
+      origins?.[0] ||
+      'http://localhost:5173';
+    const host = new URL(preferredOrigin).hostname;
+
+    return this.normalizeRpId(host);
+  }
+
+  private normalizeAuthenticatorTransports(
+    transports: unknown,
+  ): AuthenticatorTransportFuture[] | undefined {
+    if (!Array.isArray(transports)) {
+      return undefined;
+    }
+
+    const normalized = transports
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => entry.trim())
+      .filter((entry): entry is AuthenticatorTransportFuture =>
+        this.supportedAuthenticatorTransports.has(
+          entry as AuthenticatorTransportFuture,
+        ),
+      );
+
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  private async createMfaChallenge(input: {
+    userId?: string | null;
+    challenge: string;
+    purpose: string;
+    relyingPartyId: string;
+    context?: AuthMonitoringContext;
+  }): Promise<{ id: string; expiresAt: Date }> {
+    const expiresAt = new Date(Date.now() + this.mfaChallengeTtlMs);
+    const created = await this.prisma.mfaChallenge.create({
+      data: {
+        userId: input.userId || null,
+        challenge: input.challenge,
+        purpose: input.purpose,
+        relyingPartyId: input.relyingPartyId,
+        expiresAt,
+        ipAddress: input.context?.ip || null,
+        userAgent: input.context?.userAgent || null,
+      },
+      select: {
+        id: true,
+        expiresAt: true,
+      },
+    });
+
+    return created;
+  }
+
+  private async getActiveMfaChallenge(
+    challengeId: string,
+    purpose: string,
+    userId?: string,
+  ): Promise<{
+    id: string;
+    userId: string | null;
+    challenge: string;
+    purpose: string;
+    relyingPartyId: string;
+    expiresAt: Date;
+    consumedAt: Date | null;
+  }> {
+    const challenge = await this.prisma.mfaChallenge.findUnique({
+      where: { id: challengeId },
+      select: {
+        id: true,
+        userId: true,
+        challenge: true,
+        purpose: true,
+        relyingPartyId: true,
+        expiresAt: true,
+        consumedAt: true,
+      },
+    });
+    if (!challenge) {
+      throw new BadRequestException('Invalid MFA challenge');
+    }
+    if (challenge.purpose !== purpose) {
+      throw new BadRequestException('MFA challenge purpose mismatch');
+    }
+    if (challenge.consumedAt) {
+      throw new BadRequestException('MFA challenge has already been used');
+    }
+    if (challenge.expiresAt <= new Date()) {
+      throw new BadRequestException('MFA challenge has expired');
+    }
+    if (userId && challenge.userId !== userId) {
+      throw new ForbiddenException(
+        'MFA challenge does not belong to this user',
+      );
+    }
+
+    return challenge;
+  }
+
+  private toWebAuthnCredential(
+    credential: Pick<
+      PasskeyCredential,
+      'credentialId' | 'publicKey' | 'counter' | 'transports'
+    >,
+  ): WebAuthnCredential {
+    return {
+      id: credential.credentialId,
+      publicKey: isoBase64URL.toBuffer(credential.publicKey),
+      counter: credential.counter,
+      transports: this.normalizeAuthenticatorTransports(credential.transports),
+    };
+  }
+
+  private isObjectRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  private getRequiredStringField(
+    source: Record<string, unknown>,
+    key: string,
+    errorMessage: string,
+  ): string {
+    const value = source[key];
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new BadRequestException(errorMessage);
+    }
+    return value;
+  }
+
+  private getOptionalStringField(
+    source: Record<string, unknown>,
+    key: string,
+  ): string | undefined {
+    const value = source[key];
+    if (typeof value !== 'string') {
+      return undefined;
+    }
+    return value.trim().length > 0 ? value : undefined;
+  }
+
+  private parseAuthenticationResponsePayload(
+    payload: Record<string, unknown>,
+  ): AuthenticationResponseJSON {
+    if (!this.isObjectRecord(payload.response)) {
+      throw new BadRequestException('Invalid authentication response payload');
+    }
+
+    const responsePayload = payload.response;
+    const response: AuthenticatorAssertionResponseJSON = {
+      clientDataJSON: this.getRequiredStringField(
+        responsePayload,
+        'clientDataJSON',
+        'clientDataJSON is required',
+      ),
+      authenticatorData: this.getRequiredStringField(
+        responsePayload,
+        'authenticatorData',
+        'authenticatorData is required',
+      ),
+      signature: this.getRequiredStringField(
+        responsePayload,
+        'signature',
+        'signature is required',
+      ),
+    };
+    const userHandle = this.getOptionalStringField(
+      responsePayload,
+      'userHandle',
+    );
+    if (userHandle) {
+      response.userHandle = userHandle;
+    }
+
+    const type = this.getRequiredStringField(
+      payload,
+      'type',
+      'credential type is required',
+    );
+    if (type !== 'public-key') {
+      throw new BadRequestException('Unsupported credential type');
+    }
+
+    const clientExtensionResults = this.isObjectRecord(
+      payload.clientExtensionResults,
+    )
+      ? (payload.clientExtensionResults as AuthenticationResponseJSON['clientExtensionResults'])
+      : {};
+
+    return {
+      id: this.getRequiredStringField(
+        payload,
+        'id',
+        'credential id is required',
+      ),
+      rawId: this.getRequiredStringField(
+        payload,
+        'rawId',
+        'raw credential id is required',
+      ),
+      type: 'public-key',
+      response,
+      clientExtensionResults,
+    };
+  }
+
+  private parseRegistrationResponsePayload(
+    payload: Record<string, unknown>,
+  ): RegistrationResponseJSON {
+    if (!this.isObjectRecord(payload.response)) {
+      throw new BadRequestException('Invalid registration response payload');
+    }
+
+    const responsePayload = payload.response;
+    const response: AuthenticatorAttestationResponseJSON = {
+      clientDataJSON: this.getRequiredStringField(
+        responsePayload,
+        'clientDataJSON',
+        'clientDataJSON is required',
+      ),
+      attestationObject: this.getRequiredStringField(
+        responsePayload,
+        'attestationObject',
+        'attestationObject is required',
+      ),
+    };
+    const transports = this.normalizeAuthenticatorTransports(
+      responsePayload.transports,
+    );
+    if (transports) {
+      response.transports = transports;
+    }
+
+    const authenticatorData = this.getOptionalStringField(
+      responsePayload,
+      'authenticatorData',
+    );
+    if (authenticatorData) {
+      response.authenticatorData = authenticatorData;
+    }
+
+    const publicKey = this.getOptionalStringField(responsePayload, 'publicKey');
+    if (publicKey) {
+      response.publicKey = publicKey;
+    }
+
+    const type = this.getRequiredStringField(
+      payload,
+      'type',
+      'credential type is required',
+    );
+    if (type !== 'public-key') {
+      throw new BadRequestException('Unsupported credential type');
+    }
+
+    const clientExtensionResults = this.isObjectRecord(
+      payload.clientExtensionResults,
+    )
+      ? (payload.clientExtensionResults as RegistrationResponseJSON['clientExtensionResults'])
+      : {};
+
+    return {
+      id: this.getRequiredStringField(
+        payload,
+        'id',
+        'credential id is required',
+      ),
+      rawId: this.getRequiredStringField(
+        payload,
+        'rawId',
+        'raw credential id is required',
+      ),
+      type: 'public-key',
+      response,
+      clientExtensionResults,
+    };
+  }
+
+  private normalizePasskeyLabel(label?: string): string | null {
+    if (!label) return null;
+    const trimmed = label.trim();
+    if (!trimmed) return null;
+    return trimmed.slice(0, this.passkeyMaxLabelLength);
+  }
+
+  private normalizeRecoveryCodeInput(code: string): string {
+    return code
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '');
+  }
+
+  private hashRecoveryCode(code: string): string {
+    return crypto.createHash('sha256').update(`recovery:${code}`).digest('hex');
+  }
+
+  private generateRecoveryCode(): string {
+    const value = crypto.randomBytes(5).toString('hex').toUpperCase();
+    return `${value.slice(0, 5)}-${value.slice(5)}`;
+  }
+
+  private generateRecoveryCodeSet(count: number): string[] {
+    const uniqueCodes = new Set<string>();
+    while (uniqueCodes.size < count) {
+      uniqueCodes.add(this.generateRecoveryCode());
+    }
+    return Array.from(uniqueCodes);
+  }
+
+  private async replaceRecoveryCodes(userId: string): Promise<string[]> {
+    const recoveryCodes = this.generateRecoveryCodeSet(this.recoveryCodeCount);
+    const records = recoveryCodes.map((code) => ({
+      userId,
+      codeHash: this.hashRecoveryCode(this.normalizeRecoveryCodeInput(code)),
+    }));
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.mfaRecoveryCode.deleteMany({
+        where: { userId },
+      });
+      await tx.mfaRecoveryCode.createMany({
+        data: records,
+      });
+    });
+
+    return recoveryCodes;
+  }
+
+  private async hasActiveRecoveryCodes(userId: string): Promise<boolean> {
+    const count = await this.prisma.mfaRecoveryCode.count({
+      where: { userId, usedAt: null },
+    });
+    return count > 0;
+  }
+
+  private async consumeRecoveryCode(
+    userId: string,
+    recoveryCode: string,
+  ): Promise<boolean> {
+    const normalizedCode = this.normalizeRecoveryCodeInput(recoveryCode);
+    if (!normalizedCode) {
+      return false;
+    }
+
+    const result = await this.prisma.mfaRecoveryCode.updateMany({
+      where: {
+        userId,
+        codeHash: this.hashRecoveryCode(normalizedCode),
+        usedAt: null,
+      },
+      data: {
+        usedAt: new Date(),
+      },
+    });
+
+    return result.count > 0;
+  }
+
+  private issueStepUpToken(userId: string): string {
+    const secret = this.config.get<string>('JWT_SECRET');
+    if (!secret) {
+      throw new Error('JWT_SECRET not configured');
+    }
+
+    return jwt.sign(
+      {
+        sub: userId,
+        type: 'mfa_step_up',
+        jti: crypto.randomUUID(),
+      },
+      secret as jwt.Secret,
+      {
+        expiresIn: this.stepUpTokenTtl as SignOptions['expiresIn'],
+      },
+    );
+  }
+
+  private assertValidStepUpToken(userId: string, token: string): void {
+    const secret = this.config.get<string>('JWT_SECRET');
+    if (!secret) {
+      throw new Error('JWT_SECRET not configured');
+    }
+
+    let decoded: jwt.JwtPayload & { sub?: string; type?: string };
+    try {
+      const verified = jwt.verify(token, secret);
+      if (
+        !verified ||
+        typeof verified !== 'object' ||
+        Array.isArray(verified)
+      ) {
+        throw new UnauthorizedException('Invalid step-up token');
+      }
+      decoded = verified as jwt.JwtPayload & { sub?: string; type?: string };
+    } catch {
+      throw new UnauthorizedException('Invalid or expired step-up token');
+    }
+
+    if (decoded.sub !== userId || decoded.type !== 'mfa_step_up') {
+      throw new UnauthorizedException('Step-up token does not match this user');
+    }
+  }
+
+  private verifyTotpForUser(
+    userId: string,
+    storedSecret: string | null,
+    token: string,
+    action: 'verify' | 'disable' | 'login' | 'sensitive',
+  ): void {
+    if (!storedSecret) {
+      throw new UnauthorizedException('2FA is not enabled for this account');
+    }
+
+    this.assertTwoFactorAttemptAllowed(userId, action);
+    const resolvedSecret = this.decryptTwoFactorSecret(storedSecret);
+    const isValid = speakeasy.totp.verify({
+      secret: resolvedSecret,
+      encoding: 'base32',
+      token,
+      window: 1,
+    });
+
+    if (!isValid) {
+      this.registerTwoFactorFailure(userId, action);
+      throw new UnauthorizedException('Invalid MFA token');
+    }
+
+    this.clearTwoFactorFailures(userId, action);
+  }
+
+  private async assertSensitiveActionMfa(
+    user: {
+      id: string;
+      mfaRequired: boolean;
+      twoFactorEnabled: boolean;
+      twoFactorSecret: string | null;
+    },
+    auditAction: string,
+    input?: MfaConfirmationInput,
+    missingProofMessage: string = 'Fresh MFA verification is required for this action',
+  ): Promise<void> {
+    const hasPasskeys =
+      (await this.prisma.passkeyCredential.count({
+        where: { userId: user.id },
+      })) > 0;
+    const mfaEnforced =
+      user.mfaRequired || user.twoFactorEnabled || hasPasskeys;
+    if (!mfaEnforced) {
+      return;
+    }
+
+    const stepUpToken = input?.stepUpToken?.trim();
+    if (stepUpToken) {
+      this.assertValidStepUpToken(user.id, stepUpToken);
+      return;
+    }
+
+    const twoFactorToken = input?.twoFactorToken?.trim();
+    if (twoFactorToken) {
+      if (!user.twoFactorEnabled) {
+        throw new UnauthorizedException(
+          'Two-factor authentication is not enabled for this account',
+        );
+      }
+      this.verifyTotpForUser(
+        user.id,
+        user.twoFactorSecret,
+        twoFactorToken,
+        'sensitive',
+      );
+      return;
+    }
+
+    const recoveryCode = input?.recoveryCode?.trim();
+    if (recoveryCode) {
+      this.assertTwoFactorAttemptAllowed(user.id, 'sensitive');
+      const consumed = await this.consumeRecoveryCode(user.id, recoveryCode);
+      if (!consumed) {
+        this.registerTwoFactorFailure(user.id, 'sensitive');
+        throw new UnauthorizedException('Invalid recovery code');
+      }
+      this.clearTwoFactorFailures(user.id, 'sensitive');
+      await this.recordAuditEvent({
+        actor: user.id,
+        action: 'MFA_RECOVERY_CODE_USED',
+        resource: 'User',
+        resourceId: user.id,
+        details: {
+          context: auditAction,
+        },
+      });
+      return;
+    }
+
+    throw new UnauthorizedException(missingProofMessage);
+  }
+
+  private async sendMfaSecurityAlert(
+    user: {
+      id: string;
+      email: string | null;
+      name: string | null;
+      zoneId?: string | null;
+      country?: string | null;
+      region?: string | null;
+    } | null,
+    subject: string,
+    actionMessage: string,
+  ): Promise<void> {
+    if (!user?.email) return;
+
+    const html = `
+      <p>Hello ${user.name || 'there'},</p>
+      <p>${actionMessage}</p>
+      <p>Time: ${new Date().toISOString()}</p>
+      <p>If this was not you, reset your password immediately and contact support.</p>
+    `;
+
+    try {
+      await this.mailService.sendMail(user.email, subject, html, {
+        userId: user.id,
+        zoneId: user.zoneId,
+        country: user.country,
+        region: user.region,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to send MFA security alert (${subject})`,
+        String(error).replace(/[\n\r]/g, ''),
+      );
+    }
   }
 
   // 2FA Methods
 
   private getTwoFactorAttemptKey(
     userId: string,
-    action: 'verify' | 'disable' | 'login',
+    action: 'verify' | 'disable' | 'login' | 'sensitive',
   ) {
     return `${userId}:${action}`;
   }
 
   private assertTwoFactorAttemptAllowed(
     userId: string,
-    action: 'verify' | 'disable' | 'login',
+    action: 'verify' | 'disable' | 'login' | 'sensitive',
   ) {
     const key = this.getTwoFactorAttemptKey(userId, action);
     const state = this.twoFactorAttempts.get(key);
@@ -3989,7 +5331,7 @@ export class AuthService {
 
   private registerTwoFactorFailure(
     userId: string,
-    action: 'verify' | 'disable' | 'login',
+    action: 'verify' | 'disable' | 'login' | 'sensitive',
   ) {
     const key = this.getTwoFactorAttemptKey(userId, action);
     const now = Date.now();
@@ -4010,7 +5352,7 @@ export class AuthService {
 
   private clearTwoFactorFailures(
     userId: string,
-    action: 'verify' | 'disable' | 'login',
+    action: 'verify' | 'disable' | 'login' | 'sensitive',
   ) {
     this.twoFactorAttempts.delete(this.getTwoFactorAttemptKey(userId, action));
   }
@@ -4431,7 +5773,8 @@ export class AuthService {
     userId: string,
     currentPassword: string,
     newPassword: string,
-  ) {
+    confirmation?: MfaConfirmationInput,
+  ): Promise<{ success: boolean; message: string }> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
     if (!user.passwordHash)
@@ -4444,11 +5787,24 @@ export class AuthService {
     if (!isPasswordValid)
       throw new UnauthorizedException('Invalid current password');
 
+    await this.assertSensitiveActionMfa(
+      {
+        id: user.id,
+        mfaRequired: Boolean(user.mfaRequired),
+        twoFactorEnabled: Boolean(user.twoFactorEnabled),
+        twoFactorSecret: user.twoFactorSecret,
+      },
+      'PASSWORD_CHANGE',
+      confirmation,
+      'Changing password requires recent MFA verification',
+    );
+
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await this.prisma.user.update({
       where: { id: userId },
       data: { passwordHash: hashedPassword, mustChangePassword: false },
     });
+    await this.forceLogoutUser(userId);
 
     try {
       if (user.email) {

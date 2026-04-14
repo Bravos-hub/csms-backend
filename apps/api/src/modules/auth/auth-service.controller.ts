@@ -32,6 +32,13 @@ import {
   Generate2faDto,
   Verify2faDto,
   Disable2faDto,
+  PasskeyLoginOptionsDto,
+  PasskeyRegistrationOptionsDto,
+  PasskeyRegistrationVerifyDto,
+  PasskeyAuthenticationVerifyDto,
+  StepUpPasskeyVerifyDto,
+  RegenerateRecoveryCodesDto,
+  RemovePasskeyDto,
   InviteUserDto,
   UpdateUserDto,
   ServiceTokenRequestDto,
@@ -63,6 +70,9 @@ type PasswordResetBody = {
 type ChangePasswordBody = {
   currentPassword?: string;
   newPassword?: string;
+  twoFactorToken?: string;
+  stepUpToken?: string;
+  recoveryCode?: string;
 };
 
 @ApiTags('Authentication')
@@ -127,6 +137,52 @@ export class AuthController {
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
     };
+  }
+
+  @Post('mfa/passkeys/login/options')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Begin passkey login challenge' })
+  async beginPasskeyLogin(
+    @Body() body: PasskeyLoginOptionsDto,
+    @Req() req: Request,
+  ) {
+    return this.authService.generatePasskeyLoginOptions(
+      body,
+      this.buildMonitoringContext(req, {
+        route: 'passkey_login_options',
+        identifier: body.email || body.phone,
+      }),
+    );
+  }
+
+  @Post('mfa/passkeys/login/verify')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Verify passkey login challenge' })
+  async verifyPasskeyLogin(
+    @Body() body: PasskeyAuthenticationVerifyDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.verifyPasskeyLogin(
+      body.challengeId,
+      body.response,
+      this.buildMonitoringContext(req, {
+        route: 'passkey_login_verify',
+      }),
+    );
+
+    res.cookie(
+      COOKIE_NAMES.ACCESS_TOKEN,
+      result.accessToken,
+      getCookieOptions(false),
+    );
+    res.cookie(
+      COOKIE_NAMES.REFRESH_TOKEN,
+      result.refreshToken,
+      getCookieOptions(true),
+    );
+
+    return result;
   }
 
   @Post('refresh')
@@ -419,6 +475,105 @@ export class AuthController {
       body.token,
       body.currentPassword,
     );
+  }
+
+  @Post('mfa/passkeys/register/options')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Generate passkey registration options' })
+  generatePasskeyRegistrationOptions(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: PasskeyRegistrationOptionsDto,
+  ) {
+    const userId = this.getAuthenticatedUserId(req);
+    if (!userId)
+      throw new BadRequestException('Authenticated user is required');
+    return this.authService.generatePasskeyRegistrationOptions(userId, {
+      currentPassword: body.currentPassword,
+      twoFactorToken: body.twoFactorToken,
+    });
+  }
+
+  @Post('mfa/passkeys/register/verify')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Verify passkey registration response' })
+  verifyPasskeyRegistration(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: PasskeyRegistrationVerifyDto,
+  ) {
+    const userId = this.getAuthenticatedUserId(req);
+    if (!userId)
+      throw new BadRequestException('Authenticated user is required');
+    return this.authService.verifyPasskeyRegistration(userId, {
+      challengeId: body.challengeId,
+      response: body.response,
+      label: body.label,
+    });
+  }
+
+  @Get('mfa/passkeys')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'List enrolled passkeys' })
+  listPasskeys(@Req() req: AuthenticatedRequest) {
+    const userId = this.getAuthenticatedUserId(req);
+    if (!userId)
+      throw new BadRequestException('Authenticated user is required');
+    return this.authService.listPasskeys(userId);
+  }
+
+  @Delete('mfa/passkeys/:credentialId')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Remove an enrolled passkey' })
+  removePasskey(
+    @Param('credentialId') credentialId: string,
+    @Req() req: AuthenticatedRequest,
+    @Body() body: RemovePasskeyDto,
+  ) {
+    const userId = this.getAuthenticatedUserId(req);
+    if (!userId)
+      throw new BadRequestException('Authenticated user is required');
+    return this.authService.removePasskey(userId, credentialId, body);
+  }
+
+  @Post('mfa/passkeys/step-up/options')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Generate passkey step-up challenge options' })
+  generatePasskeyStepUpOptions(@Req() req: AuthenticatedRequest) {
+    const userId = this.getAuthenticatedUserId(req);
+    if (!userId)
+      throw new BadRequestException('Authenticated user is required');
+    return this.authService.generatePasskeyStepUpOptions(userId);
+  }
+
+  @Post('mfa/passkeys/step-up/verify')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Verify passkey step-up challenge' })
+  verifyPasskeyStepUp(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: StepUpPasskeyVerifyDto,
+  ) {
+    const userId = this.getAuthenticatedUserId(req);
+    if (!userId)
+      throw new BadRequestException('Authenticated user is required');
+    return this.authService.verifyPasskeyStepUp(
+      userId,
+      body.challengeId,
+      body.response,
+    );
+  }
+
+  @Post('mfa/recovery-codes/regenerate')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Regenerate one-time MFA recovery codes' })
+  regenerateRecoveryCodes(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: RegenerateRecoveryCodesDto,
+  ) {
+    const userId = this.getAuthenticatedUserId(req);
+    if (!userId)
+      throw new BadRequestException('Authenticated user is required');
+    return this.authService.regenerateRecoveryCodes(userId, body);
   }
 
   @Post('password/reset')
@@ -850,6 +1005,11 @@ export class UsersController {
       userId,
       body.currentPassword,
       body.newPassword,
+      {
+        twoFactorToken: body.twoFactorToken,
+        stepUpToken: body.stepUpToken,
+        recoveryCode: body.recoveryCode,
+      },
     );
   }
 
