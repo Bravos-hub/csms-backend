@@ -37,6 +37,7 @@ interface LegacyEvseTransactionPayload {
 export class LegacyEvseMqttAdapterService extends BaseMqttAdapter {
   adapterName = 'LEGACY_EVSE_ADAPTER';
   private readonly logger = new Logger(LegacyEvseMqttAdapterService.name);
+  private processedMessages = new Map<string, Set<string>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -64,7 +65,7 @@ export class LegacyEvseMqttAdapterService extends BaseMqttAdapter {
           errors: ['Missing or invalid type'],
         };
       }
-      if (!parsed.data || typeof parsed.data !== 'object') {
+      if (!parsed.data || typeof parsed.data !== 'object' || Array.isArray(parsed.data)) {
         return {
           valid: false,
           errors: ['Missing or invalid data payload'],
@@ -84,6 +85,22 @@ export class LegacyEvseMqttAdapterService extends BaseMqttAdapter {
         ],
       };
     }
+  }
+
+  private validateCapabilities(
+    capabilities: unknown,
+  ): AdapterDeviceInfo['capabilities'] {
+    if (
+      capabilities === null ||
+      capabilities === undefined ||
+      typeof capabilities !== 'object'
+    ) {
+      return {} as AdapterDeviceInfo['capabilities'];
+    }
+    if (Array.isArray(capabilities)) {
+      return {} as AdapterDeviceInfo['capabilities'];
+    }
+    return capabilities as AdapterDeviceInfo['capabilities'];
   }
 
   async lookupDeviceRegistry(
@@ -108,7 +125,7 @@ export class LegacyEvseMqttAdapterService extends BaseMqttAdapter {
       internalStationId: registry.stationId || '',
       internalSiteId: registry.siteId,
       tenantId: registry.tenantId,
-      capabilities: registry.capabilities as AdapterDeviceInfo['capabilities'],
+      capabilities: this.validateCapabilities(registry.capabilities),
     };
   }
 
@@ -139,6 +156,28 @@ export class LegacyEvseMqttAdapterService extends BaseMqttAdapter {
     messageId: string,
     timestamp: Date,
   ): Promise<boolean> {
+    if (!messageId) return false;
+
+    let deviceCache = this.processedMessages.get(deviceId);
+    if (!deviceCache) {
+      deviceCache = new Set<string>();
+      this.processedMessages.set(deviceId, deviceCache);
+    }
+
+    if (deviceCache.has(messageId)) {
+      this.logger.debug(
+        `Duplicate message ignored: ${deviceId} / ${messageId}`,
+      );
+      return true;
+    }
+
+    deviceCache.add(messageId);
+
+    if (deviceCache.size > 1000) {
+      deviceCache.clear();
+      deviceCache.add(messageId);
+    }
+
     return false;
   }
 
@@ -168,11 +207,18 @@ export class LegacyEvseMqttAdapterService extends BaseMqttAdapter {
       deviceInfo.tenantId,
       deviceInfo.vendorDeviceId,
       topic,
-      rawPayload as unknown as any,
+      rawPayload as unknown as Record<string, unknown>,
       rawPayload.type,
     );
 
-    const messageId = String(rawPayload.ts || Date.now());
+    if (!rawPayload.ts) {
+      this.logger.warn(
+        `Ignoring payload for device ${rawPayload.device_id}: missing timestamp (ts)`,
+      );
+      return;
+    }
+
+    const messageId = rawPayload.ts;
     const isDuplicate = await this.deduplicateEvent(
       deviceInfo.vendorDeviceId,
       messageId,
@@ -198,7 +244,7 @@ export class LegacyEvseMqttAdapterService extends BaseMqttAdapter {
             current: statusData.current || 0,
             vendorStatus: statusData.vendorStatus || '',
           };
-          this.eventPublisher.publishLegacyEvseStatus(evt, deviceInfo.tenantId);
+          await this.eventPublisher.publishLegacyEvseStatus(evt, deviceInfo.tenantId);
           break;
         }
         case 'TRANSACTION': {
@@ -219,7 +265,7 @@ export class LegacyEvseMqttAdapterService extends BaseMqttAdapter {
             energyDelivered: txData.energyDelivered || 0,
             status: this.normalizeTransactionStatus(txData.status),
           };
-          this.eventPublisher.publishLegacyEvseTransaction(
+          await this.eventPublisher.publishLegacyEvseTransaction(
             evt,
             deviceInfo.tenantId,
           );
@@ -250,7 +296,7 @@ export class LegacyEvseMqttAdapterService extends BaseMqttAdapter {
           tenantId,
           vendorDeviceId,
           topic,
-          payload: payload as any,
+          payload: payload as Record<string, unknown> as never,
           normalizedEventType: eventType,
           processedAt: new Date(),
         },

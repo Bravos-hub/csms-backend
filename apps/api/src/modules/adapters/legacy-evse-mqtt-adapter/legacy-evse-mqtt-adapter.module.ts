@@ -4,7 +4,7 @@ import { PrismaModule } from '../../../prisma.module';
 import { LegacyEvseMqttAdapterService } from './legacy-evse-mqtt-adapter.service';
 
 @Module({
-  imports: [MqttModule.forRoot(), PrismaModule],
+  imports: [MqttModule, PrismaModule],
   providers: [LegacyEvseMqttAdapterService],
   exports: [LegacyEvseMqttAdapterService],
 })

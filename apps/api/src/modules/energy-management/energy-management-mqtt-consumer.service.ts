@@ -44,7 +44,7 @@ interface SmartChargingCommandPayload {
     | 'REMOTE_STOP'
     | 'SET_AVAILABILITY';
   payload: Record<string, unknown>;
-  timestamp: Date;
+  timestamp: string;
 }
 
 @Injectable()
@@ -73,6 +73,7 @@ export class EnergyManagementMqttConsumer {
 
     const station = await this.prisma.station.findFirst({
       where: { siteId: data.siteId },
+      orderBy: { createdAt: 'asc' },
     });
 
     if (!station) {
@@ -88,8 +89,8 @@ export class EnergyManagementMqttConsumer {
       },
     });
 
-    for (const group of groups) {
-      await this.prisma.energyTelemetrySnapshot.create({
+    const snapshotOps = groups.map((group) =>
+      this.prisma.energyTelemetrySnapshot.create({
         data: {
           groupId: group.id,
           stationId: station.id,
@@ -104,12 +105,22 @@ export class EnergyManagementMqttConsumer {
           nonEvLoadAmpsPhase3: 0,
           freshnessSec: 0,
         },
-      });
+      }),
+    );
 
-      await this.prisma.energyLoadGroup.update({
+    const groupUpdateOps = groups.map((group) =>
+      this.prisma.energyLoadGroup.update({
         where: { id: group.id },
         data: { latestTelemetryAt: new Date() },
-      });
+      }),
+    );
+
+    try {
+      await this.prisma.$transaction([...snapshotOps, ...groupUpdateOps]);
+    } catch (error) {
+      this.logger.error(
+        `Failed to process meter reading for ${data.meterId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -133,6 +144,11 @@ export class EnergyManagementMqttConsumer {
 
     if (!pack) {
       this.logger.warn(`Unknown battery pack: ${data.packSerialNumber}`);
+      return;
+    }
+
+    if (typeof data.soc !== 'number' || data.soc < 0 || data.soc > 100) {
+      this.logger.warn(`Invalid SoC value ${data.soc} for pack ${data.packSerialNumber}, expected 0-100`);
       return;
     }
 
@@ -163,9 +179,23 @@ export class EnergyManagementMqttConsumer {
 
     const station = await this.prisma.station.findFirst({
       where: { siteId: data.siteId },
+      orderBy: { createdAt: 'asc' },
     });
 
     if (!station) {
+      return;
+    }
+
+    const profile = await this.prisma.energyDerProfile.findUnique({
+      where: {
+        tenantId_stationId: {
+          tenantId,
+          stationId: station.id,
+        },
+      },
+    });
+
+    if (!profile?.solarEnabled) {
       return;
     }
 
@@ -177,34 +207,31 @@ export class EnergyManagementMqttConsumer {
       },
     });
 
-    for (const group of groups) {
-      const profile = await this.prisma.energyDerProfile.findUnique({
-        where: {
-          tenantId_stationId: {
-            tenantId,
-            stationId: station.id,
-          },
+    const maxSolar = profile.maxSolarContributionKw || 0;
+    const availablePower = Math.min(data.powerOutput, maxSolar);
+
+    const snapshotOps = groups.map((group) =>
+      this.prisma.energyTelemetrySnapshot.create({
+        data: {
+          groupId: group.id,
+          stationId: station.id,
+          sampledAt: new Date(),
+          meterSource: `pv-${data.pvSystemId}`,
+          meterPlacement: 'DERIVED' as any,
+          availableAmpsPhase1: Math.round((availablePower * 1000) / 3 / 230),
+          availableAmpsPhase2: Math.round((availablePower * 1000) / 3 / 230),
+          availableAmpsPhase3: Math.round((availablePower * 1000) / 3 / 230),
+          freshnessSec: 0,
         },
-      });
+      }),
+    );
 
-      if (profile?.solarEnabled) {
-        const maxSolar = profile.maxSolarContributionKw || 0;
-        const availablePower = Math.min(data.powerOutput, maxSolar);
-
-        await this.prisma.energyTelemetrySnapshot.create({
-          data: {
-            groupId: group.id,
-            stationId: station.id,
-            sampledAt: new Date(),
-            meterSource: `pv-${data.pvSystemId}`,
-            meterPlacement: 'DERIVED' as any,
-            availableAmpsPhase1: Math.round((availablePower * 1000) / 3 / 230),
-            availableAmpsPhase2: Math.round((availablePower * 1000) / 3 / 230),
-            availableAmpsPhase3: Math.round((availablePower * 1000) / 3 / 230),
-            freshnessSec: 0,
-          },
-        });
-      }
+    try {
+      await this.prisma.$transaction(snapshotOps);
+    } catch (error) {
+      this.logger.error(
+        `Failed to process PV output for ${data.pvSystemId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -223,11 +250,19 @@ export class EnergyManagementMqttConsumer {
     this.logger.debug(`Received smart charging command for ${data.chargerId}`);
 
     if (data.commandType === 'SET_POWER_LIMIT') {
-      const limitWatts = data.payload.maxPowerWatts as number;
-      if (limitWatts === undefined) {
-        this.logger.warn('Missing maxPowerWatts in SET_POWER_LIMIT command');
+      const rawValue = data.payload.maxPowerWatts;
+      const limitWatts = typeof rawValue === 'number' && Number.isFinite(rawValue)
+        ? rawValue
+        : typeof rawValue === 'string'
+          ? Number(rawValue)
+          : undefined;
+
+      if (!Number.isFinite(limitWatts)) {
+        this.logger.warn(`Invalid maxPowerWatts in SET_POWER_LIMIT command: ${rawValue}`);
         return;
       }
+
+      const limitAmps = Math.round((limitWatts as number) / 230);
 
       const chargePoint = await this.prisma.chargePoint.findFirst({
         where: { ocppId: data.chargerId },
@@ -264,7 +299,7 @@ export class EnergyManagementMqttConsumer {
           await this.prisma.energyLoadGroupMembership.update({
             where: { id: group.memberships[0].id },
             data: {
-              lastAppliedAmps: Math.round(limitWatts / 230),
+              lastAppliedAmps: limitAmps,
               lastCommandAt: new Date(),
               lastCommandStatus: 'APPLIED',
             },
@@ -298,16 +333,17 @@ export class EnergyManagementMqttConsumer {
     commandType: 'SET_POWER_LIMIT',
     payload: Record<string, unknown>,
   ): Promise<void> {
-    const event: SmartChargingCommandPayload = {
+    const timestamp = new Date();
+    const event = {
       tenantId,
       siteId,
       chargerId,
       commandType,
       payload,
-      timestamp: new Date(),
+      timestamp,
     };
 
-    this.eventPublisher.publishSmartChargingCommand(event, tenantId);
+    await this.eventPublisher.publishSmartChargingCommand(event, tenantId);
   }
 
   private extractTenantFromTopic(topic: string): string | null {

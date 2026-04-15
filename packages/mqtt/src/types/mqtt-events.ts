@@ -75,6 +75,12 @@ export interface MeterReadingEvent extends MqttEventBase {
   frequency: number;
 }
 
+export interface PvOutputEvent extends MqttEventBase {
+  pvSystemId: string;
+  powerOutput: number;
+  irradiance?: number;
+}
+
 export interface SmartChargingCommandEvent extends MqttEventBase {
   chargerId: string;
   commandType:
@@ -112,6 +118,7 @@ export type MqttEvent =
   | ChargerStatusEvent
   | ChargerTransactionEvent
   | MeterReadingEvent
+  | PvOutputEvent
   | SmartChargingCommandEvent
   | LegacyEvseStatusEvent
   | LegacyEvseTransactionEvent;

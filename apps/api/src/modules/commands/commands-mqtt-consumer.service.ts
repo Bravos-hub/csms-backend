@@ -44,7 +44,7 @@ export class CommandsMqttConsumer {
     );
 
     const command = await this.prisma.command.findFirst({
-      where: { correlationId: data.commandId },
+      where: { correlationId: data.commandId, tenantId },
     });
 
     if (!command) {
@@ -52,16 +52,25 @@ export class CommandsMqttConsumer {
       return;
     }
 
-    const updateData: Prisma.CommandUpdateInput = {
-      status:
-        data.status === 'COMPLETED'
-          ? 'COMPLETED'
-          : data.status === 'FAILED'
-            ? 'FAILED'
-            : 'COMPLETED',
+    if (command.tenantId !== tenantId) {
+      this.logger.warn(
+        `Tenant mismatch for command ${data.commandId}: expected ${command.tenantId}, got ${tenantId}`,
+      );
+      return;
+    }
+
+    const statusMap: Record<string, string> = {
+      COMPLETED: 'COMPLETED',
+      FAILED: 'FAILED',
+      REJECTED: 'FAILED',
+      ACCEPTED: 'ACCEPTED',
     };
 
-    if (data.status === 'COMPLETED' || data.status === 'FAILED') {
+    const updateData: Prisma.CommandUpdateInput = {
+      status: statusMap[data.status] || 'PENDING',
+    };
+
+    if (data.status === 'COMPLETED' || data.status === 'FAILED' || data.status === 'REJECTED') {
       updateData.completedAt = new Date();
     }
 
@@ -86,7 +95,7 @@ export class CommandsMqttConsumer {
     });
   }
 
-  async publishCommand(
+  async createCommand(
     tenantId: string,
     siteId: string,
     chargerId: string,
@@ -95,6 +104,7 @@ export class CommandsMqttConsumer {
     correlationId?: string,
   ): Promise<string> {
     const commandId = correlationId || `mqtt-cmd-${Date.now()}`;
+    const finalCorrelationId = correlationId ?? commandId;
 
     await this.prisma.command.create({
       data: {
@@ -106,12 +116,12 @@ export class CommandsMqttConsumer {
         payload: payload as Prisma.InputJsonValue | undefined,
         status: 'PENDING',
         requestedAt: new Date(),
-        correlationId,
+        correlationId: finalCorrelationId,
       },
     });
 
     this.logger.debug(
-      `Published command ${commandId} to MQTT for charger ${chargerId}`,
+      `Created command ${commandId} for charger ${chargerId}`,
     );
 
     return commandId;

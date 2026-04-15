@@ -60,9 +60,7 @@ export class SessionMqttConsumer {
       return;
     }
 
-    this.logger.debug(
-      `Handling charger transaction started: ${data.transactionId}`,
-    );
+    this.logger.debug(`Handling charger transaction started: ${data.transactionId}`);
 
     const chargePoint = await this.prisma.chargePoint.findFirst({
       where: { ocppId: data.chargerId },
@@ -74,30 +72,46 @@ export class SessionMqttConsumer {
       return;
     }
 
+    const station = await this.prisma.station.findUnique({
+      where: { id: chargePoint.stationId },
+      include: { site: { include: { tenants: true } } },
+    });
+
+    if (!station?.site?.tenants?.some((t: { id: string }) => t.id === tenantId)) {
+      this.logger.warn(`Charger ${data.chargerId} does not belong to tenant ${tenantId}`);
+      return;
+    }
+
     const existingSession = await this.prisma.session.findFirst({
       where: { ocppTxId: data.transactionId },
     });
 
     if (existingSession) {
-      this.logger.debug(
-        `Session already exists for transaction: ${data.transactionId}`,
-      );
+      this.logger.debug(`Session already exists for transaction: ${data.transactionId}`);
       return;
     }
 
-    await this.prisma.session.create({
-      data: {
-        stationId: chargePoint.stationId,
-        ocppId: chargePoint.ocppId,
-        ocppTxId: data.transactionId,
-        connectorId: 1,
-        idTag: data.rfidTag,
-        userId: data.userId,
-        startTime: new Date(data.startTime),
-        status: 'ACTIVE',
-        meterStart: 0,
-      },
-    });
+    try {
+      await this.prisma.session.create({
+        data: {
+          stationId: chargePoint.stationId,
+          ocppId: chargePoint.ocppId,
+          ocppTxId: data.transactionId,
+          connectorId: 1,
+          idTag: data.rfidTag,
+          userId: data.userId,
+          startTime: new Date(data.startTime),
+          status: 'ACTIVE',
+          meterStart: 0,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('Unique constraint')) {
+        this.logger.debug(`Session already exists (race condition) for transaction: ${data.transactionId}`);
+        return;
+      }
+      throw error;
+    }
   }
 
   @EventPattern('v1/+/+/+/charger/+/transaction/updated')
@@ -112,18 +126,21 @@ export class SessionMqttConsumer {
       return;
     }
 
-    this.logger.debug(
-      `Handling charger transaction updated: ${data.transactionId}`,
-    );
+    this.logger.debug(`Handling charger transaction updated: ${data.transactionId}`);
 
     const session = await this.prisma.session.findFirst({
       where: { ocppTxId: data.transactionId },
+      include: { chargePoint: { include: { station: { include: { site: { include: { tenants: true } } } } } } } } },
     });
 
     if (!session) {
-      this.logger.warn(
-        `Session not found for transaction: ${data.transactionId}`,
-      );
+      this.logger.warn(`Session not found for transaction: ${data.transactionId}`);
+      return;
+    }
+
+    const sessionTenantIds = session.chargePoint?.station?.site?.tenants?.map((t: { id: string }) => t.id) || [];
+    if (!sessionTenantIds.includes(tenantId)) {
+      this.logger.warn(`Session ${session.id} does not belong to tenant ${tenantId}`);
       return;
     }
 
@@ -154,8 +171,9 @@ export class SessionMqttConsumer {
 
     this.logger.debug(`Handling battery swap completed: ${data.swapSessionId}`);
 
-    const station = await this.prisma.station.findFirst({
+    const station = await this.prisma.station.findUnique({
       where: { id: data.stationId },
+      include: { site: { include: { tenants: true } } },
     });
 
     if (!station) {
@@ -163,22 +181,47 @@ export class SessionMqttConsumer {
       return;
     }
 
-    await this.prisma.session.create({
-      data: {
-        stationId: data.stationId,
-        ocppId: data.stationId,
-        ocppTxId: data.swapSessionId,
-        connectorId: 1,
-        userId: data.vehicleId,
-        startTime: new Date(),
-        endTime: data.duration
-          ? new Date(Date.now() - data.duration * 1000)
-          : new Date(),
-        status: 'STOPPED',
-        meterStart: 0,
-        totalEnergy: 0,
-      },
+    if (!station.site?.tenants?.some((t: { id: string }) => t.id === tenantId)) {
+      this.logger.warn(`Station ${data.stationId} does not belong to tenant ${tenantId}`);
+      return;
+    }
+
+    const existingSession = await this.prisma.session.findFirst({
+      where: { ocppTxId: data.swapSessionId },
     });
+
+    if (existingSession) {
+      this.logger.debug(`Battery swap session already exists: ${data.swapSessionId}`);
+      return;
+    }
+
+    const endTime = new Date();
+    const startTime = data.duration
+      ? new Date(endTime.getTime() - data.duration * 1000)
+      : endTime;
+
+    try {
+      await this.prisma.session.create({
+        data: {
+          stationId: data.stationId,
+          ocppId: data.stationId,
+          ocppTxId: data.swapSessionId,
+          connectorId: 1,
+          userId: data.vehicleId,
+          startTime,
+          endTime,
+          status: 'STOPPED',
+          meterStart: 0,
+          totalEnergy: 0,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('Unique constraint')) {
+        this.logger.debug(`Battery swap session already exists (race condition): ${data.swapSessionId}`);
+        return;
+      }
+      throw error;
+    }
   }
 
   @EventPattern('v1/+/+/+/legacy-evse/+/transaction/+')
@@ -193,9 +236,7 @@ export class SessionMqttConsumer {
       return;
     }
 
-    this.logger.debug(
-      `Handling legacy EVSE transaction: ${data.transactionId}`,
-    );
+    this.logger.debug(`Handling legacy EVSE transaction: ${data.transactionId}`);
 
     const chargePoint = await this.prisma.chargePoint.findFirst({
       where: { ocppId: data.chargerId },
@@ -207,26 +248,59 @@ export class SessionMqttConsumer {
       return;
     }
 
+    const station = await this.prisma.station.findUnique({
+      where: { id: chargePoint.stationId },
+      include: { site: { include: { tenants: true } } },
+    });
+
+    if (!station?.site?.tenants?.some((t: { id: string }) => t.id === tenantId)) {
+      this.logger.warn(`Legacy charger ${data.chargerId} does not belong to tenant ${tenantId}`);
+      return;
+    }
+
     if (data.status === 'STARTED') {
-      await this.prisma.session.create({
-        data: {
-          stationId: chargePoint.stationId,
-          ocppId: chargePoint.ocppId,
-          ocppTxId: data.transactionId,
-          connectorId: 1,
-          idTag: data.rfidTag,
-          userId: data.userId,
-          startTime: new Date(data.startTime),
-          status: 'ACTIVE',
-          meterStart: 0,
-        },
-      });
-    } else if (data.status === 'COMPLETED' || data.status === 'STOPPED') {
-      const session = await this.prisma.session.findFirst({
+      const existingSession = await this.prisma.session.findFirst({
         where: { ocppTxId: data.transactionId },
       });
 
+      if (existingSession) {
+        this.logger.debug(`Legacy EVSE session already exists: ${data.transactionId}`);
+        return;
+      }
+
+      try {
+        await this.prisma.session.create({
+          data: {
+            stationId: chargePoint.stationId,
+            ocppId: chargePoint.ocppId,
+            ocppTxId: data.transactionId,
+            connectorId: 1,
+            idTag: data.rfidTag,
+            userId: data.userId,
+            startTime: new Date(data.startTime),
+            status: 'ACTIVE',
+            meterStart: 0,
+          },
+        });
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('Unique constraint')) {
+          this.logger.debug(`Legacy EVSE session already exists (race condition): ${data.transactionId}`);
+          return;
+        }
+        throw error;
+      }
+    } else if (data.status === 'COMPLETED' || data.status === 'STOPPED') {
+      const session = await this.prisma.session.findFirst({
+        where: { ocppTxId: data.transactionId },
+        include: { chargePoint: { include: { station: { include: { site: { include: { tenants: true } } } } } } } } },
+      });
+
       if (session) {
+        const sessionTenantIds = session.chargePoint?.station?.site?.tenants?.map((t: { id: string }) => t.id) || [];
+        if (!sessionTenantIds.includes(tenantId)) {
+          this.logger.warn(`Session ${session.id} does not belong to tenant ${tenantId}`);
+          return;
+        }
         await this.prisma.session.update({
           where: { id: session.id },
           data: {

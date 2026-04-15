@@ -115,6 +115,29 @@ export class BmsService {
 
     const [, stationId, packSerial] = topicMatch;
 
+    const timestampMs = Date.parse(payload.timestamp);
+    if (isNaN(timestampMs)) {
+      this.logger.warn(`Invalid timestamp in kill command: ${payload.timestamp}`);
+      return { success: false, message: 'Invalid timestamp' };
+    }
+
+    const now = Date.now();
+    const clockSkewMs = 5 * 60 * 1000;
+    if (Math.abs(now - timestampMs) > clockSkewMs) {
+      this.logger.warn(
+        `Stale timestamp in kill command: ${payload.timestamp}, now: ${now}`,
+      );
+      return { success: false, message: 'Timestamp out of acceptable range' };
+    }
+
+    const allowedAdmins = this.configService.get<string>('ALLOWED_REMOTE_KILL_ADMINS')?.split(',') || [];
+    if (allowedAdmins.length > 0 && !allowedAdmins.includes(payload.authorizedBy)) {
+      this.logger.warn(
+        `Unauthorized kill command attempt by ${payload.authorizedBy} for pack ${packSerial}`,
+      );
+      return { success: false, message: 'Unauthorized' };
+    }
+
     const pack = await this.prisma.batteryPack.findUnique({
       where: { serialNumber: packSerial },
     });

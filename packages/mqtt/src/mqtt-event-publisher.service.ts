@@ -7,6 +7,7 @@ import {
   ChargerStatusEvent,
   ChargerTransactionEvent,
   MeterReadingEvent,
+  PvOutputEvent,
   SmartChargingCommandEvent,
   LegacyEvseStatusEvent,
   LegacyEvseTransactionEvent,
@@ -68,6 +69,12 @@ export class MqttEventPublisherService {
     const topic = `v1/${tenantId}/${event.siteId}/meter/${event.meterId}/reading`;
     this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
     this.logger.debug(`Published meter reading to ${topic}`);
+  }
+
+  publishPvOutput(event: PvOutputEvent, tenantId: string): void {
+    const topic = `v1/${tenantId}/${event.siteId}/pv/${event.pvSystemId}/output`;
+    this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
+    this.logger.debug(`Published PV output to ${topic}`);
   }
 
   publishSmartChargingCommand(

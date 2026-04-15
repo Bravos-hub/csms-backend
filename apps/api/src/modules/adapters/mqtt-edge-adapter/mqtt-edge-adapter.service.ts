@@ -69,66 +69,77 @@ export class MqttEdgeAdapterService {
     const topic = context.getTopic();
     const topicParts = topic.split('/');
     const siteId = topicParts[2];
-    const bmsSerial = data.bmsSerial || topicParts[topicParts.length - 1];
+    const bmsSerial = data.bmsSerial || topicParts[4];
 
     this.logger.debug(`Processing BMS telemetry from ${bmsSerial}`);
 
-    const registry = await this.prisma.mqttDeviceRegistry.findFirst({
-      where: {
-        vendorDeviceId: bmsSerial,
-        integrationType: 'BMS',
-        isActive: true,
-      },
-    });
-
-    if (!registry) {
-      this.logger.warn(`Unknown BMS device: ${bmsSerial}`);
-      return;
-    }
-
-    const pack = await this.prisma.batteryPack.findUnique({
-      where: { serialNumber: bmsSerial },
-    });
-
-    if (pack) {
-      await this.prisma.batteryPack.update({
-        where: { id: pack.id },
-        data: {
-          soc: data.soc ?? pack.soc,
-          soh: data.soh ?? pack.soh,
-          voltage: data.voltage ?? pack.voltage,
-          current: data.current ?? pack.current,
+    try {
+      const registry = await this.prisma.mqttDeviceRegistry.findFirst({
+        where: {
+          vendorDeviceId: bmsSerial,
+          integrationType: 'BMS',
+          isActive: true,
         },
       });
 
-      await this.prisma.batteryTelemetry.create({
-        data: {
-          packId: pack.id,
+      if (!registry) {
+        this.logger.warn(`Unknown BMS device: ${bmsSerial}`);
+        return;
+      }
+
+      const pack = await this.prisma.batteryPack.findUnique({
+        where: { serialNumber: bmsSerial },
+      });
+
+      if (pack) {
+        await this.prisma.batteryPack.update({
+          where: { id: pack.id },
+          data: {
+            soc: data.soc ?? pack.soc,
+            soh: data.soh ?? pack.soh,
+            voltage: data.voltage ?? pack.voltage,
+            current: data.current ?? pack.current,
+          },
+        });
+
+        await this.prisma.batteryTelemetry.create({
+          data: {
+            packId: pack.id,
+            voltage: data.voltage || 0,
+            current: data.current || 0,
+            soc: data.soc || 0,
+            soh: data.soh || null,
+            temps: data.temperature ? [data.temperature] : [],
+            cells: [],
+          },
+        });
+
+        const evt = {
+          tenantId: registry.tenantId,
+          siteId: registry.siteId,
+          timestamp: new Date(),
+          stationId: registry.stationId || '',
+          packSerialNumber: bmsSerial,
+          slotId: 'unknown',
+          soc: data.soc || 0,
+          health: data.soh || 100,
           voltage: data.voltage || 0,
           current: data.current || 0,
-          soc: data.soc || 0,
-          soh: data.soh || null,
-          temps: data.temperature ? [data.temperature] : [],
-          cells: [],
-        },
-      });
-
-      const evt = {
-        tenantId: registry.tenantId,
-        siteId: registry.siteId,
-        timestamp: new Date(),
-        stationId: registry.stationId || '',
-        packSerialNumber: bmsSerial,
-        slotId: 'unknown',
-        soc: data.soc || 0,
-        health: data.soh || 100,
-        voltage: data.voltage || 0,
-        current: data.current || 0,
-        cycles: 0,
-        temperature: data.temperature || 0,
-        status: 'AVAILABLE' as const,
-      };
-      this.eventPublisher.publishBatteryPackState(evt, registry.tenantId);
+          cycles: 0,
+          temperature: data.temperature || 0,
+          status: 'AVAILABLE' as const,
+        };
+        await this.eventPublisher.publishBatteryPackState(evt, registry.tenantId);
+      } else {
+        this.logger.warn(
+          `Battery pack not found for known registry: ${registry.id}, tenant: ${registry.tenantId}, site: ${registry.siteId}, bmsSerial: ${bmsSerial}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Error processing BMS telemetry for ${bmsSerial}: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
     }
   }
 
@@ -140,12 +151,22 @@ export class MqttEdgeAdapterService {
     const topic = context.getTopic();
     const topicParts = topic.split('/');
     const siteId = topicParts[2];
-    const meterId = data.meterId || topicParts[topicParts.length - 1];
+    const meterId = data.meterId || topicParts[4];
 
     this.logger.debug(`Processing meter reading from ${meterId}`);
 
+    const registry = await this.prisma.mqttDeviceRegistry.findFirst({
+      where: {
+        vendorDeviceId: meterId,
+        siteId,
+        isActive: true,
+      },
+    });
+
+    const tenantId = registry?.tenantId || 'default';
+
     const evt = {
-      tenantId: 'default',
+      tenantId,
       siteId,
       timestamp: new Date(),
       meterId,
@@ -156,7 +177,7 @@ export class MqttEdgeAdapterService {
       power: data.power || 0,
       frequency: data.frequency || 0,
     };
-    this.eventPublisher.publishMeterReading(evt, 'default');
+    await this.eventPublisher.publishMeterReading(evt, tenantId);
   }
 
   @EventPattern('evzone/edge/+/pv/+/output')
@@ -167,30 +188,30 @@ export class MqttEdgeAdapterService {
     const topic = context.getTopic();
     const topicParts = topic.split('/');
     const siteId = topicParts[2];
+    const pvSystemId = data.pvSystemId || topicParts[4];
 
-    this.logger.debug(`Processing PV output from ${data.pvSystemId}`);
+    this.logger.debug(`Processing PV output from ${pvSystemId}`);
+
+    const registry = await this.prisma.mqttDeviceRegistry.findFirst({
+      where: {
+        vendorDeviceId: pvSystemId,
+        siteId,
+        isActive: true,
+      },
+    });
+
+    const tenantId = registry?.tenantId || 'default';
 
     const evt = {
-      tenantId: 'default',
+      tenantId,
       siteId,
       timestamp: new Date(),
-      pvSystemId: data.pvSystemId,
+      pvSystemId,
       powerOutput: data.powerOutput || 0,
       irradiance: data.irradiance,
     };
 
-    this.eventPublisher.publishMeterReading(
-      {
-        ...evt,
-        meterId: `pv-${data.pvSystemId}`,
-        energyExported: data.powerOutput || 0,
-        energyImported: 0,
-        voltage: 0,
-        current: 0,
-        frequency: 0,
-      } as any,
-      'default',
-    );
+    await this.eventPublisher.publishPvOutput(evt, tenantId);
   }
 
   @EventPattern('evzone/edge/+/building/+/status')
@@ -201,7 +222,7 @@ export class MqttEdgeAdapterService {
     const topic = context.getTopic();
     const topicParts = topic.split('/');
     const siteId = topicParts[2];
-    const systemId = data.systemId || topicParts[topicParts.length - 1];
+    const systemId = data.systemId || topicParts[4];
 
     this.logger.debug(`Processing building controller status from ${systemId}`);
   }
@@ -214,20 +235,23 @@ export class MqttEdgeAdapterService {
     const topic = context.getTopic();
     const topicParts = topic.split('/');
     const siteId = topicParts[2];
-    const bessId = data.bessId || topicParts[topicParts.length - 1];
+    const bessId = data.bessId || topicParts[4];
 
     this.logger.debug(`Processing BESS status from ${bessId}`);
 
     const station = await this.prisma.station.findFirst({
       where: { siteId },
+      orderBy: { createdAt: 'asc' },
     });
 
     if (!station) {
+      this.logger.warn(`No station found for siteId: ${siteId}`);
       return;
     }
 
     const profile = await this.prisma.energyDerProfile.findFirst({
       where: { stationId: station.id, bessEnabled: true },
+      orderBy: { createdAt: 'asc' },
     });
 
     if (profile) {
