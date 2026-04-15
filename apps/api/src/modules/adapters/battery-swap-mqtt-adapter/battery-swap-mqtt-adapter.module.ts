@@ -7,7 +7,7 @@ import { BatterySwapStateMachineService } from './state-machine.service';
 import { BatterySwapMqttAdapterService } from './battery-swap-mqtt-adapter.service';
 
 @Module({
-  imports: [MqttModule, PrismaModule],
+  imports: [MqttModule.forRoot(), PrismaModule],
   providers: [
     BatterySwapPayloadNormalizer,
     BatterySwapDeviceRegistryService,
