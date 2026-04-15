@@ -8,6 +8,8 @@ import {
   ChargerTransactionEvent,
   MeterReadingEvent,
   SmartChargingCommandEvent,
+  LegacyEvseStatusEvent,
+  LegacyEvseTransactionEvent,
 } from './types/mqtt-events';
 import { MqttTenantContextService } from './mqtt-tenant-context.service';
 
@@ -75,5 +77,23 @@ export class MqttEventPublisherService {
     const topic = `v1/${tenantId}/${event.siteId}/smart-charging/${event.chargerId}/command`;
     this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
     this.logger.debug(`Published smart charging command to ${topic}`);
+  }
+
+  publishLegacyEvseStatus(
+    event: LegacyEvseStatusEvent,
+    tenantId: string,
+  ): void {
+    const topic = `v1/${tenantId}/${event.siteId}/legacy-evse/${event.chargerId}/status`;
+    this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
+    this.logger.debug(`Published legacy EVSE status to ${topic}`);
+  }
+
+  publishLegacyEvseTransaction(
+    event: LegacyEvseTransactionEvent,
+    tenantId: string,
+  ): void {
+    const topic = `v1/${tenantId}/${event.siteId}/legacy-evse/${event.chargerId}/transaction`;
+    this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
+    this.logger.debug(`Published legacy EVSE transaction to ${topic}`);
   }
 }

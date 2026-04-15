@@ -64,6 +64,8 @@ import { TenantBrandingModule } from './modules/tenant-branding/tenant-branding.
 import { PaymentsModule } from './modules/payments/payments.module';
 import { MqttModule } from '@app/mqtt';
 import { BatterySwapMqttAdapterModule } from './modules/adapters/battery-swap-mqtt-adapter/battery-swap-mqtt-adapter.module';
+import { LegacyEvseMqttAdapterModule } from './modules/adapters/legacy-evse-mqtt-adapter/legacy-evse-mqtt-adapter.module';
+import { MqttEdgeAdapterModule } from './modules/adapters/mqtt-edge-adapter/mqtt-edge-adapter.module';
 
 @Module({
   imports: [
@@ -134,6 +136,8 @@ import { BatterySwapMqttAdapterModule } from './modules/adapters/battery-swap-mq
     PaymentsModule,
     MqttModule.forRoot(),
     BatterySwapMqttAdapterModule,
+    LegacyEvseMqttAdapterModule,
+    MqttEdgeAdapterModule,
   ],
   controllers: [AppController],
   providers: [
