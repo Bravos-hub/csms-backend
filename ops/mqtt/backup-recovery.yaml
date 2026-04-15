@@ -1,0 +1,317 @@
+---
+# Backup CronJob for EMQX data (production)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: emqx-backup
+  namespace: mqtt-production
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM UTC
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: emqx
+          containers:
+            - name: backup
+              image: amazon/aws-cli:latest
+              command:
+                - sh
+                - -c
+                - |
+                  #!/bin/bash
+                  set -e
+                  
+                  BACKUP_DIR="/tmp/emqx-backup"
+                  BUCKET="s3://evzone-mqtt-backups"
+                  TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+                  BACKUP_NAME="emqx-backup-${TIMESTAMP}"
+                  
+                  # Create backup directory
+                  mkdir -p $BACKUP_DIR
+                  
+                  # Backup EMQX configuration and state
+                  kubectl exec -n mqtt-production emqx-0 -- \
+                    tar czf /tmp/emqx-data.tar.gz /opt/emqx/data
+                  
+                  kubectl cp mqtt-production/emqx-0:/tmp/emqx-data.tar.gz \
+                    $BACKUP_DIR/emqx-data.tar.gz
+                  
+                  # Backup EMQX configuration
+                  kubectl cp mqtt-production/emqx-0:/opt/emqx/etc \
+                    $BACKUP_DIR/etc
+                  
+                  # Create metadata file
+                  cat > $BACKUP_DIR/backup-metadata.json << EOF
+                  {
+                    "backup_time": "$(date -Iseconds)",
+                    "cluster_name": "emqx-production",
+                    "namespace": "mqtt-production",
+                    "backup_type": "full"
+                  }
+                  EOF
+                  
+                  # Upload to S3
+                  aws s3 sync $BACKUP_DIR $BUCKET/$BACKUP_NAME/ \
+                    --region us-east-1 \
+                    --storage-class STANDARD_IA
+                  
+                  # Cleanup
+                  rm -rf $BACKUP_DIR
+                  
+                  echo "Backup completed: $BUCKET/$BACKUP_NAME/"
+              env:
+                - name: AWS_DEFAULT_REGION
+                  value: "us-east-1"
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-backup-credentials
+                      key: access-key-id
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-backup-credentials
+                      key: secret-access-key
+          restartPolicy: OnFailure
+
+---
+# Backup CronJob for EMQX schema and authentication (production)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: emqx-config-backup
+  namespace: mqtt-production
+spec:
+  schedule: "0 3 * * *"  # Daily at 3 AM UTC (after data backup)
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: emqx
+          containers:
+            - name: config-backup
+              image: curlimages/curl:latest
+              command:
+                - sh
+                - -c
+                - |
+                  #!/bin/bash
+                  set -e
+                  
+                  TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+                  CONFIG_FILE="/tmp/emqx-config-${TIMESTAMP}.json"
+                  
+                  # Export EMQX configuration via API
+                  curl -X GET http://emqx:8081/api/v5/nodes \
+                    -H "Authorization: Bearer ${EMQX_API_TOKEN}" \
+                    -o "/tmp/nodes-${TIMESTAMP}.json"
+                  
+                  curl -X GET http://emqx:8081/api/v5/authn \
+                    -H "Authorization: Bearer ${EMQX_API_TOKEN}" \
+                    -o "/tmp/auth-${TIMESTAMP}.json"
+                  
+                  curl -X GET http://emqx:8081/api/v5/authz \
+                    -H "Authorization: Bearer ${EMQX_API_TOKEN}" \
+                    -o "/tmp/authz-${TIMESTAMP}.json"
+                  
+                  # Archive configuration files
+                  tar czf "/tmp/emqx-config-${TIMESTAMP}.tar.gz" \
+                    "/tmp/nodes-${TIMESTAMP}.json" \
+                    "/tmp/auth-${TIMESTAMP}.json" \
+                    "/tmp/authz-${TIMESTAMP}.json"
+                  
+                  # Upload to S3
+                  aws s3 cp "/tmp/emqx-config-${TIMESTAMP}.tar.gz" \
+                    "s3://evzone-mqtt-backups/config-backups/" \
+                    --region us-east-1
+                  
+                  # Cleanup
+                  rm -f "/tmp/emqx-config-${TIMESTAMP}.tar.gz"
+                  rm -f "/tmp/**-${TIMESTAMP}.json"
+                  
+              env:
+                - name: EMQX_API_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: emqx-api-credentials
+                      key: api-token
+                - name: AWS_DEFAULT_REGION
+                  value: "us-east-1"
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-backup-credentials
+                      key: access-key-id
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-backup-credentials
+                      key: secret-access-key
+          restartPolicy: OnFailure
+
+---
+# Recovery Job (manual trigger)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: emqx-restore-from-backup
+  namespace: mqtt-production
+spec:
+  template:
+    spec:
+      serviceAccountName: emqx
+      containers:
+        - name: restore
+          image: amazon/aws-cli:latest
+          command:
+            - sh
+            - -c
+            - |
+              #!/bin/bash
+              set -e
+              
+              BACKUP_NAME=${BACKUP_NAME:-"latest"}
+              BUCKET="s3://evzone-mqtt-backups"
+              RESTORE_DIR="/tmp/restore"
+              
+              echo "Restoring from backup: $BACKUP_NAME"
+              
+              # Create restore directory
+              mkdir -p $RESTORE_DIR
+              
+              # Download backup from S3
+              if [ "$BACKUP_NAME" = "latest" ]; then
+                LATEST=$(aws s3 ls $BUCKET/ --region us-east-1 | sort | tail -n 1 | awk '{print $NF}' | sed 's/\/$//')
+                BACKUP_NAME=$LATEST
+              fi
+              
+              aws s3 sync "$BUCKET/$BACKUP_NAME/" $RESTORE_DIR/ \
+                --region us-east-1
+              
+              # Stop EMQX cluster temporarily
+              kubectl set env statefulset/emqx -n mqtt-production \
+                RESTORE_MODE=true
+              
+              # Wait for pods to restart
+              kubectl rollout restart statefulset/emqx -n mqtt-production
+              kubectl rollout status statefulset/emqx -n mqtt-production
+              
+              # Restore data
+              kubectl exec -n mqtt-production emqx-0 -- \
+                tar xzf /data/emqx-data.tar.gz -C /
+              
+              # Verify restoration
+              kubectl exec -n mqtt-production emqx-0 -- \
+                emqx eval "emqx_status:running_nodes()"
+              
+              echo "Restoration completed"
+          env:
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws-backup-credentials
+                  key: access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws-backup-credentials
+                  key: secret-access-key
+            - name: BACKUP_NAME
+              value: ""  # Set via kubectl create job --from=... --env=
+      restartPolicy: Never
+
+---
+# Retention Policy for S3 backups
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-retention-policy
+  namespace: mqtt-production
+data:
+  retention.yaml: |
+    # S3 Lifecycle Policy (apply manually via AWS console or CLI)
+    # This should be set on the S3 bucket for automatic cleanup
+    Rules:
+      - Id: DeleteOldBackups
+        Status: Enabled
+        Prefix: emqx-backup-
+        Expiration:
+          Days: 90
+      - Id: DeleteOldConfigBackups
+        Status: Enabled
+        Prefix: config-backups/
+        Expiration:
+          Days: 180
+      - Id: TransitionToGlacier
+        Status: Enabled
+        Prefix: emqx-backup-
+        Transitions:
+          - Days: 30
+            StorageClass: GLACIER
+
+---
+# RBAC for backup jobs
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: emqx-backup
+  namespace: mqtt-production
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: emqx-backup
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/exec"]
+    verbs: ["get", "list", "create"]
+  - apiGroups: [""]
+    resources: ["pods/portforward"]
+    verbs: ["get", "create"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get", "list", "patch", "update"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "create", "delete"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: emqx-backup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: emqx-backup
+subjects:
+  - kind: ServiceAccount
+    name: emqx-backup
+    namespace: mqtt-production
+
+---
+# Secret for AWS backup credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aws-backup-credentials
+  namespace: mqtt-production
+type: Opaque
+stringData:
+  access-key-id: "YOUR_AWS_ACCESS_KEY_ID"  # Replace with actual credentials
+  secret-access-key: "YOUR_AWS_SECRET_ACCESS_KEY"  # Replace with actual credentials
+
+---
+# Secret for EMQX API credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: emqx-api-credentials
+  namespace: mqtt-production
+type: Opaque
+stringData:
+  api-token: "YOUR_EMQX_API_TOKEN"  # Generate via EMQX API

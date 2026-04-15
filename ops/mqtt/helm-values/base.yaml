@@ -1,0 +1,202 @@
+# EMQX Helm Values - Base Configuration (Common for all environments)
+# This file contains sensible defaults shared across staging and production
+
+replicaCount: 1  # Override in environment-specific files
+
+image:
+  repository: emqx/emqx
+  pullPolicy: IfNotPresent
+  tag: "5.0.11"  # Specify exact version for reproducibility
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: "emqx"
+
+# EMQX Configuration
+emqxConfig:
+  EMQX_ALLOW_ANONYMOUS: "false"
+  EMQX_DEFAULT_PROTOCOL_VERSION: 4
+  EMQX_LISTENER_TCP_ACCEPTORS: 32
+  EMQX_LISTENER_TCP_BACKLOG: 1024
+  EMQX_LISTENER_TCP_MAX_CONN_RATE: 1000
+  EMQX_LISTENER_TCP_ACTIVE_N: 100
+
+  # Multi-tenant isolation: namespace per tenant tier
+  EMQX_LISTENER_TCP_MOUNT_POINT: "/mqtt"
+
+  # Authentication: Use built-in user database (will be configured via API/ConfigMap)
+  EMQX_AUTH_BUILT_IN_DATABASE_TYPE: "built_in_database"
+
+  # ACL: Enforce topic-based access control
+  EMQX_ACL_ENABLE: "true"
+  EMQX_ACL_CACHE_TTL: "2m"
+
+  # Performance
+  EMQX_BROKER_MAX_PACKET_SIZE: "1MB"
+  EMQX_BROKER_RETAIN_MAX_NUM_RATE: 10000
+  EMQX_BROKER_RETIRE_DELAY: "200ms"
+
+  # Message persistence
+  EMQX_PERSISTENCE_MESSAGES_DIRTY_CACHE_ENABLED: "true"
+  EMQX_PERSISTENCE_MESSAGES_DIRTY_CACHE_SIZE: "32MB"
+
+  # Log level
+  EMQX_LOG_LEVEL: "info"
+  EMQX_LOG_CONSOLE_ENABLE: "true"
+
+# Service configuration
+service:
+  type: ClusterIP
+  ipFamily: "IPv4"
+  ports:
+    mqtt:
+      port: 1883
+      protocol: TCP
+    mqtts:
+      port: 8883
+      protocol: TCP
+    ws:
+      port: 8083
+      protocol: TCP
+    wss:
+      port: 8084
+      protocol: TCP
+    http:
+      port: 18083
+      protocol: TCP
+
+# ServiceMonitor for Prometheus monitoring
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  labels:
+    release: prometheus  # Match your Prometheus label selector
+
+# Metrics endpoint
+metrics:
+  enabled: true
+  type: prometheus
+  port: 8883
+
+# Resource limits
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+# Persistence
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClassName: "standard-rwo"  # Use your cluster's storage class
+  accessMode: ReadWriteOnce
+
+# PodSecurityPolicy
+podSecurityPolicy:
+  enabled: false
+
+# Pod disruption budget (for HA scenarios, set in env-specific)
+podDisruptionBudget:
+  enabled: false
+
+# Health checks
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 3
+
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  successThreshold: 1
+  failureThreshold: 3
+
+# Security context
+securityContext:
+  runAsNonRoot: false
+  runAsUser: 1000
+  fsGroup: 1000
+
+# Node affinity (prefer non-GPU nodes)
+affinity:
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 50
+        preference:
+          matchExpressions:
+            - key: workload-type
+              operator: NotIn
+              values:
+                - gpu-intensive
+
+# Tolerations (allow scheduling on any node)
+tolerations: []
+
+# Init container for setup scripts
+initContainers: []
+
+# Additional environment variables
+env: []
+
+# Additional volumes
+extraVolumes: []
+
+# Additional volume mounts
+extraVolumeMounts: []
+
+# Ingress configuration (disable by default; enable in env-specific)
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: mqtt.evzone.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Dashboard access
+dashboard:
+  enabled: true
+  username: "admin"
+  passwordSecret:
+    name: "emqx-dashboard-password"
+    key: "password"
+
+# User management: Users and ACLs are configured via ConfigMap or API
+# This section defines the template; actual credentials go in env-specific files
+users:
+  # Global template for EVZONE service credentials
+  admin:
+    username: "admin"
+    # Password must be provided via Secret or env override
+    is_superuser: true
+
+authenticators:
+  built_in_database:
+    type: built_in_database
+    enable: true
+
+# Cluster configuration
+clustering:
+  enabled: true
+  discoveryStrategy: manual  # Override with 'k8s' in production for auto-discovery
+
+# For HA/clustering in production, configure Kubernetes discovery:
+# clustering:
+#   enabled: true
+#   discoveryStrategy: k8s
+#   k8s:
+#     apiserver: "https://kubernetes.default.svc:443"
+#     namespace: "mqtt-production"
+#     service: "emqx-headless"

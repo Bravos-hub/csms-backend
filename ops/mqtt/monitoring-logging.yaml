@@ -1,0 +1,353 @@
+---
+# PrometheusRule for EMQX metrics (production)
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: emqx-alerts
+  namespace: mqtt-production
+spec:
+  groups:
+    - name: emqx.alerts
+      interval: 30s
+      rules:
+        # Connection-related alerts
+        - alert: EMQXHighConnectionRate
+          expr: rate(mqtt_connections_active[5m]) > 1000
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "EMQX high connection rate"
+            description: "EMQX is receiving {{ $value }} new connections per second"
+
+        - alert: EMQXConnectionLimitApproaching
+          expr: mqtt_connections_active / mqtt_connections_max > 0.8
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "EMQX connection limit approaching"
+            description: "EMQX usage at {{ $value }}% of max connections"
+
+        # Message queue alerts
+        - alert: EMQXMessageQueueHigh
+          expr: mqtt_messages_queued > 100000
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "EMQX message queue is high"
+            description: "{{ $value }} messages queued"
+
+        - alert: EMQXMessageDropped
+          expr: rate(mqtt_messages_dropped_total[5m]) > 10
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "EMQX dropping messages"
+            description: "{{ $value }} messages/second being dropped"
+
+        # CPU and memory alerts
+        - alert: EMQXHighCPU
+          expr: container_cpu_usage_seconds_total{pod=~"emqx-.*"} > 0.75
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "EMQX pod high CPU usage"
+            description: "Pod {{ $labels.pod }} CPU > 75%"
+
+        - alert: EMQXHighMemory
+          expr: container_memory_usage_bytes{pod=~"emqx-.*"} / container_spec_memory_limit_bytes > 0.85
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "EMQX pod high memory usage"
+            description: "Pod {{ $labels.pod }} memory > 85% of limit"
+
+        # Disk alerts
+        - alert: EMQXDiskSpaceRunningOut
+          expr: |
+            node_filesystem_avail_bytes{mountpoint="/data"} / node_filesystem_size_bytes{mountpoint="/data"} < 0.1
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "EMQX disk space running out"
+            description: "Less than 10% disk space available on /data"
+
+        # Availability alerts
+        - alert: EMQXPodDown
+          expr: up{job="emqx"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "EMQX pod is down"
+            description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is down"
+
+        - alert: EMQXNodeUnhealthy
+          expr: emqx_node_state != 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "EMQX node is unhealthy"
+            description: "Node {{ $labels.node }} state is not healthy"
+
+---
+# ConfigMap for EMQX Prometheus metrics configuration (staging)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: emqx-prometheus-config
+  namespace: mqtt-staging
+data:
+  prometheus.conf: |
+    # EMQX Prometheus integration configuration
+    prometheus_push_gateway_server = "http://prometheus-pushgateway:9091"
+    prometheus_interval = 15000  # 15 seconds
+
+---
+# ConfigMap for EMQX Prometheus metrics configuration (production)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: emqx-prometheus-config
+  namespace: mqtt-production
+data:
+  prometheus.conf: |
+    # EMQX Prometheus integration configuration
+    prometheus_push_gateway_server = "http://prometheus-pushgateway.monitoring:9091"
+    prometheus_interval = 10000  # 10 seconds (more frequent for better granularity)
+
+---
+# Fluentd Configuration for EMQX log aggregation (staging)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-emqx-config
+  namespace: mqtt-staging
+data:
+  emqx.conf: |
+    [INPUT]
+        Name tail
+        Path /var/log/emqx/emqx.log
+        Parser json
+        Tag emqx.*
+        Refresh_Interval 5
+        Mem_Buf_Limit 5MB
+
+    [FILTER]
+        Name kubernetes
+        Match emqx.*
+        Kube_URL https://kubernetes.default.svc:443
+        Kube_CA_File /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        Kube_Token_File /var/run/secrets/kubernetes.io/serviceaccount/token
+        Kube_Tag_Prefix emqx.
+
+    [OUTPUT]
+        Name es
+        Match emqx.*
+        Host elasticsearch.logging
+        Port 9200
+        HTTP_User ${ELASTICSEARCH_USER}
+        HTTP_Passwd ${ELASTICSEARCH_PASSWORD}
+        Index emqx-logs-%Y.%m.%d
+        Type _doc
+
+---
+# Fluentd Configuration for EMQX log aggregation (production)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-emqx-config
+  namespace: mqtt-production
+data:
+  emqx.conf: |
+    [INPUT]
+        Name tail
+        Path /var/log/emqx/emqx.log
+        Parser json
+        Tag emqx.*
+        Refresh_Interval 5
+        Mem_Buf_Limit 10MB
+        Skip_Long_Lines On
+
+    [INPUT]
+        Name tail
+        Path /var/log/emqx/audit.log
+        Parser json
+        Tag emqx.audit
+        Refresh_Interval 5
+        Mem_Buf_Limit 5MB
+
+    [FILTER]
+        Name kubernetes
+        Match emqx.*
+        Kube_URL https://kubernetes.default.svc:443
+        Kube_CA_File /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        Kube_Token_File /var/run/secrets/kubernetes.io/serviceaccount/token
+        Kube_Tag_Prefix emqx.
+        K8S-Logging.Parser On
+        K8S-Logging.Exclude On
+
+    [FILTER]
+        Name modify
+        Match emqx.*
+        Add environment production
+        Add service mqtt-broker
+
+    [OUTPUT]
+        Name es
+        Match emqx.*
+        Host elasticsearch.logging
+        Port 9200
+        HTTP_User ${ELASTICSEARCH_USER}
+        HTTP_Passwd ${ELASTICSEARCH_PASSWORD}
+        Index emqx-logs-%Y.%m.%d
+        Type _doc
+        Retry_Limit 5
+        Trace_Log On
+
+    [OUTPUT]
+        Name es
+        Match emqx.audit
+        Host elasticsearch.logging
+        Port 9200
+        HTTP_User ${ELASTICSEARCH_USER}
+        HTTP_Passwd ${ELASTICSEARCH_PASSWORD}
+        Index emqx-audit-logs-%Y.%m.%d
+        Type _doc
+        Retry_Limit 5
+
+    [OUTPUT]
+        Name aws_cloudwatch_logs
+        Match emqx.*
+        log_group_name /aws/k8s/emqx/mqtt-production
+        log_stream_prefix emqx-
+        region ${AWS_REGION}
+
+---
+# DaemonSet for Fluent Bit to collect EMQX logs (staging)
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluent-bit-emqx
+  namespace: mqtt-staging
+spec:
+  selector:
+    matchLabels:
+      k8s-app: fluent-bit-emqx
+  template:
+    metadata:
+      labels:
+        k8s-app: fluent-bit-emqx
+    spec:
+      serviceAccountName: fluent-bit
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+      containers:
+        - name: fluent-bit
+          image: fluent/fluent-bit:2.0
+          volumeMounts:
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            - name: config
+              mountPath: /fluent-bit/etc/
+          env:
+            - name: ELASTICSEARCH_USER
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-credentials
+                  key: username
+            - name: ELASTICSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-credentials
+                  key: password
+      volumes:
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+        - name: config
+          configMap:
+            name: fluent-bit-emqx-config
+
+---
+# Grafana Dashboard ConfigMap for EMQX (production)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: emqx-dashboard-grafana
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  emqx-dashboard.json: |
+    {
+      "dashboard": {
+        "title": "EMQX Metrics",
+        "description": "EMQX broker metrics including connections, messages, throughput, and system health",
+        "tags": ["mqtt", "emqx", "iot"],
+        "timezone": "browser",
+        "panels": [
+          {
+            "title": "Active Connections",
+            "targets": [
+              {
+                "expr": "mqtt_connections_active"
+              }
+            ]
+          },
+          {
+            "title": "Message Rate",
+            "targets": [
+              {
+                "expr": "rate(mqtt_messages_received_total[5m])"
+              }
+            ]
+          },
+          {
+            "title": "CPU Usage",
+            "targets": [
+              {
+                "expr": "rate(container_cpu_usage_seconds_total{pod=~\"emqx-.*\"}[5m]) * 100"
+              }
+            ]
+          },
+          {
+            "title": "Memory Usage",
+            "targets": [
+              {
+                "expr": "container_memory_usage_bytes{pod=~\"emqx-.*\"} / 1024 / 1024"
+              }
+            ]
+          }
+        ]
+      }
+    }
+
+---
+# Alert Notification Channel (Slack) - requires secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: emqx-alert-webhook
+  namespace: mqtt-production
+type: Opaque
+stringData:
+  slack-webhook: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"  # Replace with actual webhook
+  pagerduty-integration-key: "YOUR_PAGERDUTY_KEY"  # Replace if using PagerDuty

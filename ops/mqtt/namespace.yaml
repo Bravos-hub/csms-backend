@@ -1,0 +1,166 @@
+---
+# MQTT Namespace for Staging
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mqtt-staging
+  labels:
+    app: mqtt
+    environment: staging
+  annotations:
+    description: "MQTT broker infrastructure (staging)"
+
+---
+# MQTT Namespace for Production
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mqtt-production
+  labels:
+    app: mqtt
+    environment: production
+  annotations:
+    description: "MQTT broker infrastructure (production)"
+
+---
+# Network Policy for Staging: Restrict inbound traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mqtt-staging-policy
+  namespace: mqtt-staging
+spec:
+  podSelector:
+    matchLabels:
+      app: emqx
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from applications namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: staging
+      ports:
+        - protocol: TCP
+          port: 1883
+    # Allow from monitoring
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8883
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow to applications
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: staging
+      ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 3001
+
+---
+# Network Policy for Production: Stricter isolation
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mqtt-production-policy
+  namespace: mqtt-production
+spec:
+  podSelector:
+    matchLabels:
+      app: emqx
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from applications namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: production
+      ports:
+        - protocol: TCP
+          port: 1883
+        - protocol: TCP
+          port: 8883
+    # Allow from monitoring
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8883
+    # Allow intra-cluster communication (for clustering)
+    - from:
+        - podSelector:
+            matchLabels:
+              app: emqx
+      ports:
+        - protocol: TCP
+          port: 4370
+        - protocol: TCP
+          port: 5370
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow to applications
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: production
+      ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 3001
+    # Allow to external services (S3 for backups)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32  # Block AWS metadata
+      ports:
+        - protocol: TCP
+          port: 443  # HTTPS for S3
+
+---
+# NetworkPolicy to allow broker-to-broker communication (clustering)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mqtt-cluster-communication
+  namespace: mqtt-production
+spec:
+  podSelector:
+    matchLabels:
+      app: emqx
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: emqx
+      ports:
+        - protocol: TCP
+          port: 4370  # Inter-node RPC
+        - protocol: TCP
+          port: 5370  # Distributed Erlang

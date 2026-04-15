@@ -1,0 +1,181 @@
+# EMQX Helm Values - Production Environment Overrides
+
+replicaCount: 3  # HA cluster with 3 replicas
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+  requests:
+    cpu: 1000m
+    memory: 2Gi
+
+persistence:
+  enabled: true
+  size: 100Gi  # Production-grade storage (SSD)
+  storageClassName: "ssd-rwo"  # Requires SSD storage class in cluster
+
+# Production health check: stricter thresholds
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 60
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 2
+
+# Pod Disruption Budget: Ensure at least 2 replicas available
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# Production clustering: Kubernetes auto-discovery
+clustering:
+  enabled: true
+  discoveryStrategy: k8s
+  k8s:
+    apiserver: "https://kubernetes.default.svc:443"
+    namespace: "mqtt-production"
+    service: "emqx-headless"
+    address_type: "ip"
+
+# Production dashboard access: Restricted, strong password required
+dashboard:
+  enabled: true
+  username: "admin"
+  passwordSecret:
+    name: "emqx-dashboard-password-production"
+    key: "password"
+
+# Ingress for external access (MQTT over TLS)
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/backend-protocol: "TCP"
+    nginx.ingress.kubernetes.io/secure-backends: "true"
+  hosts:
+    - host: mqtt.evzone-production.cloud
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: mqtt-tls-prod
+      hosts:
+        - mqtt.evzone-production.cloud
+
+# Production-level configuration
+emqxConfig:
+  EMQX_LOG_LEVEL: "info"  # Reduced logging in production
+  EMQX_ALLOW_ANONYMOUS: "false"
+  EMQX_LISTENER_TCP_ACCEPTORS: 64  # Higher concurrency
+  EMQX_LISTENER_TCP_MAX_CONN_RATE: 5000  # Higher rate limit
+  EMQX_LISTENER_MQTT_BACKLOG: 2048
+  EMQX_BROKER_MAX_PACKET_SIZE: "1MB"
+  EMQX_MQTT_INFLIGHT: 128  # Higher inflight for high-throughput
+  EMQX_MQTT_MAX_KEEPALIVE_INTERVAL: "600"  # 10 min for reliability
+
+  # Production persistence settings
+  EMQX_PERSISTENCE_MESSAGES_DIRTY_CACHE_ENABLED: "true"
+  EMQX_PERSISTENCE_MESSAGES_DIRTY_CACHE_SIZE: "128MB"
+
+  # TLS/mTLS enforcement
+  EMQX_LISTENER_MQTTS_ENABLED: "true"
+  EMQX_LISTENER_MQTTS_TLS_CERTFILE: "/etc/emqx/certs/tls.crt"
+  EMQX_LISTENER_MQTTS_TLS_KEYFILE: "/etc/emqx/certs/tls.key"
+
+  # High availability
+  EMQX_CLUSTER_DISCOVERY: "kubernetes"
+  EMQX_CLUSTER_STATIC_SEEDS: ""  # Use K8s discovery instead
+
+# Node anti-affinity: Spread replicas across nodes
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - emqx
+        topologyKey: kubernetes.io/hostname
+
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+            - key: node-type
+              operator: In
+              values:
+                - compute
+      - weight: 50
+        preference:
+          matchExpressions:
+            - key: workload-type
+              operator: NotIn
+              values:
+                - gpu-intensive
+
+# Production users: Service credentials for EVZONE
+# NOTE: These are templates; actual passwords must be provided via Secrets
+additionalUsers:
+  - username: "evzone-api-service"
+    password: ""  # Must be set via Secret or helm --set
+    is_superuser: false
+  - username: "evzone-worker-service"
+    password: ""  # Must be set via Secret or helm --set
+    is_superuser: false
+
+# Volume snapshots for disaster recovery
+volumeSnapshots:
+  enabled: true
+  snapshotClass: "csi-snapshot-class"
+  schedule: "0 2 * * *"  # Daily at 2 AM UTC
+  retention: 7  # Keep 7 daily snapshots
+
+# Backup configuration (via Velero or external script)
+backup:
+  enabled: true
+  schedule: "0 3 * * *"  # Daily at 3 AM UTC
+  destination: "s3://evzone-mqtt-backups-prod/"
+  retention: 30  # Keep 30 days of backups
+
+# Network policies: Configured separately in networkpolicy.yaml
+# But here we define labels for network policy selection
+podLabels:
+  app: mqtt
+  tier: broker
+  security-zone: restricted
+
+# ServiceMonitor for Prometheus
+serviceMonitor:
+  enabled: true
+  interval: 15s  # More frequent metrics in production
+  labels:
+    release: prometheus
+    monitoring: "true"
+
+# Alerts configuration (if using PrometheusRule)
+alerts:
+  enabled: true
+  rules:
+    - alert: EMQXHighMemoryUsage
+      expr: 'emqx_vm_memory_used_ratio > 0.85'
+      for: 5m
+      severity: critical
+    - alert: EMQXHighConnectionCount
+      expr: 'emqx_connections_count > 50000'
+      for: 5m
+      severity: warning
+    - alert: EMQXLowDiskSpace
+      expr: 'node_filesystem_avail_bytes{mountpoint="/data"} / node_filesystem_size_bytes{mountpoint="/data"} < 0.1'
+      for: 5m
+      severity: critical

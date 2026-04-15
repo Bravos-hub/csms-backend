@@ -1,0 +1,154 @@
+---
+# Persistent Volume for EMQX state storage (staging)
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mqtt-staging-pv
+  labels:
+    app: emqx
+    environment: staging
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ebs-gp3
+  awsElasticBlockStore:
+    volumeID: vol-staging-mqtt-001  # Replace with actual EBS volume ID
+    fsType: ext4
+
+---
+# Persistent Volume Claim for staging
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: emqx-pvc
+  namespace: mqtt-staging
+  labels:
+    app: emqx
+    environment: staging
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ebs-gp3
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+# Persistent Volume for EMQX state storage (production)
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mqtt-production-pv
+  labels:
+    app: emqx
+    environment: production
+spec:
+  capacity:
+    storage: 200Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ebs-gp3
+  awsElasticBlockStore:
+    volumeID: vol-prod-mqtt-001  # Replace with actual EBS volume ID
+    fsType: ext4
+
+---
+# Persistent Volume Claim for production
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: emqx-pvc
+  namespace: mqtt-production
+  labels:
+    app: emqx
+    environment: production
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ebs-gp3
+  resources:
+    requests:
+      storage: 200Gi
+
+---
+# ConfigMap for EMQX persistence configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: emqx-persistence-config
+  namespace: mqtt-staging
+data:
+  persistence.conf: |
+    # Enable persistence for messages
+    backend.redis.enable = on
+    backend.redis.pool_size = 8
+    
+    # Enable session persistence
+    session_persistence = true
+    
+    # Enable message store
+    msg_store = true
+    msg_store_type = mnesia
+
+---
+# ConfigMap for EMQX persistence configuration (production)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: emqx-persistence-config
+  namespace: mqtt-production
+data:
+  persistence.conf: |
+    # Enable persistence for messages with replication
+    backend.redis.enable = on
+    backend.redis.pool_size = 16
+    backend.redis.max_retries = 3
+    backend.redis.connection_timeout = 5000
+    
+    # Enable session persistence
+    session_persistence = true
+    session_persistence_type = mysql
+    
+    # Enable message store with clustering
+    msg_store = true
+    msg_store_type = mnesia
+    
+    # Backup configuration
+    backup_enabled = true
+    backup_schedule = "0 2 * * *"  # Daily at 2 AM UTC
+
+---
+# StorageClass for high-performance volumes
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ebs-gp3
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  iops: "3000"
+  throughput: "125"
+  encrypted: "true"
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+
+---
+# StorageClass for high-IOPS volumes (production)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ebs-gp3-io2
+provisioner: ebs.csi.aws.com
+parameters:
+  type: io2
+  iops: "16000"
+  throughput: "1000"
+  encrypted: "true"
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain

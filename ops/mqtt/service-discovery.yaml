@@ -1,0 +1,246 @@
+---
+# Service for EMQX (staging)
+apiVersion: v1
+kind: Service
+metadata:
+  name: emqx
+  namespace: mqtt-staging
+  labels:
+    app: emqx
+    environment: staging
+  annotations:
+    description: "EMQX service for staging environment"
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless service for StatefulSet discovery
+  selector:
+    app: emqx
+    environment: staging
+  ports:
+    - name: mqtt
+      port: 1883
+      targetPort: 1883
+      protocol: TCP
+    - name: mqtts
+      port: 8883
+      targetPort: 8883
+      protocol: TCP
+    - name: ws
+      port: 8083
+      targetPort: 8083
+      protocol: TCP
+    - name: wss
+      port: 8084
+      targetPort: 8084
+      protocol: TCP
+    - name: management
+      port: 8081
+      targetPort: 8081
+      protocol: TCP
+    - name: dashboard
+      port: 18083
+      targetPort: 18083
+      protocol: TCP
+    - name: cluster-rpc
+      port: 4370
+      targetPort: 4370
+      protocol: TCP
+    - name: dist-erlang
+      port: 5370
+      targetPort: 5370
+      protocol: TCP
+
+---
+# Internal Service for EMQX API and Dashboard (staging)
+apiVersion: v1
+kind: Service
+metadata:
+  name: emqx-api
+  namespace: mqtt-staging
+  labels:
+    app: emqx
+    component: api
+    environment: staging
+spec:
+  type: ClusterIP
+  selector:
+    app: emqx
+    environment: staging
+  ports:
+    - name: management-http
+      port: 8081
+      targetPort: 8081
+      protocol: TCP
+    - name: dashboard-http
+      port: 18083
+      targetPort: 18083
+      protocol: TCP
+
+---
+# LoadBalancer Service for EMQX (staging) - Optional for external access
+apiVersion: v1
+kind: Service
+metadata:
+  name: emqx-lb
+  namespace: mqtt-staging
+  labels:
+    app: emqx
+    environment: staging
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+spec:
+  type: LoadBalancer
+  selector:
+    app: emqx
+    environment: staging
+  ports:
+    - name: mqtt
+      port: 1883
+      targetPort: 1883
+      protocol: TCP
+    - name: mqtts
+      port: 8883
+      targetPort: 8883
+      protocol: TCP
+
+---
+# Service for EMQX (production)
+apiVersion: v1
+kind: Service
+metadata:
+  name: emqx
+  namespace: mqtt-production
+  labels:
+    app: emqx
+    environment: production
+  annotations:
+    description: "EMQX service for production environment"
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless service for StatefulSet discovery
+  selector:
+    app: emqx
+    environment: production
+  ports:
+    - name: mqtt
+      port: 1883
+      targetPort: 1883
+      protocol: TCP
+    - name: mqtts
+      port: 8883
+      targetPort: 8883
+      protocol: TCP
+    - name: ws
+      port: 8083
+      targetPort: 8083
+      protocol: TCP
+    - name: wss
+      port: 8084
+      targetPort: 8084
+      protocol: TCP
+    - name: management
+      port: 8081
+      targetPort: 8081
+      protocol: TCP
+    - name: dashboard
+      port: 18083
+      targetPort: 18083
+      protocol: TCP
+    - name: cluster-rpc
+      port: 4370
+      targetPort: 4370
+      protocol: TCP
+    - name: dist-erlang
+      port: 5370
+      targetPort: 5370
+      protocol: TCP
+
+---
+# Internal Service for EMQX API and Dashboard (production)
+apiVersion: v1
+kind: Service
+metadata:
+  name: emqx-api
+  namespace: mqtt-production
+  labels:
+    app: emqx
+    component: api
+    environment: production
+spec:
+  type: ClusterIP
+  selector:
+    app: emqx
+    environment: production
+  ports:
+    - name: management-http
+      port: 8081
+      targetPort: 8081
+      protocol: TCP
+    - name: dashboard-http
+      port: 18083
+      targetPort: 18083
+      protocol: TCP
+
+---
+# Internal Ingress for EMQX Dashboard API access (production)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: emqx-api-ingress
+  namespace: mqtt-production
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/auth-type: "basic"
+    nginx.ingress.kubernetes.io/auth-secret: "emqx-api-auth"
+spec:
+  tls:
+    - hosts:
+        - mqtt-api.evzone.production
+      secretName: mqtt-api-tls
+  rules:
+    - host: mqtt-api.evzone.production
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: emqx-api
+                port:
+                  name: management-http
+
+---
+# ServiceMonitor for Prometheus (production)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: emqx
+  namespace: mqtt-production
+  labels:
+    app: emqx
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: emqx
+  endpoints:
+    - port: management-http
+      interval: 30s
+      path: /api/v5/prometheus/stats
+
+---
+# PodMonitor for Prometheus (production)
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: emqx
+  namespace: mqtt-production
+spec:
+  selector:
+    matchLabels:
+      app: emqx
+  podMetricsEndpoints:
+    - port: management-http
+      interval: 30s
+      path: /api/v5/prometheus/stats

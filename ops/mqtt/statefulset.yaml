@@ -1,0 +1,561 @@
+---
+# EMQX StatefulSet (Staging)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: emqx
+  namespace: mqtt-staging
+  labels:
+    app: emqx
+    environment: staging
+spec:
+  serviceName: emqx
+  replicas: 2
+  selector:
+    matchLabels:
+      app: emqx
+      environment: staging
+  template:
+    metadata:
+      labels:
+        app: emqx
+        environment: staging
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: "/api/v5/prometheus/stats"
+    spec:
+      serviceAccountName: emqx
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - emqx
+                topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 60
+      initContainers:
+        # Init container to prepare EMQX data directory
+        - name: init-emqx-data
+          image: busybox:1.35
+          command: ['sh', '-c', 'chown -R 1000:1000 /var/lib/emqx && chmod -R 700 /var/lib/emqx']
+          volumeMounts:
+            - name: emqx-data
+              mountPath: /var/lib/emqx
+      containers:
+        - name: emqx
+          image: emqx/emqx:5.2.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            # MQTT ports
+            - name: mqtt
+              containerPort: 1883
+              protocol: TCP
+            - name: mqtts
+              containerPort: 8883
+              protocol: TCP
+            - name: ws
+              containerPort: 8083
+              protocol: TCP
+            - name: wss
+              containerPort: 8084
+              protocol: TCP
+            # Management ports
+            - name: management
+              containerPort: 8081
+              protocol: TCP
+            - name: dashboard
+              containerPort: 18083
+              protocol: TCP
+            # Cluster ports
+            - name: cluster-rpc
+              containerPort: 4370
+              protocol: TCP
+            - name: dist-erlang
+              containerPort: 5370
+              protocol: TCP
+          env:
+            # EMQX Node name (auto-generated)
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # Cluster node name
+            - name: EMQX_NODE_NAME
+              value: "emqx@$(HOSTNAME).emqx.mqtt-staging.svc.cluster.local"
+            # Kubernetes API server
+            - name: EMQX_CLUSTER__DISCOVERY
+              value: "k8s"
+            - name: EMQX_CLUSTER__K8S__APISERVER
+              value: "https://kubernetes.default.svc.cluster.local:443"
+            - name: EMQX_CLUSTER__K8S__LABEL_SELECTOR
+              value: "app=emqx,environment=staging"
+            - name: EMQX_CLUSTER__K8S__NAMESPACE
+              value: "mqtt-staging"
+            # Authentication
+            - name: EMQX_AUTHENTICATION__BUILT_IN_DATABASE__ENABLE
+              value: "true"
+            # Log settings
+            - name: EMQX_LOG__CONSOLE__LEVEL
+              value: "info"
+            - name: EMQX_LOG__FILE__ENABLE
+              value: "true"
+            # Redis backend (optional)
+            - name: EMQX_BACKEND__REDIS__ENABLE
+              value: "on"
+            - name: EMQX_BACKEND__REDIS__SERVER
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: host
+            # Admin credentials
+            - name: EMQX_ADMIN_DEFAULT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-admin
+                  key: username
+            - name: EMQX_ADMIN_DEFAULT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-admin
+                  key: password
+            # Limits
+            - name: EMQX_MQTT__MAX_PACKET_SIZE
+              value: "1MB"
+            - name: EMQX_LISTENER__TCP__DEFAULT__MAX_CONNECTIONS
+              value: "100000"
+            - name: EMQX_LISTENER__SSL__DEFAULT__MAX_CONNECTIONS
+              value: "100000"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /api/v5/status
+              port: management
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v5/status
+              port: management
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /api/v5/status
+              port: management
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12  # 2 minutes total
+          lifecycle:
+            preStop:
+              exec:
+                command: ['/bin/sh', '-c', """
+                  timeout 30 bash -c '
+                    echo "Starting graceful shutdown..."
+                    curl -X POST http://127.0.0.1:8081/api/v5/nodes/$(hostname)/drain \
+                      -H "Content-Type: application/json" \
+                      -d "{\"timeout\": 30000}" || true
+                    for i in {1..30}; do
+                      CONNECTIONS=$(curl -s http://127.0.0.1:8081/api/v5/stats | grep -o "connections\":[0-9]*" | cut -d: -f2)
+                      if [ "$CONNECTIONS" = "0" ]; then
+                        echo "All connections drained."
+                        break
+                      fi
+                      echo "Still draining: $CONNECTIONS connections"
+                      sleep 1
+                    done
+                  '
+                  sleep 5
+                """]
+          volumeMounts:
+            - name: emqx-config
+              mountPath: /opt/emqx/etc/emqx.conf
+              subPath: emqx.conf
+            - name: emqx-data
+              mountPath: /var/lib/emqx
+            - name: emqx-logs
+              mountPath: /opt/emqx/log
+      volumes:
+        - name: emqx-config
+          configMap:
+            name: emqx-config
+        - name: emqx-logs
+          emptyDir: {}
+      # SecurityContext for EMQX container
+      securityContext:
+        fsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+  volumeClaimTemplates:
+    - metadata:
+        name: emqx-data
+        labels:
+          app: emqx
+          environment: staging
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: ebs-gp3
+        resources:
+          requests:
+            storage: 50Gi
+
+---
+# EMQX StatefulSet (Production)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: emqx
+  namespace: mqtt-production
+  labels:
+    app: emqx
+    environment: production
+spec:
+  serviceName: emqx
+  replicas: 3
+  selector:
+    matchLabels:
+      app: emqx
+      environment: production
+  podManagementPolicy: Parallel
+  template:
+    metadata:
+      labels:
+        app: emqx
+        environment: production
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: "/api/v5/prometheus/stats"
+    spec:
+      serviceAccountName: emqx
+      affinity:
+        # Anti-affinity to spread across nodes
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - emqx
+              topologyKey: kubernetes.io/hostname
+        # Node affinity (prefer nodes with more resources)
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: node-type
+                    operator: In
+                    values:
+                      - compute
+      terminationGracePeriodSeconds: 120
+      initContainers:
+        # Init container to prepare EMQX data directory
+        - name: init-emqx-data
+          image: busybox:1.35
+          command: ['sh', '-c', 'chown -R 1000:1000 /var/lib/emqx && chmod -R 700 /var/lib/emqx && mkdir -p /var/lib/emqx/mnesia && chmod -R 700 /var/lib/emqx/mnesia']
+          volumeMounts:
+            - name: emqx-data
+              mountPath: /var/lib/emqx
+        # Wait for Redis to be ready
+        - name: wait-redis
+          image: redis:7-alpine
+          command: ['sh', '-c', 'until redis-cli -h redis.default ping; do echo "Waiting for Redis..."; sleep 2; done']
+      containers:
+        - name: emqx
+          image: emqx/emqx:5.2.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            # MQTT ports
+            - name: mqtt
+              containerPort: 1883
+              protocol: TCP
+            - name: mqtts
+              containerPort: 8883
+              protocol: TCP
+            - name: ws
+              containerPort: 8083
+              protocol: TCP
+            - name: wss
+              containerPort: 8084
+              protocol: TCP
+            # Management ports
+            - name: management
+              containerPort: 8081
+              protocol: TCP
+            - name: dashboard
+              containerPort: 18083
+              protocol: TCP
+            # Cluster ports
+            - name: cluster-rpc
+              containerPort: 4370
+              protocol: TCP
+            - name: dist-erlang
+              containerPort: 5370
+              protocol: TCP
+          env:
+            # EMQX Node name (auto-generated)
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # Cluster node name
+            - name: EMQX_NODE_NAME
+              value: "emqx@$(HOSTNAME).emqx.mqtt-production.svc.cluster.local"
+            # Kubernetes API server
+            - name: EMQX_CLUSTER__DISCOVERY
+              value: "k8s"
+            - name: EMQX_CLUSTER__K8S__APISERVER
+              value: "https://kubernetes.default.svc.cluster.local:443"
+            - name: EMQX_CLUSTER__K8S__LABEL_SELECTOR
+              value: "app=emqx,environment=production"
+            - name: EMQX_CLUSTER__K8S__NAMESPACE
+              value: "mqtt-production"
+            # Authentication
+            - name: EMQX_AUTHENTICATION__BUILT_IN_DATABASE__ENABLE
+              value: "true"
+            # Log settings
+            - name: EMQX_LOG__CONSOLE__LEVEL
+              value: "warning"  # Less verbose in production
+            - name: EMQX_LOG__FILE__ENABLE
+              value: "true"
+            # Redis backend
+            - name: EMQX_BACKEND__REDIS__ENABLE
+              value: "on"
+            - name: EMQX_BACKEND__REDIS__SERVER
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: host
+            - name: EMQX_BACKEND__REDIS__POOL_SIZE
+              value: "16"
+            # MySQL backend (session persistence)
+            - name: EMQX_BACKEND__MYSQL__ENABLE
+              value: "on"
+            - name: EMQX_BACKEND__MYSQL__SERVER
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-credentials
+                  key: host
+            - name: EMQX_BACKEND__MYSQL__USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-credentials
+                  key: username
+            - name: EMQX_BACKEND__MYSQL__PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-credentials
+                  key: password
+            # Admin credentials
+            - name: EMQX_ADMIN_DEFAULT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-admin
+                  key: username
+            - name: EMQX_ADMIN_DEFAULT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-admin
+                  key: password
+            # Performance settings
+            - name: EMQX_MQTT__MAX_PACKET_SIZE
+              value: "10MB"
+            - name: EMQX_LISTENER__TCP__DEFAULT__MAX_CONNECTIONS
+              value: "250000"
+            - name: EMQX_LISTENER__TCP__DEFAULT__ACCEPTORS
+              value: "16"
+            - name: EMQX_LISTENER__SSL__DEFAULT__MAX_CONNECTIONS
+              value: "200000"
+            - name: EMQX_LISTENER__SSL__DEFAULT__ACCEPTORS
+              value: "16"
+            # Memory limits
+            - name: EMQX_VM__MEMORY_HIGH_WATERMARK
+              value: "0.6"
+            # Monitoring
+            - name: EMQX_PROMETHEUS__ENABLE
+              value: "true"
+            - name: EMQX_PROMETHEUS__INTERVAL
+              value: "10s"
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 1Gi
+            limits:
+              cpu: 4000m
+              memory: 4Gi
+          livenessProbe:
+            httpGet:
+              path: /api/v5/status
+              port: management
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v5/status
+              port: management
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /api/v5/status
+              port: management
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12  # 2 minutes total
+          lifecycle:
+            preStop:
+              exec:
+                command: ['/bin/sh', '-c', """
+                  timeout 120 bash -c '
+                    echo "Starting graceful shutdown..."
+                    logger -t emqx "Pod termination initiated"
+                    
+                    # Set drain mode
+                    curl -X POST http://127.0.0.1:8081/api/v5/nodes/$(hostname)/drain \
+                      -H "Content-Type: application/json" \
+                      -d "{\"timeout\": 120000}" || true
+                    
+                    # Wait for connections to drain
+                    for i in {1..120}; do
+                      RESPONSE=$(curl -s http://127.0.0.1:8081/api/v5/stats || echo "{\"connections\": 0}")
+                      CONNECTIONS=$(echo "$RESPONSE" | grep -o "connections\":[0-9]*" | cut -d: -f2 || echo "0")
+                      
+                      if [ "$CONNECTIONS" = "0" ] || [ "$CONNECTIONS" = "" ]; then
+                        echo "All connections drained."
+                        logger -t emqx "All connections drained"
+                        break
+                      fi
+                      
+                      if [ $((i % 10)) -eq 0 ]; then
+                        echo "Still draining: $CONNECTIONS connections (attempt $i/120)"
+                      fi
+                      sleep 1
+                    done
+                    
+                    # Send graceful stop
+                    curl -X POST http://127.0.0.1:8081/api/v5/nodes/$(hostname)/stop || true
+                  '
+                  sleep 5
+                  echo "Graceful shutdown completed"
+                  logger -t emqx "Pod termination completed"
+                """]
+          volumeMounts:
+            - name: emqx-config
+              mountPath: /opt/emqx/etc/emqx.conf
+              subPath: emqx.conf
+            - name: emqx-data
+              mountPath: /var/lib/emqx
+            - name: emqx-logs
+              mountPath: /opt/emqx/log
+      volumes:
+        - name: emqx-config
+          configMap:
+            name: emqx-config
+        - name: emqx-logs
+          emptyDir:
+            sizeLimit: 5Gi
+      # SecurityContext for pod
+      securityContext:
+        fsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+  volumeClaimTemplates:
+    - metadata:
+        name: emqx-data
+        labels:
+          app: emqx
+          environment: production
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: ebs-gp3-io2
+        resources:
+          requests:
+            storage: 200Gi
+
+---
+# ServiceAccount for EMQX pods
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: emqx
+  namespace: mqtt-staging
+
+---
+# ServiceAccount for EMQX pods (Production)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: emqx
+  namespace: mqtt-production
+
+---
+# ClusterRole for EMQX cluster discovery
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: emqx
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+
+---
+# ClusterRoleBinding for EMQX cluster discovery (Staging)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: emqx-staging
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: emqx
+subjects:
+  - kind: ServiceAccount
+    name: emqx
+    namespace: mqtt-staging
+
+---
+# ClusterRoleBinding for EMQX cluster discovery (Production)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: emqx-production
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: emqx
+subjects:
+  - kind: ServiceAccount
+    name: emqx
+    namespace: mqtt-production

@@ -1,0 +1,257 @@
+---
+# Horizontal Pod Autoscaler for EMQX (staging)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: emqx-hpa
+  namespace: mqtt-staging
+  labels:
+    app: emqx
+    environment: staging
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: emqx
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 75
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+
+---
+# Horizontal Pod Autoscaler for EMQX (production)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: emqx-hpa
+  namespace: mqtt-production
+  labels:
+    app: emqx
+    environment: production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: emqx
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+    - type: Pods
+      pods:
+        metric:
+          name: mqtt_connections_active
+        target:
+          type: AverageValue
+          averageValue: "100000"  # Scale up if avg connections exceed 100k
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+        - type: Pods
+          value: 1
+          periodSeconds: 30
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 600
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+
+---
+# Pod Disruption Budget for EMQX (staging)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: emqx-pdb
+  namespace: mqtt-staging
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: emqx
+      environment: staging
+
+---
+# Pod Disruption Budget for EMQX (production)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: emqx-pdb
+  namespace: mqtt-production
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: emqx
+      environment: production
+
+---
+# Lifecycle policy for graceful shutdown (PreStop hook)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: emqx-lifecycle-scripts
+  namespace: mqtt-staging
+data:
+  prestop.sh: |
+    #!/bin/bash
+    set -e
+    
+    # Gracefully shutdown EMQX
+    echo "Starting graceful shutdown..."
+    
+    # Wait for graceful connection drain
+    DRAIN_TIMEOUT=30
+    for i in $(seq 1 $DRAIN_TIMEOUT); do
+      CONNECTIONS=$(curl -s http://localhost:8081/api/v5/stats | grep -o '"connections":[0-9]*' | cut -d':' -f2)
+      if [ "$CONNECTIONS" -eq 0 ]; then
+        echo "All connections drained."
+        break
+      fi
+      echo "Still draining connections: $CONNECTIONS"
+      sleep 1
+    done
+    
+    # Send stop command
+    curl -X POST http://localhost:8081/api/v5/nodes/$(hostname)/stop
+    
+    echo "Graceful shutdown initiated"
+
+---
+# Lifecycle policy ConfigMap for production
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: emqx-lifecycle-scripts
+  namespace: mqtt-production
+data:
+  prestop.sh: |
+    #!/bin/bash
+    set -e
+    
+    # Gracefully shutdown EMQX with enhanced logging
+    echo "Starting graceful shutdown..."
+    logger -t emqx "Pod termination initiated"
+    
+    # Set drain mode to prevent new connections
+    curl -X POST http://localhost:8081/api/v5/nodes/$(hostname)/drain \
+      -H "Content-Type: application/json" \
+      -d '{"timeout": 120000}'
+    
+    # Wait for graceful connection drain
+    DRAIN_TIMEOUT=120
+    for i in $(seq 1 $DRAIN_TIMEOUT); do
+      RESPONSE=$(curl -s http://localhost:8081/api/v5/stats || echo '{"connections": 0}')
+      CONNECTIONS=$(echo "$RESPONSE" | grep -o '"connections":[0-9]*' | cut -d':' -f2 || echo "0")
+      if [ "$CONNECTIONS" -eq 0 ]; then
+        echo "All connections drained."
+        logger -t emqx "All connections drained"
+        break
+      fi
+      echo "Still draining connections: $CONNECTIONS"
+      sleep 1
+    done
+    
+    # Send graceful stop command
+    curl -X POST http://localhost:8081/api/v5/nodes/$(hostname)/stop || true
+    
+    # Give it time to shutdown cleanly
+    sleep 5
+    
+    echo "Graceful shutdown completed"
+    logger -t emqx "Pod termination completed"
+
+---
+# VerticalPodAutoscaler for EMQX (future use if enabled)
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: emqx-vpa
+  namespace: mqtt-production
+spec:
+  targetRef:
+    apiVersion: "apps/v1"
+    kind: StatefulSet
+    name: emqx
+  updatePolicy:
+    updateMode: "Auto"
+  resourcePolicy:
+    containerPolicies:
+      - containerName: emqx
+        minAllowed:
+          cpu: 500m
+          memory: 512Mi
+        maxAllowed:
+          cpu: 4
+          memory: 4Gi
+        controlledResources: ["cpu", "memory"]
+        controlledValues: RequestsAndLimits
+
+---
+# Maintenance Window for EMQX (production - use by operations team)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: emqx-health-check
+  namespace: mqtt-production
+spec:
+  schedule: "*/5 * * * *"  # Every 5 minutes
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: emqx
+          containers:
+            - name: health-checker
+              image: curlimages/curl:latest
+              command:
+                - sh
+                - -c
+                - |
+                  STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://emqx-api:8081/api/v5/stats)
+                  if [ "$STATUS" != "200" ]; then
+                    echo "EMQX health check failed with status: $STATUS"
+                    exit 1
+                  fi
+                  echo "EMQX health check passed"
+          restartPolicy: OnFailure

@@ -1,0 +1,72 @@
+# EMQX Helm Values - Staging Environment Overrides
+
+replicaCount: 1
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClassName: "standard-rwo"
+
+# Health check for single-instance staging deployment
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 5
+
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# No PDB needed for staging (single instance)
+podDisruptionBudget:
+  enabled: false
+
+# Single-node clustering (no clustering in staging)
+clustering:
+  enabled: false
+
+# Staging dashboard access (basic auth only)
+dashboard:
+  enabled: true
+  username: "admin"
+  passwordSecret:
+    name: "emqx-dashboard-password-staging"
+    key: "password"
+
+# Ingress not needed for staging (kubectl port-forward sufficient)
+ingress:
+  enabled: false
+
+# Staging-specific environment variables
+emqxConfig:
+  EMQX_LOG_LEVEL: "debug"  # Verbose logging for testing
+  EMQX_ALLOW_ANONYMOUS: "false"
+  # Shorter session timeout for testing
+  EMQX_MQTT_INFLIGHT: 10
+  EMQX_MQTT_MAX_KEEPALIVE_INTERVAL: "300"  # 5 min
+
+# Resource constraints are more relaxed for staging
+# Low QoS requirements (testing only)
+
+# Staging users: Create test users for manual testing
+# These should match documentation for test credentials
+additionalUsers:
+  - username: "test-api-service"
+    password: "test-password-staging"
+    is_superuser: false
+  - username: "test-org-123"
+    password: "test-password-org-123"
+    is_superuser: false
