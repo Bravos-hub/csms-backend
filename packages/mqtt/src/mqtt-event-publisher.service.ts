@@ -20,66 +20,60 @@ export class MqttEventPublisherService {
     private tenantContext: MqttTenantContextService,
   ) {}
 
-  async publishBatteryCabinetStatus(
+  publishBatteryCabinetStatus(
     event: BatteryCabinetStatusEvent,
     tenantId: string,
-  ): Promise<void> {
+  ): void {
     const topic = `v1/${tenantId}/${event.siteId}/battery-swap/${event.stationId}/cabinet/${event.cabinetId}/status`;
-    await this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
+    this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
     this.logger.debug(`Published battery cabinet status to ${topic}`);
   }
 
-  async publishBatteryPackState(
+  publishBatteryPackState(
     event: BatteryPackStateEvent,
     tenantId: string,
-  ): Promise<void> {
+  ): void {
     const topic = `v1/${tenantId}/${event.siteId}/battery-swap/pack/${event.packSerialNumber}/state`;
-    await this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
+    this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
     this.logger.debug(`Published battery pack state to ${topic}`);
   }
 
-  async publishBatterySwapSession(
+  publishBatterySwapSession(
     event: BatterySwapSessionEvent,
     tenantId: string,
-  ): Promise<void> {
+  ): void {
     const topic = `v1/${tenantId}/${event.siteId}/battery-swap/${event.stationId}/session/${event.swapSessionId}`;
-    await this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
+    this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
     this.logger.debug(`Published battery swap session to ${topic}`);
   }
 
-  async publishChargerStatus(
-    event: ChargerStatusEvent,
-    tenantId: string,
-  ): Promise<void> {
+  publishChargerStatus(event: ChargerStatusEvent, tenantId: string): void {
     const topic = `v1/${tenantId}/${event.siteId}/charger/${event.chargerId}/status`;
-    await this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
+    this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
     this.logger.debug(`Published charger status to ${topic}`);
   }
 
-  async publishChargerTransaction(
+  publishChargerTransaction(
     event: ChargerTransactionEvent,
     tenantId: string,
-  ): Promise<void> {
+  ): void {
     const topic = `v1/${tenantId}/${event.siteId}/charger/${event.chargerId}/transaction`;
-    await this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
+    this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
     this.logger.debug(`Published charger transaction to ${topic}`);
   }
 
-  async publishMeterReading(
-    event: MeterReadingEvent,
-    tenantId: string,
-  ): Promise<void> {
+  publishMeterReading(event: MeterReadingEvent, tenantId: string): void {
     const topic = `v1/${tenantId}/${event.siteId}/meter/${event.meterId}/reading`;
-    await this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
+    this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
     this.logger.debug(`Published meter reading to ${topic}`);
   }
 
-  async publishSmartChargingCommand(
+  publishSmartChargingCommand(
     event: SmartChargingCommandEvent,
     tenantId: string,
-  ): Promise<void> {
+  ): void {
     const topic = `v1/${tenantId}/${event.siteId}/smart-charging/${event.chargerId}/command`;
-    await this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
+    this.tenantContext.publish(tenantId, topic, event, this.mqttClient);
     this.logger.debug(`Published smart charging command to ${topic}`);
   }
 }

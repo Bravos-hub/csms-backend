@@ -9,7 +9,9 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { ClientProxy } from '@nestjs/microservices';
 
 @Injectable()
-export class MqttConnectionManagerService implements OnModuleInit, OnApplicationShutdown {
+export class MqttConnectionManagerService
+  implements OnModuleInit, OnApplicationShutdown
+{
   private readonly logger = new Logger(MqttConnectionManagerService.name);
   private isConnected = false;
 
@@ -76,7 +78,7 @@ export class MqttConnectionManagerService implements OnModuleInit, OnApplication
       if (Date.now() - startTime > timeoutMs) {
         throw new Error('MQTT connection timeout');
       }
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
 }

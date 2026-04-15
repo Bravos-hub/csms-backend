@@ -33,7 +33,9 @@ export abstract class BaseMqttAdapter {
     payload: Buffer,
   ): Promise<AdapterPayloadValidationResult>;
 
-  abstract lookupDeviceRegistry(vendorDeviceId: string): Promise<AdapterDeviceInfo>;
+  abstract lookupDeviceRegistry(
+    vendorDeviceId: string,
+  ): Promise<AdapterDeviceInfo>;
 
   abstract sendCommand(
     deviceInfo: AdapterDeviceInfo,

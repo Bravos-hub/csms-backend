@@ -70,7 +70,12 @@ export class StationController {
       limit !== undefined || offset !== undefined
         ? { limit, offset }
         : undefined;
-    return this.stationService.findAllStations(bounds, q, pagination, req?.user);
+    return this.stationService.findAllStations(
+      bounds,
+      q,
+      pagination,
+      req?.user,
+    );
   }
 
   @Get('nearby')

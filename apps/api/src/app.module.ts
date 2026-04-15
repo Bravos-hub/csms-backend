@@ -63,6 +63,7 @@ import { VendorBaselineModule } from './modules/vendor-baseline/vendor-baseline.
 import { TenantBrandingModule } from './modules/tenant-branding/tenant-branding.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { MqttModule } from '@app/mqtt';
+import { BatterySwapMqttAdapterModule } from './modules/adapters/battery-swap-mqtt-adapter/battery-swap-mqtt-adapter.module';
 
 @Module({
   imports: [
@@ -131,7 +132,8 @@ import { MqttModule } from '@app/mqtt';
     VendorBaselineModule,
     TenantBrandingModule,
     PaymentsModule,
-    MqttModule,
+    MqttModule.forRoot(),
+    BatterySwapMqttAdapterModule,
   ],
   controllers: [AppController],
   providers: [

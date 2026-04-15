@@ -1453,7 +1453,11 @@ export class StationService {
     scopeOverride?: TenantScope,
     actor?: AccessActor,
   ) {
-    const chargePoint = await this.findChargePointById(id, scopeOverride, actor);
+    const chargePoint = await this.findChargePointById(
+      id,
+      scopeOverride,
+      actor,
+    );
     if (!chargePoint) throw new NotFoundException('Charge Point not found');
     return chargePoint;
   }

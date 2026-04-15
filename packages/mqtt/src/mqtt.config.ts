@@ -32,8 +32,7 @@ export class MqttConfigService {
       url,
       username:
         this.configService.get<string>('MQTT_USERNAME') || 'api-service',
-      password:
-        this.configService.get<string>('MQTT_PASSWORD') || 'changeme',
+      password: this.configService.get<string>('MQTT_PASSWORD') || 'changeme',
       poolSize: this.configService.get<number>('MQTT_POOL_SIZE') || 10,
       reconnectDelayMs:
         this.configService.get<number>('MQTT_RECONNECT_DELAY_MS') || 3000,
