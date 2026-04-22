@@ -10,7 +10,7 @@ import { Reflector } from '@nestjs/core';
 import * as jwt from 'jsonwebtoken';
 import type { Request, Response } from 'express';
 import { TenantContextService } from '@app/db';
-import type { CanonicalRoleKey } from '@app/domain';
+import { getCanonicalRoleDefinition, type CanonicalRoleKey } from '@app/domain';
 import { HttpMetricsService } from '../../common/observability/http-metrics.service';
 import { TenantDirectoryService } from '../../common/tenant/tenant-directory.service';
 import { IS_PUBLIC_KEY } from './public.decorator';
@@ -24,6 +24,10 @@ type JwtUserClaims = jwt.JwtPayload & {
   tenantId?: string;
   activeTenantId?: string;
   orgId?: string;
+  sessionScopeType?: 'platform' | 'tenant';
+  actingAsTenant?: boolean;
+  selectedTenantId?: string | null;
+  selectedTenantName?: string | null;
   accessProfile?: {
     canonicalRole?: CanonicalRoleKey;
     permissions?: string[];
@@ -95,13 +99,34 @@ export class JwtAuthGuard implements CanActivate {
       const payload = verified as JwtUserClaims;
       request.user = payload;
 
-      const authenticatedOrganizationId =
-        payload.activeTenantId ||
-        payload.tenantId ||
-        payload.activeOrganizationId ||
-        payload.organizationId ||
-        payload.orgId ||
-        null;
+      const canonicalRole =
+        payload.canonicalRole || payload.accessProfile?.canonicalRole || null;
+      const isPlatformCanonicalRole =
+        canonicalRole &&
+        getCanonicalRoleDefinition(canonicalRole)?.scopeType === 'platform';
+      const hasExplicitTenantSession =
+        payload.sessionScopeType === 'tenant' ||
+        payload.actingAsTenant === true;
+      const allowLegacyTenantResolution =
+        payload.sessionScopeType !== 'platform' &&
+        payload.actingAsTenant !== false &&
+        !isPlatformCanonicalRole;
+      const authenticatedOrganizationId = hasExplicitTenantSession
+        ? payload.selectedTenantId ||
+          payload.activeTenantId ||
+          payload.tenantId ||
+          payload.activeOrganizationId ||
+          payload.organizationId ||
+          payload.orgId ||
+          null
+        : allowLegacyTenantResolution
+          ? payload.activeTenantId ||
+            payload.tenantId ||
+            payload.activeOrganizationId ||
+            payload.organizationId ||
+            payload.orgId ||
+            null
+          : null;
 
       const existingContext = this.tenantContext.get();
       const hostOrganizationId = existingContext?.hostOrganizationId || null;

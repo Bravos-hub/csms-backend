@@ -19,6 +19,7 @@ import {
   UpdateUserDto,
 } from './dto/auth.dto';
 import { AuthService } from './auth-service.service';
+import { TenantDirectoryService } from '../../common/tenant/tenant-directory.service';
 
 type AuthServicePrivateTestHandle = AuthService & {
   ensureEvzoneOrganization: () => Promise<{ id: string }>;
@@ -36,6 +37,14 @@ type AuthServicePrivateTestHandle = AuthService & {
 };
 
 function createService() {
+  const controlPlane = {
+    platformRoleAssignment: {
+      findFirst: jest.fn(),
+    },
+    organization: {
+      findUnique: jest.fn(),
+    },
+  };
   const prisma = {
     user: {
       findUnique: jest.fn(),
@@ -45,11 +54,22 @@ function createService() {
     organizationMembership: {
       upsert: jest.fn(),
       findUnique: jest.fn(),
+      findMany: jest.fn(),
       update: jest.fn(),
     },
     userInvitation: {
       updateMany: jest.fn(),
     },
+    stationTeamAssignment: {
+      findMany: jest.fn(),
+    },
+    auditLog: {
+      create: jest.fn(),
+    },
+    getControlPlaneClient: jest.fn(() => controlPlane),
+    runWithTenantRouting: jest.fn(
+      <T>(_routing: unknown, work: () => Promise<T>) => work(),
+    ),
   };
   const config = {
     get: jest.fn(),
@@ -75,9 +95,16 @@ function createService() {
     ocpiTokenSync as unknown as OcpiTokenSyncService,
     {} as AdminApprovalService,
     new AccessProfileService(),
+    {
+      findByOrganizationId: jest.fn(),
+      toRoutingHint: jest.fn(),
+    } as unknown as TenantDirectoryService,
   );
 
-  return { service, prisma };
+  prisma.organizationMembership.findMany.mockResolvedValue([]);
+  prisma.stationTeamAssignment.findMany.mockResolvedValue([]);
+
+  return { service, prisma, controlPlane };
 }
 
 describe('AuthService EVZONE guardrails', () => {
@@ -263,5 +290,111 @@ describe('AuthService EVZONE guardrails', () => {
       service.updateUser('user-1', updateDto),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('keeps platform users in platform scope when tenant impersonation is cleared', async () => {
+    const { service, prisma, controlPlane } = createService();
+    const authService = service as unknown as AuthService & {
+      generateAuthResponse: (
+        user: unknown,
+        options?: Record<string, unknown>,
+      ) => Promise<unknown>;
+      recordAuditEvent: (payload: unknown) => Promise<void>;
+    };
+
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'platform-user-1',
+      role: UserRole.SUPER_ADMIN,
+      organizationId: 'org-home',
+      ownerCapability: null,
+      name: 'Platform Admin',
+      email: 'platform@evzone.io',
+      phone: null,
+      status: 'Active',
+      providerId: null,
+      lastStationAssignmentId: null,
+      mustChangePassword: false,
+      mfaRequired: false,
+      region: null,
+      zoneId: null,
+      organization: null,
+    });
+    prisma.organizationMembership.findMany.mockResolvedValue([]);
+    controlPlane.platformRoleAssignment.findFirst.mockResolvedValue({
+      roleKey: 'PLATFORM_SUPER_ADMIN',
+    });
+
+    const generateAuthResponseSpy = jest
+      .spyOn(authService, 'generateAuthResponse')
+      .mockResolvedValue({ accessToken: 'token' });
+    jest.spyOn(authService, 'recordAuditEvent').mockResolvedValue();
+
+    const response = await service.switchTenant('platform-user-1', null);
+
+    expect(response).toEqual({ accessToken: 'token' });
+    expect(generateAuthResponseSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'platform-user-1' }),
+      expect.objectContaining({
+        sessionScopeType: 'platform',
+        actingAsTenant: false,
+        selectedTenantId: null,
+      }),
+    );
+  });
+
+  it('issues tenant impersonation session for platform users when tenant exists', async () => {
+    const { service, prisma, controlPlane } = createService();
+    const authService = service as unknown as AuthService & {
+      generateAuthResponse: (
+        user: unknown,
+        options?: Record<string, unknown>,
+      ) => Promise<unknown>;
+      recordAuditEvent: (payload: unknown) => Promise<void>;
+    };
+
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'platform-user-1',
+      role: UserRole.SUPER_ADMIN,
+      organizationId: 'org-home',
+      ownerCapability: null,
+      name: 'Platform Admin',
+      email: 'platform@evzone.io',
+      phone: null,
+      status: 'Active',
+      providerId: null,
+      lastStationAssignmentId: null,
+      mustChangePassword: false,
+      mfaRequired: false,
+      region: null,
+      zoneId: null,
+      organization: null,
+    });
+    prisma.organizationMembership.findMany.mockResolvedValue([]);
+    controlPlane.platformRoleAssignment.findFirst.mockResolvedValue({
+      roleKey: 'PLATFORM_SUPER_ADMIN',
+    });
+    controlPlane.organization.findUnique.mockResolvedValue({
+      id: 'tenant-1',
+      name: 'Tenant One',
+      suspendedAt: null,
+    });
+
+    const generateAuthResponseSpy = jest
+      .spyOn(authService, 'generateAuthResponse')
+      .mockResolvedValue({ accessToken: 'tenant-token' });
+    jest.spyOn(authService, 'recordAuditEvent').mockResolvedValue();
+
+    const response = await service.switchTenant('platform-user-1', 'tenant-1');
+
+    expect(response).toEqual({ accessToken: 'tenant-token' });
+    expect(generateAuthResponseSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'platform-user-1' }),
+      expect.objectContaining({
+        sessionScopeType: 'tenant',
+        actingAsTenant: true,
+        selectedTenantId: 'tenant-1',
+        selectedTenantName: 'Tenant One',
+      }),
+    );
   });
 });

@@ -20,6 +20,21 @@ describe('AccessProfileService', () => {
     expect(profile.permissions).toContain('tenant.users.write');
   });
 
+  it('keeps platform scope tenant identifiers null when no impersonation tenant is selected', () => {
+    const profile = service.buildProfile({
+      activeOrganizationId: null,
+      activeTenantId: null,
+      effectiveRole: UserRole.SUPER_ADMIN,
+      memberships: [],
+      stationContexts: [],
+      activeStationContext: null,
+    });
+
+    expect(profile.scope.type).toBe('platform');
+    expect(profile.scope.organizationId).toBeNull();
+    expect(profile.scope.tenantId).toBeNull();
+  });
+
   it('maps station manager style roles to station scope when an active assignment exists', () => {
     const profile = service.buildProfile({
       activeOrganizationId: 'org-1',

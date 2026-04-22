@@ -232,4 +232,68 @@ describe('JwtAuthGuard', () => {
     expect(response.locals.tenantResolutionSource).toBe('jwt_claim');
     expect(response.locals.tenantOrganizationId).toBe('org-10');
   });
+
+  it('treats explicit platform sessions as non-tenant routable even when legacy tenant ids exist', async () => {
+    const request: GuardRequest = {
+      headers: {
+        authorization: `Bearer ${sign(
+          {
+            sub: 'platform-user-1',
+            role: 'SUPER_ADMIN',
+            canonicalRole: 'PLATFORM_SUPER_ADMIN',
+            sessionScopeType: 'platform',
+            actingAsTenant: false,
+            organizationId: 'org-legacy',
+            activeTenantId: 'org-legacy',
+          },
+          'jwt-secret',
+        )}`,
+      },
+    };
+    const response: GuardResponse = { locals: {} };
+
+    const result = await tenantContext.run({}, () =>
+      guard.canActivate(createExecutionContext(request, response)),
+    );
+
+    expect(result).toBe(true);
+    expect(response.locals.tenantOrganizationId).toBeNull();
+    expect(tenantDirectoryFindByOrganizationId).not.toHaveBeenCalled();
+  });
+
+  it('uses selectedTenantId for explicit tenant impersonation sessions', async () => {
+    const request: GuardRequest = {
+      headers: {
+        authorization: `Bearer ${sign(
+          {
+            sub: 'platform-user-1',
+            role: 'SUPER_ADMIN',
+            canonicalRole: 'PLATFORM_SUPER_ADMIN',
+            sessionScopeType: 'tenant',
+            actingAsTenant: true,
+            selectedTenantId: 'org-tenant-22',
+          },
+          'jwt-secret',
+        )}`,
+      },
+    };
+    const response: GuardResponse = { locals: {} };
+
+    tenantDirectoryFindByOrganizationId.mockResolvedValue({
+      id: 'org-tenant-22',
+    });
+    tenantDirectoryToRoutingHint.mockReturnValue({
+      organizationId: 'org-tenant-22',
+      routingEnabled: false,
+      tier: 'SHARED',
+      schema: null,
+    });
+
+    const result = await tenantContext.run({}, () =>
+      guard.canActivate(createExecutionContext(request, response)),
+    );
+
+    expect(result).toBe(true);
+    expect(response.locals.tenantOrganizationId).toBe('org-tenant-22');
+  });
 });

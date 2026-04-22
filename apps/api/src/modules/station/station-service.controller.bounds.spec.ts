@@ -26,6 +26,7 @@ describe('StationController bounds parsing', () => {
       undefined,
       undefined,
       undefined,
+      undefined,
     );
   });
 
@@ -41,6 +42,7 @@ describe('StationController bounds parsing', () => {
       },
       undefined,
       undefined,
+      undefined,
     );
   });
 
@@ -51,6 +53,7 @@ describe('StationController bounds parsing', () => {
       undefined,
       undefined,
       undefined,
+      undefined,
     );
   });
 
@@ -58,6 +61,7 @@ describe('StationController bounds parsing', () => {
     await controller.findAll('0.578', 'not-a-number', '32.646', '32.637');
 
     expect(service.findAllStations).toHaveBeenCalledWith(
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -76,6 +80,7 @@ describe('StationController bounds parsing', () => {
     expect(service.findAllStations).toHaveBeenCalledWith(
       undefined,
       'kampala',
+      undefined,
       undefined,
     );
   });
@@ -97,6 +102,7 @@ describe('StationController bounds parsing', () => {
         west: 32.6368,
       },
       'kampala',
+      undefined,
       undefined,
     );
   });

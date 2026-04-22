@@ -418,8 +418,8 @@ export class SwitchOrganizationDto {
 
 export class SwitchTenantDto {
   @IsString()
-  @IsNotEmpty()
-  tenantId: string;
+  @IsOptional()
+  tenantId?: string | null;
 }
 
 export class AcceptInvitationResponseDto {

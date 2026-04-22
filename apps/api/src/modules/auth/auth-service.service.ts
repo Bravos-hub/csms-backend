@@ -45,8 +45,10 @@ import * as bcrypt from 'bcrypt';
 import * as qrcode from 'qrcode';
 import * as speakeasy from 'speakeasy';
 import {
+  getCanonicalRoleDefinition,
   resolveCanonicalRoleKey,
   resolveRoleLabel,
+  type AccessScopeType,
   type CanonicalRoleKey,
 } from '@app/domain';
 import { parsePaginationOptions } from '../../common/utils/pagination';
@@ -105,6 +107,30 @@ type MfaConfirmationInput = {
   twoFactorToken?: string;
   stepUpToken?: string;
   recoveryCode?: string;
+};
+
+type SessionScopeType = 'platform' | 'tenant';
+
+type AuthSessionContextOptions = {
+  preferredOrganizationId?: string | null;
+  sessionScopeType?: SessionScopeType;
+  actingAsTenant?: boolean;
+  selectedTenantId?: string | null;
+  selectedTenantName?: string | null;
+};
+
+type AuthRefreshTokenClaims = jwt.JwtPayload & {
+  sub: string;
+  sessionScopeType?: SessionScopeType;
+  actingAsTenant?: boolean;
+  selectedTenantId?: string | null;
+  selectedTenantName?: string | null;
+};
+
+type AuthSessionTokensResponse = {
+  accessToken: string;
+  refreshToken: string;
+  user: Record<string, unknown>;
 };
 
 @Injectable()
@@ -782,6 +808,52 @@ export class AuthService {
       });
 
     return assignment?.roleKey || null;
+  }
+
+  private isPlatformScopeRole(roleKey: CanonicalRoleKey | null): boolean {
+    if (!roleKey) {
+      return false;
+    }
+
+    return getCanonicalRoleDefinition(roleKey)?.scopeType === 'platform';
+  }
+
+  private resolveScopeDisplayName(
+    scopeType: AccessScopeType,
+    context: {
+      activeOrganizationName: string | null;
+      activeStationName: string | null;
+    },
+  ): string {
+    if (scopeType === 'platform') {
+      return 'Platform';
+    }
+
+    if (scopeType === 'station') {
+      return context.activeStationName || 'Station Scope';
+    }
+
+    if (scopeType === 'site') {
+      return context.activeOrganizationName || 'Site Scope';
+    }
+
+    if (scopeType === 'provider') {
+      return context.activeOrganizationName || 'Provider Scope';
+    }
+
+    if (scopeType === 'temporary') {
+      return context.activeStationName || 'Temporary Scope';
+    }
+
+    if (scopeType === 'fleet_group') {
+      return context.activeOrganizationName || 'Fleet Scope';
+    }
+
+    if (scopeType === 'device') {
+      return context.activeStationName || 'Device Scope';
+    }
+
+    return context.activeOrganizationName || 'Tenant Scope';
   }
 
   private async syncLegacyOrganizationId(
@@ -1605,7 +1677,7 @@ export class AuthService {
 
   private async generateAuthResponse(
     user: AuthUserContextInput,
-    options?: { preferredOrganizationId?: string },
+    options?: AuthSessionContextOptions,
   ) {
     const result = await this.issueTokens(user, options);
 
@@ -2108,9 +2180,17 @@ export class AuthService {
     };
   }
 
-  async switchOrganization(userId: string, organizationId: string) {
+  async switchOrganization(
+    userId: string,
+    organizationId: string,
+  ): Promise<AuthSessionTokensResponse> {
     if (!userId) {
       throw new UnauthorizedException('Authenticated user context is required');
+    }
+
+    const normalizedOrganizationId = organizationId?.trim();
+    if (!normalizedOrganizationId) {
+      throw new BadRequestException('organizationId is required');
     }
 
     const user = await this.prisma.user.findUnique({
@@ -2126,20 +2206,29 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
+    const platformRoleKey = await this.resolveActivePlatformRoleKey(user.id);
+    const fallbackCanonicalRole = resolveCanonicalRoleKey(user.role);
+    const isPlatformPrincipal = this.isPlatformScopeRole(
+      platformRoleKey || fallbackCanonicalRole,
+    );
+    if (isPlatformPrincipal) {
+      return this.switchTenant(userId, normalizedOrganizationId);
+    }
+
     let membership = await this.prisma.organizationMembership.findUnique({
       where: {
         userId_organizationId: {
           userId,
-          organizationId,
+          organizationId: normalizedOrganizationId,
         },
       },
     });
 
-    if (!membership && user.organizationId === organizationId) {
+    if (!membership && user.organizationId === normalizedOrganizationId) {
       membership = await this.prisma.organizationMembership.create({
         data: {
           userId,
-          organizationId,
+          organizationId: normalizedOrganizationId,
           role: user.role,
           canonicalRoleKey: resolveCanonicalRoleKey(user.role),
           ownerCapability: user.ownerCapability,
@@ -2154,12 +2243,12 @@ export class AuthService {
       );
     }
 
-    if (user.organizationId !== organizationId) {
+    if (user.organizationId !== normalizedOrganizationId) {
       await this.prisma.user.update({
         where: { id: user.id },
-        data: { organizationId },
+        data: { organizationId: normalizedOrganizationId },
       });
-      user.organizationId = organizationId;
+      user.organizationId = normalizedOrganizationId;
     }
 
     await this.recordAuditEvent({
@@ -2168,17 +2257,125 @@ export class AuthService {
       resource: 'OrganizationMembership',
       resourceId: membership.id,
       details: {
-        organizationId,
+        organizationId: normalizedOrganizationId,
       },
     });
 
     return this.generateAuthResponse(user, {
-      preferredOrganizationId: organizationId,
+      preferredOrganizationId: normalizedOrganizationId,
+      sessionScopeType: 'tenant',
+      actingAsTenant: true,
+      selectedTenantId: normalizedOrganizationId,
+      selectedTenantName: null,
     });
   }
 
-  async switchTenant(userId: string, tenantId: string) {
-    return this.switchOrganization(userId, tenantId);
+  async switchTenant(
+    userId: string,
+    tenantId?: string | null,
+  ): Promise<AuthSessionTokensResponse> {
+    if (!userId) {
+      throw new UnauthorizedException('Authenticated user context is required');
+    }
+
+    const normalizedTenantId = tenantId?.trim() || null;
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        organization: {
+          select: this.organizationSafeSelect,
+        },
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const platformRoleKey = await this.resolveActivePlatformRoleKey(user.id);
+    const fallbackCanonicalRole = resolveCanonicalRoleKey(user.role);
+    const isPlatformPrincipal = this.isPlatformScopeRole(
+      platformRoleKey || fallbackCanonicalRole,
+    );
+
+    if (!isPlatformPrincipal) {
+      if (!normalizedTenantId) {
+        throw new BadRequestException('tenantId is required');
+      }
+      return this.switchOrganization(userId, normalizedTenantId);
+    }
+
+    const platformSessionContext = await this.buildAuthUserContext(user, {
+      sessionScopeType: 'platform',
+      actingAsTenant: false,
+    });
+    const platformSessionUser = this.buildAuthenticatedUserPayload(
+      user,
+      platformSessionContext,
+    );
+    const canImpersonateTenant =
+      platformSessionUser.permissions.includes('platform.tenants.read') ||
+      platformSessionUser.permissions.includes('platform.tenants.write');
+
+    if (!canImpersonateTenant) {
+      throw new ForbiddenException(
+        'Platform tenant switching requires platform tenant permissions',
+      );
+    }
+
+    if (!normalizedTenantId) {
+      await this.recordAuditEvent({
+        actor: user.id,
+        action: 'TENANT_IMPERSONATION_CLEARED',
+        resource: 'User',
+        resourceId: user.id,
+      });
+
+      return this.generateAuthResponse(user, {
+        sessionScopeType: 'platform',
+        actingAsTenant: false,
+        selectedTenantId: null,
+        selectedTenantName: null,
+      });
+    }
+
+    const selectedTenant = await this.prisma
+      .getControlPlaneClient()
+      .organization.findUnique({
+        where: { id: normalizedTenantId },
+        select: {
+          id: true,
+          name: true,
+          suspendedAt: true,
+        },
+      });
+
+    if (!selectedTenant) {
+      throw new NotFoundException('Selected tenant was not found');
+    }
+
+    if (selectedTenant.suspendedAt) {
+      throw new ForbiddenException('Selected tenant is suspended');
+    }
+
+    await this.recordAuditEvent({
+      actor: user.id,
+      action: 'TENANT_IMPERSONATION_STARTED',
+      resource: 'Organization',
+      resourceId: selectedTenant.id,
+      details: {
+        tenantId: selectedTenant.id,
+        tenantName: selectedTenant.name,
+      },
+    });
+
+    return this.generateAuthResponse(user, {
+      preferredOrganizationId: selectedTenant.id,
+      sessionScopeType: 'tenant',
+      actingAsTenant: true,
+      selectedTenantId: selectedTenant.id,
+      selectedTenantName: selectedTenant.name,
+    });
   }
 
   async issueServiceToken(
@@ -2415,7 +2612,7 @@ export class AuthService {
 
   private async buildAuthUserContext(
     user: AuthUserContextInput,
-    options?: { preferredOrganizationId?: string },
+    options?: AuthSessionContextOptions,
   ) {
     const activeMemberships = await this.getActiveMemberships(user.id);
     const memberships =
@@ -2451,17 +2648,41 @@ export class AuthService {
             })()
           : [];
 
-    const activeOrganizationId = this.resolveActiveOrganizationId(
+    const platformRoleKey = await this.resolveActivePlatformRoleKey(user.id);
+    const fallbackCanonicalRole = resolveCanonicalRoleKey(user.role);
+    const isPlatformPrincipal = this.isPlatformScopeRole(
+      platformRoleKey || fallbackCanonicalRole,
+    );
+    const selectedTenantIdInput =
+      options?.selectedTenantId || options?.preferredOrganizationId || null;
+    const requestedTenantSession =
+      options?.sessionScopeType === 'tenant' ||
+      options?.actingAsTenant === true ||
+      Boolean(selectedTenantIdInput);
+
+    let activeOrganizationId = this.resolveActiveOrganizationId(
       memberships,
       user.organizationId,
-      options?.preferredOrganizationId,
+      selectedTenantIdInput,
     );
+    if (isPlatformPrincipal) {
+      activeOrganizationId =
+        requestedTenantSession && selectedTenantIdInput
+          ? selectedTenantIdInput
+          : null;
+    }
+
     const { stationContexts, activeStationContext } =
-      await this.resolveStationContexts(
-        user.id,
-        activeOrganizationId,
-        user.lastStationAssignmentId,
-      );
+      isPlatformPrincipal && !activeOrganizationId
+        ? {
+            stationContexts: [] as AccessStationContextSummary[],
+            activeStationContext: null,
+          }
+        : await this.resolveStationContexts(
+            user.id,
+            activeOrganizationId,
+            user.lastStationAssignmentId,
+          );
     const membershipRole = this.resolveEffectiveRole(
       user,
       memberships.map((membership) => ({
@@ -2479,18 +2700,30 @@ export class AuthService {
       activeOrganizationId,
       activeMembership,
     );
-    const platformRoleKey = await this.resolveActivePlatformRoleKey(user.id);
     const resolvedActiveCustomRole = platformRoleKey ? null : activeCustomRole;
     const effectiveCanonicalRole =
       platformRoleKey ||
       resolvedActiveCustomRole?.baseRoleKey ||
       this.resolveEffectiveCanonicalRole(activeMembership, effectiveRole);
+    const sessionScopeType: SessionScopeType =
+      isPlatformPrincipal && !activeOrganizationId ? 'platform' : 'tenant';
+    const actingAsTenant = sessionScopeType === 'tenant';
+    const activeOrganizationName =
+      activeMembership?.organization?.name ||
+      options?.selectedTenantName ||
+      null;
+    const selectedTenantId = actingAsTenant ? activeOrganizationId : null;
+    const selectedTenantName = actingAsTenant
+      ? activeOrganizationName || options?.selectedTenantName || null
+      : null;
 
-    await this.syncLegacyOrganizationId(
-      user.id,
-      user.organizationId,
-      activeOrganizationId,
-    );
+    if (!isPlatformPrincipal) {
+      await this.syncLegacyOrganizationId(
+        user.id,
+        user.organizationId,
+        activeOrganizationId,
+      );
+    }
     if (
       activeStationContext &&
       user.lastStationAssignmentId !== activeStationContext.assignmentId
@@ -2505,13 +2738,19 @@ export class AuthService {
 
     return {
       activeOrganizationId,
-      activeTenantId: activeOrganizationId,
+      activeOrganizationName,
+      activeTenantId: selectedTenantId,
       effectiveRole,
       effectiveCanonicalRole,
       activeCustomRole: resolvedActiveCustomRole,
+      sessionScopeType,
+      actingAsTenant,
+      selectedTenantId,
+      selectedTenantName,
       memberships: memberships.map((membership) => ({
         id: membership.id,
         organizationId: membership.organizationId,
+        tenantId: membership.organizationId,
         role: membership.role,
         canonicalRoleKey:
           membership.canonicalRoleKey ||
@@ -2521,7 +2760,9 @@ export class AuthService {
         ownerCapability: membership.ownerCapability || undefined,
         status: membership.status,
         organizationName: membership.organization?.name,
+        tenantName: membership.organization?.name,
         organizationType: membership.organization?.type,
+        tenantType: membership.organization?.type,
       })),
       stationContexts,
       activeStationContext,
@@ -2545,10 +2786,15 @@ export class AuthService {
     },
     context: {
       activeOrganizationId: string | null;
+      activeOrganizationName: string | null;
       activeTenantId: string | null;
       effectiveRole: UserRole;
       effectiveCanonicalRole: CanonicalRoleKey | null;
       activeCustomRole: ActiveCustomRoleAccessSummary | null;
+      sessionScopeType: SessionScopeType;
+      actingAsTenant: boolean;
+      selectedTenantId: string | null;
+      selectedTenantName: string | null;
       memberships: AccessMembershipSummary[];
       stationContexts: AccessStationContextSummary[];
       activeStationContext: AccessStationContextSummary | null;
@@ -2573,12 +2819,31 @@ export class AuthService {
       return {
         ...membership,
         tenantId: membership.organizationId,
+        tenantName:
+          membership.tenantName ||
+          membership.organizationName ||
+          membership.organizationId,
         canonicalRole,
         roleLabel:
           membership.customRoleName ||
           resolveRoleLabel(canonicalRole || membership.role),
       };
     });
+    const activeTenantId = context.actingAsTenant
+      ? context.activeTenantId || context.selectedTenantId
+      : null;
+    const activeOrganizationId = context.actingAsTenant
+      ? context.activeOrganizationId || context.selectedTenantId
+      : null;
+    const activeTenantName =
+      context.actingAsTenant && activeTenantId
+        ? context.selectedTenantName ||
+          context.activeOrganizationName ||
+          membershipSummaries.find(
+            (membership) => membership.organizationId === activeTenantId,
+          )?.tenantName ||
+          null
+        : null;
 
     return {
       id: user.id,
@@ -2596,11 +2861,22 @@ export class AuthService {
       region: user.region,
       zoneId: user.zoneId,
       ownerCapability: user.ownerCapability,
-      tenantId: context.activeTenantId || user.organizationId,
-      activeTenantId: context.activeTenantId,
-      organizationId: context.activeOrganizationId || user.organizationId,
-      orgId: context.activeOrganizationId || user.organizationId,
-      activeOrganizationId: context.activeOrganizationId,
+      tenantId: activeTenantId,
+      activeTenantId,
+      organizationId: activeOrganizationId,
+      orgId: activeOrganizationId,
+      activeOrganizationId,
+      organizationName: activeTenantName,
+      activeTenantName,
+      scopeDisplayName: this.resolveScopeDisplayName(accessProfile.scope.type, {
+        activeOrganizationName: activeTenantName,
+        activeStationName: context.activeStationContext?.stationName || null,
+      }),
+      activeStationName: context.activeStationContext?.stationName || null,
+      sessionScopeType: context.sessionScopeType,
+      actingAsTenant: context.actingAsTenant,
+      selectedTenantId: context.selectedTenantId,
+      selectedTenantName: context.selectedTenantName,
       memberships: membershipSummaries,
       availableTenants: membershipSummaries,
       stationContexts: context.stationContexts,
@@ -2613,7 +2889,7 @@ export class AuthService {
 
   private async issueTokens(
     user: AuthUserContextInput,
-    options?: { preferredOrganizationId?: string },
+    options?: AuthSessionContextOptions,
   ) {
     const secret = this.config.get<string>('JWT_SECRET');
     if (!secret) {
@@ -2632,8 +2908,12 @@ export class AuthService {
         permissions: authenticatedUser.permissions,
         tenantId: authenticatedUser.tenantId,
         activeTenantId: authenticatedUser.activeTenantId,
-        organizationId: context.activeOrganizationId,
-        activeOrganizationId: context.activeOrganizationId,
+        organizationId: authenticatedUser.organizationId,
+        activeOrganizationId: authenticatedUser.activeOrganizationId,
+        sessionScopeType: authenticatedUser.sessionScopeType,
+        actingAsTenant: authenticatedUser.actingAsTenant,
+        selectedTenantId: authenticatedUser.selectedTenantId,
+        selectedTenantName: authenticatedUser.selectedTenantName,
       },
       secret as jwt.Secret,
       {
@@ -2643,7 +2923,15 @@ export class AuthService {
     );
 
     const refreshToken = jwt.sign(
-      { sub: user.id, type: 'refresh', jti: crypto.randomUUID() },
+      {
+        sub: user.id,
+        type: 'refresh',
+        jti: crypto.randomUUID(),
+        sessionScopeType: authenticatedUser.sessionScopeType,
+        actingAsTenant: authenticatedUser.actingAsTenant,
+        selectedTenantId: authenticatedUser.selectedTenantId,
+        selectedTenantName: authenticatedUser.selectedTenantName,
+      },
       secret as jwt.Secret,
       {
         expiresIn: this.config.get<string>('JWT_REFRESH_EXPIRY') || '7d',
@@ -2676,7 +2964,7 @@ export class AuthService {
     try {
       if (!secret) throw new Error('JWT_SECRET not configured');
 
-      let payload: jwt.JwtPayload & { sub: string };
+      let payload: AuthRefreshTokenClaims;
       try {
         const verified = jwt.verify(refreshToken, secret);
         if (
@@ -2687,7 +2975,7 @@ export class AuthService {
         ) {
           throw new UnauthorizedException('Invalid token');
         }
-        payload = verified as jwt.JwtPayload & { sub: string };
+        payload = verified as AuthRefreshTokenClaims;
       } catch {
         throw new UnauthorizedException('Invalid token');
       }
@@ -2708,7 +2996,12 @@ export class AuthService {
         where: { id: payload.sub },
       });
       if (!user) throw new UnauthorizedException('User not found');
-      const authUserContext = await this.buildAuthUserContext(user);
+      const authUserContext = await this.buildAuthUserContext(user, {
+        sessionScopeType: payload.sessionScopeType,
+        actingAsTenant: payload.actingAsTenant,
+        selectedTenantId: payload.selectedTenantId || null,
+        selectedTenantName: payload.selectedTenantName || null,
+      });
       const authenticatedUser = this.buildAuthenticatedUserPayload(
         user,
         authUserContext,
@@ -2723,8 +3016,12 @@ export class AuthService {
           permissions: authenticatedUser.permissions,
           tenantId: authenticatedUser.tenantId,
           activeTenantId: authenticatedUser.activeTenantId,
-          organizationId: authUserContext.activeOrganizationId,
-          activeOrganizationId: authUserContext.activeOrganizationId,
+          organizationId: authenticatedUser.organizationId,
+          activeOrganizationId: authenticatedUser.activeOrganizationId,
+          sessionScopeType: authenticatedUser.sessionScopeType,
+          actingAsTenant: authenticatedUser.actingAsTenant,
+          selectedTenantId: authenticatedUser.selectedTenantId,
+          selectedTenantName: authenticatedUser.selectedTenantName,
         },
         secret as jwt.Secret,
         {
@@ -3556,7 +3853,7 @@ export class AuthService {
     return user;
   }
 
-  async getCurrentUser(id: string) {
+  async getCurrentUser(id: string, sessionOptions?: AuthSessionContextOptions) {
     const user = await this.prisma.user.findUnique({
       where: { id },
       select: {
@@ -3575,88 +3872,30 @@ export class AuthService {
 
     if (!user) return null;
 
-    const activeOrganizationId = this.resolveActiveOrganizationId(
-      user.memberships,
-      user.organizationId,
-    );
-    const stationContextBundle = await this.resolveStationContexts(
-      user.id,
-      activeOrganizationId,
-      user.lastStationAssignmentId,
-    );
-    const membershipRole = this.resolveEffectiveRole(
+    const authUserContext = await this.buildAuthUserContext(
       user,
-      user.memberships.map((membership) => ({
-        organizationId: membership.organizationId,
-        role: membership.role,
-      })),
-      activeOrganizationId,
+      sessionOptions,
     );
-    const effectiveRole =
-      stationContextBundle.activeStationContext?.role || membershipRole;
-    const activeMembership =
-      user.memberships.find(
-        (membership) => membership.organizationId === activeOrganizationId,
-      ) || null;
-    const activeCustomRole = await this.resolveActiveCustomRoleAccess(
-      activeOrganizationId,
-      activeMembership,
+    const authenticatedUser = this.buildAuthenticatedUserPayload(
+      user,
+      authUserContext,
     );
-    const platformRoleKey = await this.resolveActivePlatformRoleKey(user.id);
-    const resolvedActiveCustomRole = platformRoleKey ? null : activeCustomRole;
-    const effectiveCanonicalRole =
-      platformRoleKey ||
-      resolvedActiveCustomRole?.baseRoleKey ||
-      this.resolveEffectiveCanonicalRole(activeMembership, effectiveRole);
-
-    const memberships = user.memberships.map((membership) => ({
-      id: membership.id,
-      organizationId: membership.organizationId,
-      role: membership.role,
-      canonicalRoleKey:
-        membership.canonicalRoleKey || resolveCanonicalRoleKey(membership.role),
-      customRoleId: membership.customRoleId || null,
-      customRoleName: membership.customRoleName || null,
-      ownerCapability: membership.ownerCapability,
-      status: membership.status,
-      organizationName: membership.organization?.name,
-      organizationType: membership.organization?.type,
-    }));
 
     return {
       ...user,
-      ...this.buildAuthenticatedUserPayload(user, {
-        activeOrganizationId,
-        activeTenantId: activeOrganizationId,
-        effectiveRole,
-        effectiveCanonicalRole,
-        activeCustomRole: resolvedActiveCustomRole,
-        memberships,
-        stationContexts: stationContextBundle.stationContexts,
-        activeStationContext: stationContextBundle.activeStationContext,
-      }),
+      ...authenticatedUser,
       organization: user.organization,
-      memberships: user.memberships.map((membership) => ({
-        id: membership.id,
-        organizationId: membership.organizationId,
-        role: membership.role,
-        canonicalRoleKey:
-          membership.canonicalRoleKey ||
-          resolveCanonicalRoleKey(membership.role),
-        customRoleId: membership.customRoleId || null,
-        customRoleName: membership.customRoleName || null,
-        ownerCapability: membership.ownerCapability,
-        status: membership.status,
-        organizationName: membership.organization?.name,
-        organizationType: membership.organization?.type,
-      })),
-      stationContexts: stationContextBundle.stationContexts,
-      activeStationContext: stationContextBundle.activeStationContext,
+      memberships: authenticatedUser.memberships,
+      stationContexts: authenticatedUser.stationContexts,
+      activeStationContext: authenticatedUser.activeStationContext,
     };
   }
 
-  async getCurrentAccessProfile(id: string) {
-    const user = await this.getCurrentUser(id);
+  async getCurrentAccessProfile(
+    id: string,
+    sessionOptions?: AuthSessionContextOptions,
+  ) {
+    const user = await this.getCurrentUser(id, sessionOptions);
     return user?.accessProfile || null;
   }
 

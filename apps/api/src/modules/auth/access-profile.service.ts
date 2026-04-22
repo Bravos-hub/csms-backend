@@ -42,12 +42,15 @@ export interface AccessProfile {
 export interface AccessMembershipSummary {
   id?: string;
   organizationId: string;
+  tenantId?: string;
   role: UserRole;
   canonicalRoleKey?: CanonicalRoleKey | null;
   customRoleId?: string | null;
   customRoleName?: string | null;
   organizationName?: string;
+  tenantName?: string;
   organizationType?: string;
+  tenantType?: string;
   status?: string;
 }
 

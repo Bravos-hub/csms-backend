@@ -55,7 +55,15 @@ import {
 } from '../../common/utils/cookie.config';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
-type AuthenticatedRequest = Request & { user?: { sub?: string } };
+type AuthenticatedUserClaims = {
+  sub?: string;
+  sessionScopeType?: 'platform' | 'tenant';
+  actingAsTenant?: boolean;
+  selectedTenantId?: string | null;
+  selectedTenantName?: string | null;
+};
+
+type AuthenticatedRequest = Request & { user?: AuthenticatedUserClaims };
 type MutableFrontendUrl = { frontendUrl?: string };
 type PasswordResetBody = {
   email?: string;
@@ -292,7 +300,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Switch active tenant context' })
   async switchTenant(
     @Body() body: SwitchTenantDto,
-    @Req() req: Request & { user?: { sub?: string } },
+    @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
   ) {
     const userId = req.user?.sub;
@@ -323,13 +331,18 @@ export class AuthController {
   @Get('access-profile')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get effective canonical access profile' })
-  async getAccessProfile(@Req() req: Request & { user?: { sub?: string } }) {
+  async getAccessProfile(@Req() req: AuthenticatedRequest) {
     const userId = req.user?.sub;
     if (!userId) {
       throw new BadRequestException('Authenticated user is required');
     }
 
-    return this.authService.getCurrentAccessProfile(userId);
+    return this.authService.getCurrentAccessProfile(userId, {
+      sessionScopeType: req.user?.sessionScopeType,
+      actingAsTenant: req.user?.actingAsTenant,
+      selectedTenantId: req.user?.selectedTenantId || null,
+      selectedTenantName: req.user?.selectedTenantName || null,
+    });
   }
 
   @Post('register')
@@ -821,7 +834,12 @@ export class UsersController {
     if (!userId) {
       throw new BadRequestException('Authenticated user is required');
     }
-    return this.authService.getCurrentUser(userId);
+    return this.authService.getCurrentUser(userId, {
+      sessionScopeType: req.user?.sessionScopeType,
+      actingAsTenant: req.user?.actingAsTenant,
+      selectedTenantId: req.user?.selectedTenantId || null,
+      selectedTenantName: req.user?.selectedTenantName || null,
+    });
   }
 
   @Get()
