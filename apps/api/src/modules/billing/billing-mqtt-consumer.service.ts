@@ -64,8 +64,10 @@ export class BillingMqttConsumer {
       include: { site: { include: { tenants: true } } },
     });
 
-    if (!station?.site?.tenants?.some(t => t.id === tenantId)) {
-      this.logger.warn(`Session ${data.sessionId} does not belong to tenant ${tenantId}`);
+    if (!station?.site?.tenants?.some((t) => t.id === tenantId)) {
+      this.logger.warn(
+        `Session ${data.sessionId} does not belong to tenant ${tenantId}`,
+      );
       return;
     }
 
@@ -75,9 +77,6 @@ export class BillingMqttConsumer {
     }
 
     const endTime = data.endTime ? new Date(data.endTime) : new Date();
-    const startTime = data.startTime
-      ? new Date(data.startTime)
-      : existingSession.startTime;
 
     try {
       await this.prisma.session.update({
@@ -101,10 +100,10 @@ export class BillingMqttConsumer {
   }
 
   @EventPattern('v1/+/+/+/meter/+/reading')
-  async handleMeterReading(
+  handleMeterReading(
     @Payload() data: MeterReadingPayload,
     @Ctx() context: MqttContext,
-  ): Promise<void> {
+  ): void {
     const topic = context.getTopic();
     const tenantId = this.extractTenantFromTopic(topic);
 
@@ -139,9 +138,11 @@ export class BillingMqttConsumer {
       return;
     }
 
-    const tenantIds = station.site?.tenants?.map(t => t.id) || [];
+    const tenantIds = station.site?.tenants?.map((t) => t.id) || [];
     if (!tenantIds.includes(tenantId)) {
-      this.logger.warn(`Station ${data.stationId} does not belong to tenant ${tenantId}`);
+      this.logger.warn(
+        `Station ${data.stationId} does not belong to tenant ${tenantId}`,
+      );
       return;
     }
 
@@ -174,7 +175,11 @@ export class BillingMqttConsumer {
     } catch (error) {
       this.logger.error(
         `Failed to create battery swap session ${data.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
-        { sessionId: data.sessionId, stationId: data.stationId, userId: data.userId },
+        {
+          sessionId: data.sessionId,
+          stationId: data.stationId,
+          userId: data.userId,
+        },
       );
     }
   }

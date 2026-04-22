@@ -117,7 +117,9 @@ export class BmsService {
 
     const timestampMs = Date.parse(payload.timestamp);
     if (isNaN(timestampMs)) {
-      this.logger.warn(`Invalid timestamp in kill command: ${payload.timestamp}`);
+      this.logger.warn(
+        `Invalid timestamp in kill command: ${payload.timestamp}`,
+      );
       return { success: false, message: 'Invalid timestamp' };
     }
 
@@ -130,8 +132,14 @@ export class BmsService {
       return { success: false, message: 'Timestamp out of acceptable range' };
     }
 
-    const allowedAdmins = this.configService.get<string>('ALLOWED_REMOTE_KILL_ADMINS')?.split(',') || [];
-    if (allowedAdmins.length > 0 && !allowedAdmins.includes(payload.authorizedBy)) {
+    const allowedAdmins =
+      this.configService
+        .get<string>('ALLOWED_REMOTE_KILL_ADMINS')
+        ?.split(',') || [];
+    if (
+      allowedAdmins.length > 0 &&
+      !allowedAdmins.includes(payload.authorizedBy)
+    ) {
       this.logger.warn(
         `Unauthorized kill command attempt by ${payload.authorizedBy} for pack ${packSerial}`,
       );
@@ -164,6 +172,8 @@ export class BmsService {
     stationId: string,
     adminUserId: string,
   ): Promise<boolean> {
+    void stationId;
+    void adminUserId;
     const pack = await this.prisma.batteryPack.findUnique({
       where: { id: packId },
     });

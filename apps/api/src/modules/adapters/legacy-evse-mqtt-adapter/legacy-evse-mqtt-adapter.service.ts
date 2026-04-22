@@ -50,6 +50,7 @@ export class LegacyEvseMqttAdapterService extends BaseMqttAdapter {
     topic: string,
     payload: Buffer,
   ): Promise<AdapterPayloadValidationResult> {
+    await Promise.resolve();
     try {
       const parsed = JSON.parse(payload.toString()) as Record<string, unknown>;
 
@@ -65,7 +66,11 @@ export class LegacyEvseMqttAdapterService extends BaseMqttAdapter {
           errors: ['Missing or invalid type'],
         };
       }
-      if (!parsed.data || typeof parsed.data !== 'object' || Array.isArray(parsed.data)) {
+      if (
+        !parsed.data ||
+        typeof parsed.data !== 'object' ||
+        Array.isArray(parsed.data)
+      ) {
         return {
           valid: false,
           errors: ['Missing or invalid data payload'],
@@ -133,6 +138,7 @@ export class LegacyEvseMqttAdapterService extends BaseMqttAdapter {
     deviceInfo: AdapterDeviceInfo,
     command: Record<string, unknown>,
   ): Promise<AdapterCommandResult> {
+    await Promise.resolve();
     this.logger.debug(
       `Sending command to legacy EVSE ${deviceInfo.vendorDeviceId}: ${JSON.stringify(command)}`,
     );
@@ -148,6 +154,9 @@ export class LegacyEvseMqttAdapterService extends BaseMqttAdapter {
     deviceId: string,
     eventType: string,
   ): Promise<{ valid: boolean; reason?: string }> {
+    await Promise.resolve();
+    void deviceId;
+    void eventType;
     return { valid: true };
   }
 
@@ -156,6 +165,8 @@ export class LegacyEvseMqttAdapterService extends BaseMqttAdapter {
     messageId: string,
     timestamp: Date,
   ): Promise<boolean> {
+    await Promise.resolve();
+    void timestamp;
     if (!messageId) return false;
 
     let deviceCache = this.processedMessages.get(deviceId);
@@ -244,7 +255,7 @@ export class LegacyEvseMqttAdapterService extends BaseMqttAdapter {
             current: statusData.current || 0,
             vendorStatus: statusData.vendorStatus || '',
           };
-          await this.eventPublisher.publishLegacyEvseStatus(evt, deviceInfo.tenantId);
+          this.eventPublisher.publishLegacyEvseStatus(evt, deviceInfo.tenantId);
           break;
         }
         case 'TRANSACTION': {
@@ -265,7 +276,7 @@ export class LegacyEvseMqttAdapterService extends BaseMqttAdapter {
             energyDelivered: txData.energyDelivered || 0,
             status: this.normalizeTransactionStatus(txData.status),
           };
-          await this.eventPublisher.publishLegacyEvseTransaction(
+          this.eventPublisher.publishLegacyEvseTransaction(
             evt,
             deviceInfo.tenantId,
           );

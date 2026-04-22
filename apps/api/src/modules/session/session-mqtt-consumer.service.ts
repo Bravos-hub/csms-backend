@@ -60,7 +60,9 @@ export class SessionMqttConsumer {
       return;
     }
 
-    this.logger.debug(`Handling charger transaction started: ${data.transactionId}`);
+    this.logger.debug(
+      `Handling charger transaction started: ${data.transactionId}`,
+    );
 
     const chargePoint = await this.prisma.chargePoint.findFirst({
       where: { ocppId: data.chargerId },
@@ -77,8 +79,12 @@ export class SessionMqttConsumer {
       include: { site: { include: { tenants: true } } },
     });
 
-    if (!station?.site?.tenants?.some((t: { id: string }) => t.id === tenantId)) {
-      this.logger.warn(`Charger ${data.chargerId} does not belong to tenant ${tenantId}`);
+    if (
+      !station?.site?.tenants?.some((t: { id: string }) => t.id === tenantId)
+    ) {
+      this.logger.warn(
+        `Charger ${data.chargerId} does not belong to tenant ${tenantId}`,
+      );
       return;
     }
 
@@ -87,7 +93,9 @@ export class SessionMqttConsumer {
     });
 
     if (existingSession) {
-      this.logger.debug(`Session already exists for transaction: ${data.transactionId}`);
+      this.logger.debug(
+        `Session already exists for transaction: ${data.transactionId}`,
+      );
       return;
     }
 
@@ -106,8 +114,13 @@ export class SessionMqttConsumer {
         },
       });
     } catch (error) {
-      if (error instanceof Error && error.message.includes('Unique constraint')) {
-        this.logger.debug(`Session already exists (race condition) for transaction: ${data.transactionId}`);
+      if (
+        error instanceof Error &&
+        error.message.includes('Unique constraint')
+      ) {
+        this.logger.debug(
+          `Session already exists (race condition) for transaction: ${data.transactionId}`,
+        );
         return;
       }
       throw error;
@@ -126,21 +139,36 @@ export class SessionMqttConsumer {
       return;
     }
 
-    this.logger.debug(`Handling charger transaction updated: ${data.transactionId}`);
+    this.logger.debug(
+      `Handling charger transaction updated: ${data.transactionId}`,
+    );
 
     const session = await this.prisma.session.findFirst({
       where: { ocppTxId: data.transactionId },
-      include: { chargePoint: { include: { station: { include: { site: { include: { tenants: true } } } } } } } } },
+      include: {
+        chargePoint: {
+          include: {
+            station: { include: { site: { include: { tenants: true } } } },
+          },
+        },
+      },
     });
 
     if (!session) {
-      this.logger.warn(`Session not found for transaction: ${data.transactionId}`);
+      this.logger.warn(
+        `Session not found for transaction: ${data.transactionId}`,
+      );
       return;
     }
 
-    const sessionTenantIds = session.chargePoint?.station?.site?.tenants?.map((t: { id: string }) => t.id) || [];
+    const sessionTenantIds =
+      session.chargePoint?.station?.site?.tenants?.map(
+        (t: { id: string }) => t.id,
+      ) || [];
     if (!sessionTenantIds.includes(tenantId)) {
-      this.logger.warn(`Session ${session.id} does not belong to tenant ${tenantId}`);
+      this.logger.warn(
+        `Session ${session.id} does not belong to tenant ${tenantId}`,
+      );
       return;
     }
 
@@ -181,8 +209,12 @@ export class SessionMqttConsumer {
       return;
     }
 
-    if (!station.site?.tenants?.some((t: { id: string }) => t.id === tenantId)) {
-      this.logger.warn(`Station ${data.stationId} does not belong to tenant ${tenantId}`);
+    if (
+      !station.site?.tenants?.some((t: { id: string }) => t.id === tenantId)
+    ) {
+      this.logger.warn(
+        `Station ${data.stationId} does not belong to tenant ${tenantId}`,
+      );
       return;
     }
 
@@ -191,7 +223,9 @@ export class SessionMqttConsumer {
     });
 
     if (existingSession) {
-      this.logger.debug(`Battery swap session already exists: ${data.swapSessionId}`);
+      this.logger.debug(
+        `Battery swap session already exists: ${data.swapSessionId}`,
+      );
       return;
     }
 
@@ -216,8 +250,13 @@ export class SessionMqttConsumer {
         },
       });
     } catch (error) {
-      if (error instanceof Error && error.message.includes('Unique constraint')) {
-        this.logger.debug(`Battery swap session already exists (race condition): ${data.swapSessionId}`);
+      if (
+        error instanceof Error &&
+        error.message.includes('Unique constraint')
+      ) {
+        this.logger.debug(
+          `Battery swap session already exists (race condition): ${data.swapSessionId}`,
+        );
         return;
       }
       throw error;
@@ -236,7 +275,9 @@ export class SessionMqttConsumer {
       return;
     }
 
-    this.logger.debug(`Handling legacy EVSE transaction: ${data.transactionId}`);
+    this.logger.debug(
+      `Handling legacy EVSE transaction: ${data.transactionId}`,
+    );
 
     const chargePoint = await this.prisma.chargePoint.findFirst({
       where: { ocppId: data.chargerId },
@@ -253,8 +294,12 @@ export class SessionMqttConsumer {
       include: { site: { include: { tenants: true } } },
     });
 
-    if (!station?.site?.tenants?.some((t: { id: string }) => t.id === tenantId)) {
-      this.logger.warn(`Legacy charger ${data.chargerId} does not belong to tenant ${tenantId}`);
+    if (
+      !station?.site?.tenants?.some((t: { id: string }) => t.id === tenantId)
+    ) {
+      this.logger.warn(
+        `Legacy charger ${data.chargerId} does not belong to tenant ${tenantId}`,
+      );
       return;
     }
 
@@ -264,7 +309,9 @@ export class SessionMqttConsumer {
       });
 
       if (existingSession) {
-        this.logger.debug(`Legacy EVSE session already exists: ${data.transactionId}`);
+        this.logger.debug(
+          `Legacy EVSE session already exists: ${data.transactionId}`,
+        );
         return;
       }
 
@@ -283,8 +330,13 @@ export class SessionMqttConsumer {
           },
         });
       } catch (error) {
-        if (error instanceof Error && error.message.includes('Unique constraint')) {
-          this.logger.debug(`Legacy EVSE session already exists (race condition): ${data.transactionId}`);
+        if (
+          error instanceof Error &&
+          error.message.includes('Unique constraint')
+        ) {
+          this.logger.debug(
+            `Legacy EVSE session already exists (race condition): ${data.transactionId}`,
+          );
           return;
         }
         throw error;
@@ -292,13 +344,24 @@ export class SessionMqttConsumer {
     } else if (data.status === 'COMPLETED' || data.status === 'STOPPED') {
       const session = await this.prisma.session.findFirst({
         where: { ocppTxId: data.transactionId },
-        include: { chargePoint: { include: { station: { include: { site: { include: { tenants: true } } } } } } } } },
+        include: {
+          chargePoint: {
+            include: {
+              station: { include: { site: { include: { tenants: true } } } },
+            },
+          },
+        },
       });
 
       if (session) {
-        const sessionTenantIds = session.chargePoint?.station?.site?.tenants?.map((t: { id: string }) => t.id) || [];
+        const sessionTenantIds =
+          session.chargePoint?.station?.site?.tenants?.map(
+            (t: { id: string }) => t.id,
+          ) || [];
         if (!sessionTenantIds.includes(tenantId)) {
-          this.logger.warn(`Session ${session.id} does not belong to tenant ${tenantId}`);
+          this.logger.warn(
+            `Session ${session.id} does not belong to tenant ${tenantId}`,
+          );
           return;
         }
         await this.prisma.session.update({

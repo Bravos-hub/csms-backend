@@ -3,13 +3,6 @@ import { EventPattern, Payload, Ctx, MqttContext } from '@nestjs/microservices';
 import { PrismaService } from '../../../prisma.service';
 import { MqttEventPublisherService } from '@app/mqtt';
 
-interface VendorTelemetryPayload {
-  vendorDeviceId: string;
-  vendorType: string;
-  timestamp: string;
-  data: Record<string, unknown>;
-}
-
 interface BmsPayload {
   bmsSerial: string;
   soc?: number;
@@ -68,7 +61,6 @@ export class MqttEdgeAdapterService {
   ): Promise<void> {
     const topic = context.getTopic();
     const topicParts = topic.split('/');
-    const siteId = topicParts[2];
     const bmsSerial = data.bmsSerial || topicParts[4];
 
     this.logger.debug(`Processing BMS telemetry from ${bmsSerial}`);
@@ -129,7 +121,7 @@ export class MqttEdgeAdapterService {
           temperature: data.temperature || 0,
           status: 'AVAILABLE' as const,
         };
-        await this.eventPublisher.publishBatteryPackState(evt, registry.tenantId);
+        this.eventPublisher.publishBatteryPackState(evt, registry.tenantId);
       } else {
         this.logger.warn(
           `Battery pack not found for known registry: ${registry.id}, tenant: ${registry.tenantId}, site: ${registry.siteId}, bmsSerial: ${bmsSerial}`,
@@ -177,7 +169,7 @@ export class MqttEdgeAdapterService {
       power: data.power || 0,
       frequency: data.frequency || 0,
     };
-    await this.eventPublisher.publishMeterReading(evt, tenantId);
+    this.eventPublisher.publishMeterReading(evt, tenantId);
   }
 
   @EventPattern('evzone/edge/+/pv/+/output')
@@ -211,17 +203,16 @@ export class MqttEdgeAdapterService {
       irradiance: data.irradiance,
     };
 
-    await this.eventPublisher.publishPvOutput(evt, tenantId);
+    this.eventPublisher.publishPvOutput(evt, tenantId);
   }
 
   @EventPattern('evzone/edge/+/building/+/status')
-  async handleBuildingControllerStatus(
+  handleBuildingControllerStatus(
     @Payload() data: BuildingControllerPayload,
     @Ctx() context: MqttContext,
-  ): Promise<void> {
+  ): void {
     const topic = context.getTopic();
     const topicParts = topic.split('/');
-    const siteId = topicParts[2];
     const systemId = data.systemId || topicParts[4];
 
     this.logger.debug(`Processing building controller status from ${systemId}`);

@@ -12,14 +12,6 @@ interface CommandResultPayload {
   error?: string;
 }
 
-interface MqttCommandRequest {
-  tenantId: string;
-  siteId: string;
-  chargerId: string;
-  commandType: 'REMOTE_START' | 'REMOTE_STOP' | 'SET_AVAILABILITY' | 'RESET';
-  payload?: Record<string, unknown>;
-}
-
 @Injectable()
 export class CommandsMqttConsumer {
   private readonly logger = new Logger(CommandsMqttConsumer.name);
@@ -70,7 +62,11 @@ export class CommandsMqttConsumer {
       status: statusMap[data.status] || 'PENDING',
     };
 
-    if (data.status === 'COMPLETED' || data.status === 'FAILED' || data.status === 'REJECTED') {
+    if (
+      data.status === 'COMPLETED' ||
+      data.status === 'FAILED' ||
+      data.status === 'REJECTED'
+    ) {
       updateData.completedAt = new Date();
     }
 
@@ -120,9 +116,7 @@ export class CommandsMqttConsumer {
       },
     });
 
-    this.logger.debug(
-      `Created command ${commandId} for charger ${chargerId}`,
-    );
+    this.logger.debug(`Created command ${commandId} for charger ${chargerId}`);
 
     return commandId;
   }

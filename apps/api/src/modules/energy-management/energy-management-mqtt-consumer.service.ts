@@ -96,7 +96,7 @@ export class EnergyManagementMqttConsumer {
           stationId: station.id,
           sampledAt: new Date(),
           meterSource: data.meterId,
-          meterPlacement: 'MAIN' as any,
+          meterPlacement: 'MAIN',
           siteLoadAmpsPhase1: Math.round(data.current / 3),
           siteLoadAmpsPhase2: Math.round(data.current / 3),
           siteLoadAmpsPhase3: Math.round(data.current / 3),
@@ -148,7 +148,9 @@ export class EnergyManagementMqttConsumer {
     }
 
     if (typeof data.soc !== 'number' || data.soc < 0 || data.soc > 100) {
-      this.logger.warn(`Invalid SoC value ${data.soc} for pack ${data.packSerialNumber}, expected 0-100`);
+      this.logger.warn(
+        `Invalid SoC value ${data.soc} for pack ${data.packSerialNumber}, expected 0-100`,
+      );
       return;
     }
 
@@ -217,7 +219,7 @@ export class EnergyManagementMqttConsumer {
           stationId: station.id,
           sampledAt: new Date(),
           meterSource: `pv-${data.pvSystemId}`,
-          meterPlacement: 'DERIVED' as any,
+          meterPlacement: 'DERIVED',
           availableAmpsPhase1: Math.round((availablePower * 1000) / 3 / 230),
           availableAmpsPhase2: Math.round((availablePower * 1000) / 3 / 230),
           availableAmpsPhase3: Math.round((availablePower * 1000) / 3 / 230),
@@ -251,14 +253,21 @@ export class EnergyManagementMqttConsumer {
 
     if (data.commandType === 'SET_POWER_LIMIT') {
       const rawValue = data.payload.maxPowerWatts;
-      const limitWatts = typeof rawValue === 'number' && Number.isFinite(rawValue)
-        ? rawValue
-        : typeof rawValue === 'string'
-          ? Number(rawValue)
-          : undefined;
+      const limitWatts =
+        typeof rawValue === 'number' && Number.isFinite(rawValue)
+          ? rawValue
+          : typeof rawValue === 'string'
+            ? Number(rawValue)
+            : undefined;
 
       if (!Number.isFinite(limitWatts)) {
-        this.logger.warn(`Invalid maxPowerWatts in SET_POWER_LIMIT command: ${rawValue}`);
+        const rawValueForLog =
+          typeof rawValue === 'string' || typeof rawValue === 'number'
+            ? String(rawValue)
+            : JSON.stringify(rawValue);
+        this.logger.warn(
+          `Invalid maxPowerWatts in SET_POWER_LIMIT command: ${rawValueForLog}`,
+        );
         return;
       }
 
@@ -310,10 +319,10 @@ export class EnergyManagementMqttConsumer {
   }
 
   @EventPattern('v1/+/+/+/smart-charging/+/command/result')
-  async handleSmartChargingResult(
+  handleSmartChargingResult(
     @Payload() payload: { commandId: string; status: string; error?: string },
     @Ctx() context: MqttContext,
-  ): Promise<void> {
+  ): void {
     const topic = context.getTopic();
     const tenantId = this.extractTenantFromTopic(topic);
 
@@ -326,7 +335,7 @@ export class EnergyManagementMqttConsumer {
     );
   }
 
-  async sendSmartChargingCommand(
+  sendSmartChargingCommand(
     tenantId: string,
     siteId: string,
     chargerId: string,
@@ -343,7 +352,8 @@ export class EnergyManagementMqttConsumer {
       timestamp,
     };
 
-    await this.eventPublisher.publishSmartChargingCommand(event, tenantId);
+    this.eventPublisher.publishSmartChargingCommand(event, tenantId);
+    return Promise.resolve();
   }
 
   private extractTenantFromTopic(topic: string): string | null {
