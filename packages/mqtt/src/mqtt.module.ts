@@ -35,19 +35,7 @@ function buildDefaultClientId(): string {
   return raw.slice(0, MQTT_CLIENT_ID_MAX_LENGTH);
 }
 
-function resolveClientId(configService: ConfigService): string {
-  const configuredClientId = configService.get<string>('MQTT_CLIENT_ID');
-  const normalizedConfiguredClientId = configuredClientId
-    ? sanitizeClientIdSegment(configuredClientId).slice(
-        0,
-        MQTT_CLIENT_ID_MAX_LENGTH,
-      )
-    : '';
-
-  if (normalizedConfiguredClientId) {
-    return normalizedConfiguredClientId;
-  }
-
+function resolveClientId(): string {
   return buildDefaultClientId();
 }
 
@@ -111,7 +99,7 @@ export class MqttModule {
                   subscribeOptions: {
                     qos: validQos,
                   },
-                  clientId: resolveClientId(configService),
+                  clientId: resolveClientId(),
                 },
               } as unknown as ClientProvider;
             },
