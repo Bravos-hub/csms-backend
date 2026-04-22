@@ -314,7 +314,11 @@ export class AuthController {
       throw new BadRequestException('Authenticated user is required');
     }
 
-    const result = await this.authService.switchTenant(userId, body.tenantId);
+    const result = await this.authService.switchTenant(
+      userId,
+      body.tenantId,
+      body.reason,
+    );
 
     res.cookie(
       COOKIE_NAMES.ACCESS_TOKEN,

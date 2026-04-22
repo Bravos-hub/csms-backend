@@ -24,8 +24,10 @@ type GuardResponse = {
 function createExecutionContext(
   request: GuardRequest,
   response: GuardResponse,
+  contextType: 'http' | 'rpc' = 'http',
 ): ExecutionContext {
   return {
+    getType: () => contextType,
     getHandler: () => null,
     getClass: () => null,
     switchToHttp: () => ({
@@ -295,5 +297,14 @@ describe('JwtAuthGuard', () => {
 
     expect(result).toBe(true);
     expect(response.locals.tenantOrganizationId).toBe('org-tenant-22');
+  });
+
+  it('skips HTTP authorization parsing for RPC execution contexts', async () => {
+    const result = await guard.canActivate(
+      createExecutionContext({ headers: {} }, { locals: {} }, 'rpc'),
+    );
+
+    expect(result).toBe(true);
+    expect(tenantDirectoryFindByOrganizationId).not.toHaveBeenCalled();
   });
 });

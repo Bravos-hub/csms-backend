@@ -2297,12 +2297,14 @@ export class AuthService {
   async switchTenant(
     userId: string,
     tenantId?: string | null,
+    reason?: string | null,
   ): Promise<AuthSessionTokensResponse> {
     if (!userId) {
       throw new UnauthorizedException('Authenticated user context is required');
     }
 
     const normalizedTenantId = tenantId?.trim() || null;
+    const normalizedReason = reason?.trim() || null;
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -2355,9 +2357,11 @@ export class AuthService {
         resource: 'User',
         resourceId: user.id,
         details: {
+          actionType: 'STOP_IMPERSONATION',
           actorUserId: user.id,
           impersonationState: 'stopped',
           occurredAt: clearedAt,
+          reason: normalizedReason,
         },
       });
 
@@ -2395,11 +2399,13 @@ export class AuthService {
       resource: 'Organization',
       resourceId: selectedTenant.id,
       details: {
+        actionType: 'START_IMPERSONATION',
         actorUserId: user.id,
         impersonationState: 'started',
         occurredAt: impersonationStartedAt,
         tenantId: selectedTenant.id,
         tenantName: selectedTenant.name,
+        reason: normalizedReason,
       },
     });
 

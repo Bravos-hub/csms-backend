@@ -10,6 +10,7 @@ import {
   IsObject,
   ValidateNested,
   IsBoolean,
+  MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import type { Role } from '@app/domain';
@@ -420,6 +421,11 @@ export class SwitchTenantDto {
   @IsString()
   @IsOptional()
   tenantId?: string | null;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(500)
+  reason?: string | null;
 }
 
 export class AcceptInvitationResponseDto {

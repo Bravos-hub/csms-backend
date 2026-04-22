@@ -64,8 +64,17 @@ export class JwtAuthGuard implements CanActivate {
       return true;
     }
 
+    const contextType = context.getType<'http' | 'rpc' | 'ws'>();
+    if (contextType !== 'http') {
+      return true;
+    }
+
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const response = context.switchToHttp().getResponse<Response>();
+    if (!request || !request.headers) {
+      throw new UnauthorizedException('Missing request context');
+    }
+
     const responseLocals = response.locals as TenantResponseLocals;
     const rawAuthHeader = request.headers.authorization;
     const authHeader =

@@ -327,9 +327,15 @@ describe('AuthService EVZONE guardrails', () => {
     const generateAuthResponseSpy = jest
       .spyOn(authService, 'generateAuthResponse')
       .mockResolvedValue({ accessToken: 'token' });
-    jest.spyOn(authService, 'recordAuditEvent').mockResolvedValue();
+    const recordAuditEventSpy = jest
+      .spyOn(authService, 'recordAuditEvent')
+      .mockResolvedValue();
 
-    const response = await service.switchTenant('platform-user-1', null);
+    const response = await service.switchTenant(
+      'platform-user-1',
+      null,
+      'Maintenance scope complete',
+    );
 
     expect(response).toEqual({ accessToken: 'token' });
     expect(generateAuthResponseSpy).toHaveBeenCalledWith(
@@ -339,6 +345,18 @@ describe('AuthService EVZONE guardrails', () => {
         actingAsTenant: false,
         selectedTenantId: null,
       }),
+    );
+    expect(recordAuditEventSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'TENANT_IMPERSONATION_CLEARED',
+      }),
+    );
+    const clearedAuditPayload = recordAuditEventSpy.mock.calls[0]?.[0] as {
+      details?: { actionType?: string; reason?: string };
+    };
+    expect(clearedAuditPayload.details?.actionType).toBe('STOP_IMPERSONATION');
+    expect(clearedAuditPayload.details?.reason).toBe(
+      'Maintenance scope complete',
     );
   });
 
@@ -382,9 +400,15 @@ describe('AuthService EVZONE guardrails', () => {
     const generateAuthResponseSpy = jest
       .spyOn(authService, 'generateAuthResponse')
       .mockResolvedValue({ accessToken: 'tenant-token' });
-    jest.spyOn(authService, 'recordAuditEvent').mockResolvedValue();
+    const recordAuditEventSpy = jest
+      .spyOn(authService, 'recordAuditEvent')
+      .mockResolvedValue();
 
-    const response = await service.switchTenant('platform-user-1', 'tenant-1');
+    const response = await service.switchTenant(
+      'platform-user-1',
+      'tenant-1',
+      'Investigating tenant incident',
+    );
 
     expect(response).toEqual({ accessToken: 'tenant-token' });
     expect(generateAuthResponseSpy).toHaveBeenCalledWith(
@@ -396,5 +420,24 @@ describe('AuthService EVZONE guardrails', () => {
         selectedTenantName: 'Tenant One',
       }),
     );
+    expect(recordAuditEventSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'TENANT_IMPERSONATION_STARTED',
+      }),
+    );
+    const startedAuditPayload = recordAuditEventSpy.mock.calls[0]?.[0] as {
+      details?: {
+        actionType?: string;
+        reason?: string;
+        tenantId?: string;
+        tenantName?: string;
+      };
+    };
+    expect(startedAuditPayload.details?.actionType).toBe('START_IMPERSONATION');
+    expect(startedAuditPayload.details?.reason).toBe(
+      'Investigating tenant incident',
+    );
+    expect(startedAuditPayload.details?.tenantId).toBe('tenant-1');
+    expect(startedAuditPayload.details?.tenantName).toBe('Tenant One');
   });
 });
