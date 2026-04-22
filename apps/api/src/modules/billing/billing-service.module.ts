@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { MqttModule } from '@app/mqtt';
 import { BillingController } from './billing-service.controller';
 import { FinanceController } from './finance.controller';
 import { SettlementsController } from './settlements.controller';
@@ -13,7 +12,6 @@ import { NotificationServiceModule } from '../notification/notification-service.
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
-    MqttModule.forRoot(),
     PaymentsModule,
     NotificationServiceModule,
   ],

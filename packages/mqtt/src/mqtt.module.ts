@@ -1,3 +1,5 @@
+import { randomBytes } from 'crypto';
+import { hostname } from 'os';
 import { Module, DynamicModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import {
@@ -11,11 +13,61 @@ import { MqttTenantContextService } from './mqtt-tenant-context.service';
 import { MqttEventPublisherService } from './mqtt-event-publisher.service';
 import { MqttConnectionManagerService } from './mqtt-connection-manager.service';
 
+const MQTT_CLIENT_ID_MAX_LENGTH = 23;
+
+function sanitizeClientIdSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+}
+
+function buildDefaultClientId(): string {
+  const envToken = sanitizeClientIdSegment(process.env.NODE_ENV || 'dev').slice(
+    0,
+    3,
+  );
+  const hostToken = sanitizeClientIdSegment(hostname()).slice(0, 4);
+  const processToken = Math.abs(process.pid).toString(36).slice(0, 4);
+  const randomToken = randomBytes(3).toString('hex');
+
+  const raw = `evz${envToken || 'dev'}${hostToken || 'host'}${
+    processToken || 'proc'
+  }${randomToken}`;
+
+  return raw.slice(0, MQTT_CLIENT_ID_MAX_LENGTH);
+}
+
+function resolveClientId(configService: ConfigService): string {
+  const configuredClientId = configService.get<string>('MQTT_CLIENT_ID');
+  const normalizedConfiguredClientId = configuredClientId
+    ? sanitizeClientIdSegment(configuredClientId).slice(
+        0,
+        MQTT_CLIENT_ID_MAX_LENGTH,
+      )
+    : '';
+
+  if (normalizedConfiguredClientId) {
+    return normalizedConfiguredClientId;
+  }
+
+  return buildDefaultClientId();
+}
+
 @Module({})
 export class MqttModule {
+  private static initialized = false;
+
   static forRoot(): DynamicModule {
+    if (this.initialized) {
+      return {
+        module: MqttModule,
+        global: true,
+      };
+    }
+
+    this.initialized = true;
+
     return {
       module: MqttModule,
+      global: true,
       imports: [
         ConfigModule.forRoot({
           isGlobal: true,
@@ -59,7 +111,7 @@ export class MqttModule {
                   subscribeOptions: {
                     qos: validQos,
                   },
-                  clientId: `evzone-api-${process.env.NODE_ENV || 'dev'}-${Date.now()}`,
+                  clientId: resolveClientId(configService),
                 },
               } as unknown as ClientProvider;
             },
