@@ -63,6 +63,12 @@ type AuthenticatedUserClaims = {
   selectedTenantName?: string | null;
 };
 
+type SessionScopeOptions = {
+  sessionScopeType?: 'platform' | 'tenant';
+  actingAsTenant?: boolean;
+  selectedTenantId?: string | null;
+};
+
 type AuthenticatedRequest = Request & { user?: AuthenticatedUserClaims };
 type MutableFrontendUrl = { frontendUrl?: string };
 type PasswordResetBody = {
@@ -821,6 +827,16 @@ export class UsersController {
     }
   }
 
+  private buildSessionScopeOptions(
+    req: AuthenticatedRequest,
+  ): SessionScopeOptions {
+    return {
+      sessionScopeType: req.user?.sessionScopeType,
+      actingAsTenant: req.user?.actingAsTenant,
+      selectedTenantId: req.user?.selectedTenantId || null,
+    };
+  }
+
   @Get('crm-stats')
   @ApiOperation({ summary: 'Get CRM user statistics' })
   async getCrmStats() {
@@ -872,6 +888,7 @@ export class UsersController {
   findTeam(@Req() req: AuthenticatedRequest) {
     return this.authService.findTeamMembers(
       this.assertAuthenticatedUserId(req),
+      this.buildSessionScopeOptions(req),
     );
   }
 
@@ -887,6 +904,7 @@ export class UsersController {
     return this.authService.inviteTeamMember(
       inviteDto,
       this.assertAuthenticatedUserId(req),
+      this.buildSessionScopeOptions(req),
     );
   }
 
@@ -901,6 +919,7 @@ export class UsersController {
       id,
       updateDto,
       this.assertAuthenticatedUserId(req),
+      this.buildSessionScopeOptions(req),
     );
   }
 
@@ -913,6 +932,7 @@ export class UsersController {
     return this.authService.getTeamAssignments(
       id,
       this.assertAuthenticatedUserId(req),
+      this.buildSessionScopeOptions(req),
     );
   }
 
@@ -927,6 +947,7 @@ export class UsersController {
       id,
       body.assignments,
       this.assertAuthenticatedUserId(req),
+      this.buildSessionScopeOptions(req),
     );
   }
 
@@ -939,6 +960,7 @@ export class UsersController {
     return this.authService.getStaffPayoutProfile(
       id,
       this.assertAuthenticatedUserId(req),
+      this.buildSessionScopeOptions(req),
     );
   }
 
@@ -953,6 +975,7 @@ export class UsersController {
       id,
       body,
       this.assertAuthenticatedUserId(req),
+      this.buildSessionScopeOptions(req),
     );
   }
 
@@ -961,6 +984,7 @@ export class UsersController {
   getStationContexts(@Req() req: AuthenticatedRequest) {
     return this.authService.getUserStationContexts(
       this.assertAuthenticatedUserId(req),
+      this.buildSessionScopeOptions(req),
     );
   }
 
@@ -973,6 +997,7 @@ export class UsersController {
     return this.authService.switchUserStationContext(
       this.assertAuthenticatedUserId(req),
       body.assignmentId,
+      this.buildSessionScopeOptions(req),
     );
   }
 

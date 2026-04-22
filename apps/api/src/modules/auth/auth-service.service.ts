@@ -119,6 +119,11 @@ type AuthSessionContextOptions = {
   selectedTenantName?: string | null;
 };
 
+type SessionTenantScopeOptions = Pick<
+  AuthSessionContextOptions,
+  'sessionScopeType' | 'actingAsTenant' | 'selectedTenantId'
+>;
+
 type AuthRefreshTokenClaims = jwt.JwtPayload & {
   sub: string;
   sessionScopeType?: SessionScopeType;
@@ -898,8 +903,38 @@ export class AuthService {
     return this.stationScopedTeamRoles.has(role);
   }
 
+  private resolveSessionScopedTenantId(
+    sessionScope?: SessionTenantScopeOptions,
+  ): string | null {
+    if (!sessionScope) {
+      return null;
+    }
+
+    const explicitTenantSession =
+      sessionScope.sessionScopeType === 'tenant' ||
+      sessionScope.actingAsTenant === true;
+    if (!explicitTenantSession) {
+      return null;
+    }
+
+    const selectedTenantId = sessionScope.selectedTenantId?.trim();
+    return selectedTenantId ? selectedTenantId : null;
+  }
+
+  private resolveScopedOrganizationId(
+    memberships: Array<{ organizationId: string }>,
+    sessionTenantId: string | null,
+  ): string | null {
+    if (sessionTenantId) {
+      return sessionTenantId;
+    }
+
+    return memberships.length === 1 ? memberships[0].organizationId : null;
+  }
+
   private async getTeamManagerScope(
     actorId: string,
+    sessionScope?: SessionTenantScopeOptions,
     client: PrismaService | Prisma.TransactionClient = this.prisma,
   ) {
     if (!actorId) {
@@ -912,7 +947,6 @@ export class AuthService {
         id: true,
         email: true,
         role: true,
-        organizationId: true,
         memberships: {
           where: {
             status: MembershipStatus.ACTIVE,
@@ -929,10 +963,13 @@ export class AuthService {
       throw new UnauthorizedException('Authenticated user not found');
     }
 
-    const activeOrganizationId = actor.organizationId;
+    const activeOrganizationId = this.resolveScopedOrganizationId(
+      actor.memberships,
+      this.resolveSessionScopedTenantId(sessionScope),
+    );
     if (!activeOrganizationId) {
       throw new UnauthorizedException(
-        'Authenticated user is missing an active organization context',
+        'Authenticated user is missing an active tenant scope. Switch tenant before managing team members.',
       );
     }
 
@@ -2215,7 +2252,7 @@ export class AuthService {
       return this.switchTenant(userId, normalizedOrganizationId);
     }
 
-    let membership = await this.prisma.organizationMembership.findUnique({
+    const membership = await this.prisma.organizationMembership.findUnique({
       where: {
         userId_organizationId: {
           userId,
@@ -2223,19 +2260,6 @@ export class AuthService {
         },
       },
     });
-
-    if (!membership && user.organizationId === normalizedOrganizationId) {
-      membership = await this.prisma.organizationMembership.create({
-        data: {
-          userId,
-          organizationId: normalizedOrganizationId,
-          role: user.role,
-          canonicalRoleKey: resolveCanonicalRoleKey(user.role),
-          ownerCapability: user.ownerCapability,
-          status: MembershipStatus.ACTIVE,
-        },
-      });
-    }
 
     if (!membership || membership.status !== MembershipStatus.ACTIVE) {
       throw new UnauthorizedException(
@@ -2324,11 +2348,17 @@ export class AuthService {
     }
 
     if (!normalizedTenantId) {
+      const clearedAt = new Date().toISOString();
       await this.recordAuditEvent({
         actor: user.id,
         action: 'TENANT_IMPERSONATION_CLEARED',
         resource: 'User',
         resourceId: user.id,
+        details: {
+          actorUserId: user.id,
+          impersonationState: 'stopped',
+          occurredAt: clearedAt,
+        },
       });
 
       return this.generateAuthResponse(user, {
@@ -2358,12 +2388,16 @@ export class AuthService {
       throw new ForbiddenException('Selected tenant is suspended');
     }
 
+    const impersonationStartedAt = new Date().toISOString();
     await this.recordAuditEvent({
       actor: user.id,
       action: 'TENANT_IMPERSONATION_STARTED',
       resource: 'Organization',
       resourceId: selectedTenant.id,
       details: {
+        actorUserId: user.id,
+        impersonationState: 'started',
+        occurredAt: impersonationStartedAt,
         tenantId: selectedTenant.id,
         tenantName: selectedTenant.name,
       },
@@ -2615,38 +2649,7 @@ export class AuthService {
     options?: AuthSessionContextOptions,
   ) {
     const activeMemberships = await this.getActiveMemberships(user.id);
-    const memberships =
-      activeMemberships.length > 0
-        ? activeMemberships
-        : user.organizationId
-          ? (() => {
-              const legacyOrganization = user.organization
-                ? {
-                    id: user.organization.id,
-                    name: user.organization.name,
-                    type: user.organization.type,
-                  }
-                : null;
-
-              if (!legacyOrganization) {
-                return [];
-              }
-
-              return [
-                {
-                  id: `legacy-${user.id}-${legacyOrganization.id}`,
-                  organizationId: legacyOrganization.id,
-                  role: user.role,
-                  canonicalRoleKey: resolveCanonicalRoleKey(user.role),
-                  customRoleId: null,
-                  customRoleName: null,
-                  ownerCapability: user.ownerCapability || null,
-                  status: MembershipStatus.ACTIVE,
-                  organization: legacyOrganization,
-                },
-              ];
-            })()
-          : [];
+    const memberships = activeMemberships;
 
     const platformRoleKey = await this.resolveActivePlatformRoleKey(user.id);
     const fallbackCanonicalRole = resolveCanonicalRoleKey(user.role);
@@ -2662,7 +2665,7 @@ export class AuthService {
 
     let activeOrganizationId = this.resolveActiveOrganizationId(
       memberships,
-      user.organizationId,
+      null,
       selectedTenantIdInput,
     );
     if (isPlatformPrincipal) {
@@ -2705,9 +2708,10 @@ export class AuthService {
       platformRoleKey ||
       resolvedActiveCustomRole?.baseRoleKey ||
       this.resolveEffectiveCanonicalRole(activeMembership, effectiveRole);
-    const sessionScopeType: SessionScopeType =
-      isPlatformPrincipal && !activeOrganizationId ? 'platform' : 'tenant';
-    const actingAsTenant = sessionScopeType === 'tenant';
+    const sessionScopeType: SessionScopeType = activeOrganizationId
+      ? 'tenant'
+      : 'platform';
+    const actingAsTenant = Boolean(activeOrganizationId);
     const activeOrganizationName =
       activeMembership?.organization?.name ||
       options?.selectedTenantName ||
@@ -3182,8 +3186,11 @@ export class AuthService {
     return users;
   }
 
-  async findTeamMembers(actorId: string) {
-    const scope = await this.getTeamManagerScope(actorId);
+  async findTeamMembers(
+    actorId: string,
+    sessionScope?: SessionTenantScopeOptions,
+  ) {
+    const scope = await this.getTeamManagerScope(actorId, sessionScope);
 
     const memberships = await this.prisma.organizationMembership.findMany({
       where: {
@@ -3270,8 +3277,12 @@ export class AuthService {
     });
   }
 
-  async inviteTeamMember(inviteDto: TeamInviteUserDto, inviterId: string) {
-    const scope = await this.getTeamManagerScope(inviterId);
+  async inviteTeamMember(
+    inviteDto: TeamInviteUserDto,
+    inviterId: string,
+    sessionScope?: SessionTenantScopeOptions,
+  ) {
+    const scope = await this.getTeamManagerScope(inviterId, sessionScope);
     const inviteRole = this.parseUserRole(
       inviteDto.role as string,
       'team invite',
@@ -3327,8 +3338,9 @@ export class AuthService {
     targetUserId: string,
     updateDto: UpdateUserDto,
     actorId: string,
+    sessionScope?: SessionTenantScopeOptions,
   ) {
-    const scope = await this.getTeamManagerScope(actorId);
+    const scope = await this.getTeamManagerScope(actorId, sessionScope);
     const target = await this.ensureTeamMemberInScope(
       targetUserId,
       scope.organizationId,
@@ -3502,8 +3514,12 @@ export class AuthService {
     return result;
   }
 
-  async getTeamAssignments(targetUserId: string, actorId: string) {
-    const scope = await this.getTeamManagerScope(actorId);
+  async getTeamAssignments(
+    targetUserId: string,
+    actorId: string,
+    sessionScope?: SessionTenantScopeOptions,
+  ) {
+    const scope = await this.getTeamManagerScope(actorId, sessionScope);
     const target = await this.ensureTeamMemberInScope(
       targetUserId,
       scope.organizationId,
@@ -3552,8 +3568,9 @@ export class AuthService {
     targetUserId: string,
     assignments: TeamStationAssignmentDto[],
     actorId: string,
+    sessionScope?: SessionTenantScopeOptions,
   ) {
-    const scope = await this.getTeamManagerScope(actorId);
+    const scope = await this.getTeamManagerScope(actorId, sessionScope);
     await this.ensureTeamMemberInScope(targetUserId, scope.organizationId);
 
     const normalizedAssignments = this.normalizeTeamAssignments(
@@ -3648,11 +3665,15 @@ export class AuthService {
       },
     });
 
-    return this.getTeamAssignments(targetUserId, actorId);
+    return this.getTeamAssignments(targetUserId, actorId, sessionScope);
   }
 
-  async getStaffPayoutProfile(targetUserId: string, actorId: string) {
-    const scope = await this.getTeamManagerScope(actorId);
+  async getStaffPayoutProfile(
+    targetUserId: string,
+    actorId: string,
+    sessionScope?: SessionTenantScopeOptions,
+  ) {
+    const scope = await this.getTeamManagerScope(actorId, sessionScope);
     await this.ensureTeamMemberInScope(targetUserId, scope.organizationId);
 
     return this.prisma.staffPayoutProfile.findUnique({
@@ -3666,8 +3687,9 @@ export class AuthService {
     targetUserId: string,
     payoutDto: StaffPayoutProfileDto,
     actorId: string,
+    sessionScope?: SessionTenantScopeOptions,
   ) {
-    const scope = await this.getTeamManagerScope(actorId);
+    const scope = await this.getTeamManagerScope(actorId, sessionScope);
     await this.ensureTeamMemberInScope(targetUserId, scope.organizationId);
     this.validatePayoutProfileInput(payoutDto);
 
@@ -3715,7 +3737,10 @@ export class AuthService {
     return profile;
   }
 
-  async getUserStationContexts(userId: string) {
+  async getUserStationContexts(
+    userId: string,
+    sessionScope?: SessionTenantScopeOptions,
+  ) {
     if (!userId) {
       throw new UnauthorizedException('Authenticated user context is required');
     }
@@ -3723,23 +3748,34 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
-        id: true,
-        organizationId: true,
-        lastStationAssignmentId: true,
+        ...this.userSafeSelect,
+        organization: {
+          select: this.organizationSafeSelect,
+        },
       },
     });
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
+    const context = await this.buildAuthUserContext(user, {
+      sessionScopeType: sessionScope?.sessionScopeType,
+      actingAsTenant: sessionScope?.actingAsTenant,
+      selectedTenantId: sessionScope?.selectedTenantId || null,
+    });
+
     return this.resolveStationContexts(
       user.id,
-      user.organizationId,
+      context.activeOrganizationId,
       user.lastStationAssignmentId,
     );
   }
 
-  async switchUserStationContext(userId: string, assignmentId: string) {
+  async switchUserStationContext(
+    userId: string,
+    assignmentId: string,
+    sessionScope?: SessionTenantScopeOptions,
+  ) {
     if (!userId) {
       throw new UnauthorizedException('Authenticated user context is required');
     }
@@ -3750,12 +3786,26 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
-        id: true,
-        organizationId: true,
+        ...this.userSafeSelect,
+        organization: {
+          select: this.organizationSafeSelect,
+        },
       },
     });
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    const context = await this.buildAuthUserContext(user, {
+      sessionScopeType: sessionScope?.sessionScopeType,
+      actingAsTenant: sessionScope?.actingAsTenant,
+      selectedTenantId: sessionScope?.selectedTenantId || null,
+    });
+    const activeOrganizationId = context.activeOrganizationId;
+    if (!activeOrganizationId) {
+      throw new UnauthorizedException(
+        'Active tenant scope is required before switching station context',
+      );
     }
 
     const assignment = await this.prisma.stationTeamAssignment.findFirst({
@@ -3763,13 +3813,9 @@ export class AuthService {
         id: assignmentId,
         userId,
         isActive: true,
-        ...(user.organizationId
-          ? {
-              station: {
-                orgId: user.organizationId,
-              },
-            }
-          : {}),
+        station: {
+          orgId: activeOrganizationId,
+        },
       },
       include: {
         station: {
@@ -3796,7 +3842,7 @@ export class AuthService {
 
     const contexts = await this.resolveStationContexts(
       user.id,
-      user.organizationId,
+      activeOrganizationId,
       assignment.id,
     );
 
