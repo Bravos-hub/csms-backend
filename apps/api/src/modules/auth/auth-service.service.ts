@@ -22,6 +22,7 @@ import {
 } from '@prisma/client';
 import {
   LoginDto,
+  OtpChannel,
   PasskeyLoginOptionsDto,
   RegenerateRecoveryCodesDto,
   RemovePasskeyDto,
@@ -93,6 +94,7 @@ type AuthUserContextInput = Pick<
   | 'lastStationAssignmentId'
   | 'mustChangePassword'
   | 'mfaRequired'
+  | 'twoFactorEnabled'
   | 'region'
   | 'zoneId'
 > & {
@@ -137,6 +139,8 @@ type AuthSessionTokensResponse = {
   refreshToken: string;
   user: Record<string, unknown>;
 };
+
+type OtpDeliveryChannel = OtpChannel.EMAIL | OtpChannel.SMS;
 
 @Injectable()
 export class AuthService {
@@ -2485,6 +2489,177 @@ export class AuthService {
     }
   }
 
+  private resolveOtpDeliveryChannel(
+    user: {
+      email: string | null;
+      phone: string | null;
+    },
+    requested?: OtpChannel,
+  ): OtpDeliveryChannel {
+    if (requested === OtpChannel.SMS) {
+      if (!user.phone) {
+        throw new BadRequestException(
+          'SMS OTP is unavailable because no phone number is configured on this account',
+        );
+      }
+      return OtpChannel.SMS;
+    }
+
+    if (requested === OtpChannel.EMAIL) {
+      if (!user.email) {
+        throw new BadRequestException(
+          'Email OTP is unavailable because no email address is configured on this account',
+        );
+      }
+      return OtpChannel.EMAIL;
+    }
+
+    if (user.email) {
+      return OtpChannel.EMAIL;
+    }
+
+    if (user.phone) {
+      return OtpChannel.SMS;
+    }
+
+    throw new BadRequestException(
+      'No email or phone number is configured for OTP delivery',
+    );
+  }
+
+  private maskOtpDestination(
+    channel: OtpDeliveryChannel,
+    destination: string,
+  ): string {
+    const trimmed = destination.trim();
+    if (!trimmed) {
+      return channel === OtpChannel.EMAIL ? 'email' : 'phone';
+    }
+
+    if (channel === OtpChannel.EMAIL) {
+      const [localPartRaw, domainRaw] = trimmed.split('@');
+      const localPart = localPartRaw || '';
+      const domain = domainRaw || '';
+      if (!domain) {
+        return `${localPart.slice(0, 2)}***`;
+      }
+
+      const visibleLocal = localPart.slice(0, 2);
+      return `${visibleLocal}***@${domain}`;
+    }
+
+    const digitsOnly = trimmed.replace(/\D/g, '');
+    if (digitsOnly.length <= 4) {
+      return `***${digitsOnly}`;
+    }
+
+    return `***${digitsOnly.slice(-4)}`;
+  }
+
+  private generateOtpCode(): string {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+  }
+
+  private async sendOtpChallengeToUser(
+    user: {
+      id: string;
+      email: string | null;
+      phone: string | null;
+      zoneId?: string | null;
+      country?: string | null;
+      region?: string | null;
+    },
+    requestedChannel?: OtpChannel,
+    purpose: 'login' | 'setup' = 'login',
+  ): Promise<{
+    channel: OtpDeliveryChannel;
+    expiresAt: Date;
+    maskedDestination: string;
+  }> {
+    const channel = this.resolveOtpDeliveryChannel(user, requestedChannel);
+    const destination = channel === OtpChannel.EMAIL ? user.email : user.phone;
+    if (!destination) {
+      throw new BadRequestException('Unable to resolve OTP destination');
+    }
+
+    const code = this.generateOtpCode();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { otpCode: code, otpExpiresAt: expiresAt },
+    });
+
+    const messagePrefix =
+      purpose === 'setup'
+        ? 'Your EVZONE MFA setup code is'
+        : 'Your EVZONE sign-in code is';
+
+    if (channel === OtpChannel.EMAIL) {
+      await this.mailService.sendMail(
+        destination,
+        'Verification OTP',
+        `<p>${messagePrefix} <b>${code}</b></p><p>This code expires in 5 minutes.</p>`,
+        {
+          userId: user.id,
+          zoneId: user.zoneId,
+          country: user.country,
+          region: user.region,
+        },
+      );
+    } else {
+      await this.notificationService.sendSms(
+        destination,
+        `EVZONE: ${messagePrefix} ${code}. It expires in 5 minutes.`,
+        {
+          userId: user.id,
+          zoneId: user.zoneId,
+          country: user.country,
+          region: user.region,
+        },
+      );
+    }
+
+    return {
+      channel,
+      expiresAt,
+      maskedDestination: this.maskOtpDestination(channel, destination),
+    };
+  }
+
+  private async consumeUserOtpCode(
+    userId: string,
+    providedCode: string,
+  ): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        otpCode: true,
+        otpExpiresAt: true,
+      },
+    });
+
+    if (!user || !user.otpCode) {
+      throw new UnauthorizedException('Invalid OTP');
+    }
+
+    if (!this.constantTimeCompare(user.otpCode, providedCode)) {
+      throw new UnauthorizedException('Invalid OTP');
+    }
+
+    if (!user.otpExpiresAt || new Date() > user.otpExpiresAt) {
+      throw new UnauthorizedException('OTP Expired');
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        otpCode: null,
+        otpExpiresAt: null,
+      },
+    });
+  }
+
   async requestOtp(identifier: string, context?: AuthMonitoringContext) {
     const isEmail = identifier.includes('@');
     const monitoringContext = this.createMonitoringContext(
@@ -2511,38 +2686,18 @@ export class AuthService {
         await this.syncOcpiTokenSafe(user);
       }
 
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
-      const expires = new Date(Date.now() + 5 * 60 * 1000);
-
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { otpCode: code, otpExpiresAt: expires },
-      });
-
-      if (isEmail) {
-        await this.mailService.sendMail(
-          user.email!,
-          'Verification OTP',
-          `<p>Your OTP is <b>${code}</b></p>`,
-          {
-            userId: user.id,
-            zoneId: user.zoneId,
-            country: user.country,
-            region: user.region,
-          },
-        );
-      } else {
-        await this.notificationService.sendSms(
-          identifier,
-          `EvZone: Your verification code is ${code}`,
-          {
-            userId: user.id,
-            zoneId: user.zoneId,
-            country: user.country,
-            region: user.region,
-          },
-        );
-      }
+      await this.sendOtpChallengeToUser(
+        {
+          id: user.id,
+          email: user.email || null,
+          phone: user.phone || null,
+          zoneId: user.zoneId,
+          country: user.country,
+          region: user.region,
+        },
+        isEmail ? OtpChannel.EMAIL : OtpChannel.SMS,
+        'setup',
+      );
 
       this.anomalyMonitor.recordSuccess(monitoringContext);
       return { status: 'OTP Sent', identifier };
@@ -2596,6 +2751,107 @@ export class AuthService {
       );
       throw error;
     }
+  }
+
+  async sendMfaSetupOtp(
+    userId: string,
+    channel?: OtpChannel,
+  ): Promise<{
+    success: boolean;
+    channel: OtpDeliveryChannel;
+    destination: string;
+    expiresAt: string;
+  }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        phone: true,
+        zoneId: true,
+        country: true,
+        region: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const challenge = await this.sendOtpChallengeToUser(
+      user,
+      channel,
+      'setup',
+    );
+
+    await this.recordAuditEvent({
+      actor: userId,
+      action: 'MFA_SETUP_OTP_SENT',
+      resource: 'User',
+      resourceId: userId,
+      details: {
+        channel: challenge.channel,
+      },
+    });
+
+    return {
+      success: true,
+      channel: challenge.channel,
+      destination: challenge.maskedDestination,
+      expiresAt: challenge.expiresAt.toISOString(),
+    };
+  }
+
+  async verifyMfaSetupOtp(
+    userId: string,
+    code: string,
+  ): Promise<{ success: boolean; message: string }> {
+    const normalizedCode = code.trim();
+    if (!normalizedCode) {
+      throw new BadRequestException('OTP code is required');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    this.assertTwoFactorAttemptAllowed(userId, 'verify');
+    try {
+      await this.consumeUserOtpCode(userId, normalizedCode);
+    } catch (error) {
+      this.registerTwoFactorFailure(userId, 'verify');
+      throw error;
+    }
+
+    this.clearTwoFactorFailures(userId, 'verify');
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        mfaRequired: true,
+        status: user.status === 'MfaRequired' ? 'Active' : user.status,
+      },
+    });
+
+    await this.recordAuditEvent({
+      actor: userId,
+      action: 'MFA_SETUP_COMPLETED_OTP',
+      resource: 'User',
+      resourceId: userId,
+    });
+
+    return {
+      success: true,
+      message: 'OTP-based MFA is now enabled',
+    };
   }
 
   async resetPassword(
@@ -2792,6 +3048,7 @@ export class AuthService {
       ownerCapability?: StationOwnerCapability | null;
       mustChangePassword?: boolean | null;
       mfaRequired?: boolean | null;
+      twoFactorEnabled?: boolean | null;
       organizationId?: string | null;
     },
     context: {
@@ -2893,7 +3150,10 @@ export class AuthService {
       activeStationContext: context.activeStationContext,
       accessProfile,
       mustChangePassword: Boolean(user.mustChangePassword),
+      twoFactorEnabled: Boolean(user.twoFactorEnabled),
       mfaRequired: Boolean(user.mfaRequired),
+      mfaSetupRequired:
+        !Boolean(user.mfaRequired) && !Boolean(user.twoFactorEnabled),
     };
   }
 
@@ -4350,11 +4610,12 @@ export class AuthService {
       if (!challenge.userId) {
         throw new UnauthorizedException('Challenge is not bound to a user');
       }
+      const challengeUserId = challenge.userId;
 
       const response = this.parseAuthenticationResponsePayload(responsePayload);
       const credential = await this.prisma.passkeyCredential.findFirst({
         where: {
-          userId: challenge.userId,
+          userId: challengeUserId,
           credentialId: response.id,
         },
       });
@@ -4381,6 +4642,10 @@ export class AuthService {
             lastUsedAt: new Date(),
           },
         });
+        await tx.user.update({
+          where: { id: challengeUserId },
+          data: { mfaRequired: true },
+        });
         await tx.mfaChallenge.update({
           where: { id: challenge.id },
           data: { consumedAt: new Date() },
@@ -4388,7 +4653,7 @@ export class AuthService {
       });
 
       const user = await this.prisma.user.findUnique({
-        where: { id: challenge.userId },
+        where: { id: challengeUserId },
       });
       if (!user) {
         throw new UnauthorizedException('User not found');
@@ -4593,6 +4858,11 @@ export class AuthService {
       await tx.mfaChallenge.update({
         where: { id: challenge.id },
         data: { consumedAt: new Date() },
+      });
+
+      await tx.user.update({
+        where: { id: userId },
+        data: { mfaRequired: true },
       });
 
       return saved;
@@ -4936,8 +5206,38 @@ export class AuthService {
     const hasPasskeys = passkeyCount > 0;
     const mfaEnforced =
       user.mfaRequired || user.twoFactorEnabled || hasPasskeys;
+    const otpBackedMfa = user.mfaRequired && !user.twoFactorEnabled && !hasPasskeys;
 
     if (!mfaEnforced) {
+      return;
+    }
+
+    const otpCode = loginDto.otpCode?.trim();
+    if (otpCode) {
+      if (!otpBackedMfa) {
+        throw new UnauthorizedException(
+          'OTP login is not enabled for this account',
+        );
+      }
+
+      this.assertTwoFactorAttemptAllowed(user.id, 'login');
+      try {
+        await this.consumeUserOtpCode(user.id, otpCode);
+      } catch (error) {
+        this.registerTwoFactorFailure(user.id, 'login');
+        throw error;
+      }
+
+      this.clearTwoFactorFailures(user.id, 'login');
+      await this.recordAuditEvent({
+        actor: user.id,
+        action: 'MFA_OTP_USED',
+        resource: 'User',
+        resourceId: user.id,
+        details: {
+          context: 'login',
+        },
+      });
       return;
     }
 
@@ -4976,6 +5276,25 @@ export class AuthService {
         },
       });
       return;
+    }
+
+    if (otpBackedMfa) {
+      const challenge = await this.sendOtpChallengeToUser(
+        {
+          id: user.id,
+          email: user.email || null,
+          phone: user.phone || null,
+          zoneId: user.zoneId,
+          country: user.country,
+          region: user.region,
+        },
+        loginDto.otpChannel,
+        'login',
+      );
+
+      throw new UnauthorizedException(
+        `OTP verification is required. A code has been sent to your ${challenge.channel}.`,
+      );
     }
 
     if (user.mfaRequired && !user.twoFactorEnabled && !hasPasskeys) {
@@ -5981,6 +6300,7 @@ export class AuthService {
       where: { id: userId },
       data: {
         twoFactorEnabled: true,
+        mfaRequired: true,
         twoFactorSecret: user.twoFactorSecret.startsWith(
           `${this.twoFactorSecretPrefix}:`,
         )

@@ -39,6 +39,8 @@ import {
   StepUpPasskeyVerifyDto,
   RegenerateRecoveryCodesDto,
   RemovePasskeyDto,
+  SendMfaSetupOtpDto,
+  VerifyMfaSetupOtpDto,
   InviteUserDto,
   UpdateUserDto,
   ServiceTokenRequestDto,
@@ -472,6 +474,34 @@ export class AuthController {
     if (!userId)
       throw new BadRequestException('Authenticated user is required');
     return this.authService.generate2faSecret(userId, body.currentPassword);
+  }
+
+  @Post('mfa/setup/otp/send')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Send OTP for MFA setup' })
+  sendMfaSetupOtp(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: SendMfaSetupOtpDto,
+  ) {
+    const userId = this.getAuthenticatedUserId(req);
+    if (!userId)
+      throw new BadRequestException('Authenticated user is required');
+    return this.authService.sendMfaSetupOtp(userId, body.channel);
+  }
+
+  @Post('mfa/setup/otp/verify')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Verify OTP and enable OTP-based MFA' })
+  verifyMfaSetupOtp(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: VerifyMfaSetupOtpDto,
+  ) {
+    const userId = this.getAuthenticatedUserId(req);
+    if (!userId)
+      throw new BadRequestException('Authenticated user is required');
+    return this.authService.verifyMfaSetupOtp(userId, body.code);
   }
 
   @Post('2fa/verify')

@@ -16,6 +16,11 @@ import { Type } from 'class-transformer';
 import type { Role } from '@app/domain';
 import { AttendantRoleMode, PayoutMethod } from '@prisma/client';
 
+export enum OtpChannel {
+  EMAIL = 'email',
+  SMS = 'sms',
+}
+
 export class LoginDto {
   @IsEmail()
   @IsOptional()
@@ -40,6 +45,14 @@ export class LoginDto {
   @IsString()
   @IsOptional()
   recoveryCode?: string;
+
+  @IsString()
+  @IsOptional()
+  otpCode?: string;
+
+  @IsEnum(OtpChannel)
+  @IsOptional()
+  otpChannel?: OtpChannel;
 }
 
 export class RefreshTokenDto {
@@ -155,6 +168,18 @@ export class RemovePasskeyDto {
   @IsString()
   @IsOptional()
   recoveryCode?: string;
+}
+
+export class SendMfaSetupOtpDto {
+  @IsEnum(OtpChannel)
+  @IsOptional()
+  channel?: OtpChannel;
+}
+
+export class VerifyMfaSetupOtpDto {
+  @IsString()
+  @IsNotEmpty()
+  code: string;
 }
 
 export class CreateUserDto {
