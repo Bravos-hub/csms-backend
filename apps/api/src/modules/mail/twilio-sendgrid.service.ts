@@ -59,9 +59,11 @@ export class TwilioSendgridService {
 
     if (!response.ok) {
       const errorBody = await response.text();
-      throw new Error(
+      const sendgridError = new Error(
         `SendGrid API error (${response.status}): ${errorBody.slice(0, 300)}`,
-      );
+      ) as Error & { statusCode?: number };
+      sendgridError.statusCode = response.status;
+      throw sendgridError;
     }
 
     this.logger.log(`SendGrid email sent to ${params.to}`);

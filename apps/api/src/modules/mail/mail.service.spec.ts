@@ -9,6 +9,7 @@ describe('MailService', () => {
     get: jest.fn((key: string, fallback?: string) => {
       const values: Record<string, string> = {
         TWILIO_SENDGRID_FROM: 'EVzone <noreply@evzonecharging.com>',
+        SUBMAIL_MAIL_FROM: '"EV Zone" <noreply@evzone.com>',
       };
       return values[key] ?? fallback;
     }),
@@ -40,9 +41,11 @@ describe('MailService', () => {
       primary: 'twilio_sendgrid',
       fallback: 'submail',
     });
-    twilioSendgridService.sendEmail.mockRejectedValue(
-      new Error('sendgrid failure'),
-    );
+    const sendgridError = new Error('sendgrid failure') as Error & {
+      statusCode?: number;
+    };
+    sendgridError.statusCode = 503;
+    twilioSendgridService.sendEmail.mockRejectedValue(sendgridError);
     submailService.sendEmail.mockResolvedValue({ status: 'success' });
 
     const result = await service.sendMail(
@@ -53,7 +56,31 @@ describe('MailService', () => {
 
     expect(twilioSendgridService.sendEmail).toHaveBeenCalledTimes(1);
     expect(submailService.sendEmail).toHaveBeenCalledTimes(1);
+    expect(submailService.sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: 'noreply@evzone.com',
+      }),
+    );
     expect(result).toEqual({ status: 'success' });
+  });
+
+  it('does not fallback from SendGrid to Submail on 4xx errors', async () => {
+    routingService.resolveEmailRoute.mockResolvedValue({
+      geoBucket: 'other',
+      primary: 'twilio_sendgrid',
+      fallback: 'submail',
+    });
+
+    const sendgridError = new Error('SendGrid API error (401): unauthorized') as Error & {
+      statusCode?: number;
+    };
+    sendgridError.statusCode = 401;
+    twilioSendgridService.sendEmail.mockRejectedValue(sendgridError);
+
+    await expect(
+      service.sendMail('user@example.com', 'Hello', '<p>x</p>'),
+    ).rejects.toThrow('SendGrid API error (401): unauthorized');
+    expect(submailService.sendEmail).not.toHaveBeenCalled();
   });
 
   it('does not fallback for China email when Submail fails', async () => {

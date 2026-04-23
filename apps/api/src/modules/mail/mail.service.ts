@@ -8,6 +8,7 @@ import {
 import { TwilioSendgridService } from './twilio-sendgrid.service';
 
 type EmailProvider = 'twilio_sendgrid' | 'submail';
+type ErrorWithStatusCode = Error & { statusCode?: number };
 
 @Injectable()
 export class MailService {
@@ -20,12 +21,60 @@ export class MailService {
     private readonly routingService: MessagingRoutingService,
   ) {}
 
-  private getSenderAddress() {
+  private getSendgridSenderAddress(): string {
     return (
       this.configService.get<string>('TWILIO_SENDGRID_FROM') ||
-      this.configService.get<string>('SUBMAIL_MAIL_FROM') ||
       '"EV Zone" <noreply@evzone.com>'
     );
+  }
+
+  private getSubmailSenderAddress(): string {
+    const configuredFrom =
+      this.configService.get<string>('SUBMAIL_MAIL_FROM') ||
+      this.configService.get<string>('TWILIO_SENDGRID_FROM') ||
+      'noreply@evzone.com';
+
+    const bracketMatch = configuredFrom
+      .trim()
+      .match(/^"?[^"]*"?\s*<([^>]+)>$/);
+    if (bracketMatch?.[1]) {
+      return bracketMatch[1].trim();
+    }
+
+    const plain = configuredFrom.trim().replace(/^"+|"+$/g, '');
+    if (plain.includes('@')) {
+      return plain;
+    }
+
+    this.logger.warn(
+      `Invalid Submail sender format "${configuredFrom}". Falling back to noreply@evzone.com`,
+    );
+    return 'noreply@evzone.com';
+  }
+
+  private resolveSenderAddress(provider: EmailProvider): string {
+    if (provider === 'submail') {
+      return this.getSubmailSenderAddress();
+    }
+    return this.getSendgridSenderAddress();
+  }
+
+  private shouldFallbackToSecondary(
+    provider: EmailProvider,
+    error: unknown,
+  ): boolean {
+    if (provider !== 'twilio_sendgrid') {
+      return true;
+    }
+
+    if (error && typeof error === 'object' && 'statusCode' in error) {
+      const { statusCode } = error as ErrorWithStatusCode;
+      if (typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   async sendMail(
@@ -33,19 +82,22 @@ export class MailService {
     subject: string,
     html: string,
     context?: DeliveryContext,
-  ) {
-    const from = this.getSenderAddress();
+  ): Promise<unknown> {
     const route = await this.routingService.resolveEmailRoute({ to, context });
+    const primaryFrom = this.resolveSenderAddress(route.primary);
 
     try {
       return await this.sendEmailWithProvider(route.primary, {
         to,
         subject,
         html,
-        from,
+        from: primaryFrom,
       });
     } catch (primaryError) {
-      if (!route.fallback) {
+      if (
+        !route.fallback ||
+        !this.shouldFallbackToSecondary(route.primary, primaryError)
+      ) {
         this.logger.error(
           `Primary email provider ${route.primary} failed for ${to}`,
           primaryError,
@@ -56,11 +108,12 @@ export class MailService {
       this.logger.warn(
         `Primary email provider ${route.primary} failed for ${to}. Falling back to ${route.fallback}.`,
       );
+      const fallbackFrom = this.resolveSenderAddress(route.fallback);
       return this.sendEmailWithProvider(route.fallback, {
         to,
         subject,
         html,
-        from,
+        from: fallbackFrom,
       });
     }
   }
@@ -68,7 +121,7 @@ export class MailService {
   private async sendEmailWithProvider(
     provider: EmailProvider,
     params: { to: string; subject: string; html: string; from: string },
-  ) {
+  ): Promise<unknown> {
     if (provider === 'submail') {
       return this.submailService.sendEmail(params);
     }
