@@ -32,7 +32,7 @@ export class LoginDto {
 
   @IsString()
   @IsNotEmpty()
-  password: string;
+  password!: string;
 
   @IsString()
   @IsOptional()
@@ -58,29 +58,29 @@ export class LoginDto {
 export class RefreshTokenDto {
   @IsString()
   @IsNotEmpty()
-  refreshToken: string;
+  refreshToken!: string;
 }
 
 export class Generate2faDto {
   @IsString()
   @IsNotEmpty()
-  currentPassword: string;
+  currentPassword!: string;
 }
 
 export class Verify2faDto {
   @IsString()
   @IsNotEmpty()
-  token: string;
+  token!: string;
 }
 
 export class Disable2faDto {
   @IsString()
   @IsNotEmpty()
-  token: string;
+  token!: string;
 
   @IsString()
   @IsNotEmpty()
-  currentPassword: string;
+  currentPassword!: string;
 }
 
 export class PasskeyLoginOptionsDto {
@@ -96,7 +96,7 @@ export class PasskeyLoginOptionsDto {
 export class PasskeyRegistrationOptionsDto {
   @IsString()
   @IsNotEmpty()
-  currentPassword: string;
+  currentPassword!: string;
 
   @IsString()
   @IsOptional()
@@ -106,10 +106,10 @@ export class PasskeyRegistrationOptionsDto {
 export class PasskeyRegistrationVerifyDto {
   @IsString()
   @IsNotEmpty()
-  challengeId: string;
+  challengeId!: string;
 
   @IsObject()
-  response: Record<string, unknown>;
+  response!: Record<string, unknown>;
 
   @IsString()
   @IsOptional()
@@ -119,25 +119,25 @@ export class PasskeyRegistrationVerifyDto {
 export class PasskeyAuthenticationVerifyDto {
   @IsString()
   @IsNotEmpty()
-  challengeId: string;
+  challengeId!: string;
 
   @IsObject()
-  response: Record<string, unknown>;
+  response!: Record<string, unknown>;
 }
 
 export class StepUpPasskeyVerifyDto {
   @IsString()
   @IsNotEmpty()
-  challengeId: string;
+  challengeId!: string;
 
   @IsObject()
-  response: Record<string, unknown>;
+  response!: Record<string, unknown>;
 }
 
 export class RegenerateRecoveryCodesDto {
   @IsString()
   @IsNotEmpty()
-  currentPassword: string;
+  currentPassword!: string;
 
   @IsString()
   @IsOptional()
@@ -155,7 +155,7 @@ export class RegenerateRecoveryCodesDto {
 export class RemovePasskeyDto {
   @IsString()
   @IsNotEmpty()
-  currentPassword: string;
+  currentPassword!: string;
 
   @IsString()
   @IsOptional()
@@ -183,17 +183,17 @@ export class SendMfaSetupOtpDto {
 export class VerifyMfaSetupOtpDto {
   @IsString()
   @IsNotEmpty()
-  code: string;
+  code!: string;
 }
 
 export class CreateUserDto {
   @IsEmail()
   @IsNotEmpty()
-  email: string;
+  email!: string;
 
   @IsString()
   @IsNotEmpty()
-  name: string;
+  name!: string;
 
   @IsString()
   @IsOptional()
@@ -206,7 +206,7 @@ export class CreateUserDto {
   @IsString()
   @IsNotEmpty()
   @MinLength(8)
-  password: string;
+  password!: string;
 
   @IsString()
   @IsOptional()
@@ -282,11 +282,11 @@ export class UpdateUserDto {
 export class TeamStationAssignmentDto {
   @IsString()
   @IsNotEmpty()
-  stationId: string;
+  stationId!: string;
 
   @IsString()
   @IsNotEmpty()
-  role: Role;
+  role!: Role;
 
   @IsBoolean()
   @IsOptional()
@@ -318,17 +318,17 @@ export class TeamStationAssignmentsUpdateDto {
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => TeamStationAssignmentDto)
-  assignments: TeamStationAssignmentDto[];
+  assignments!: TeamStationAssignmentDto[];
 }
 
 export class TeamInviteUserDto {
   @IsEmail()
   @IsNotEmpty()
-  email: string;
+  email!: string;
 
   @IsString()
   @IsNotEmpty()
-  role: Role;
+  role!: Role;
 
   @IsString()
   @IsOptional()
@@ -363,11 +363,11 @@ export class TeamInviteUserDto {
 
 export class StaffPayoutProfileDto {
   @IsEnum(PayoutMethod)
-  method: PayoutMethod;
+  method!: PayoutMethod;
 
   @IsString()
   @IsNotEmpty()
-  beneficiaryName: string;
+  beneficiaryName!: string;
 
   @IsString()
   @IsOptional()
@@ -397,17 +397,17 @@ export class StaffPayoutProfileDto {
 export class StationContextSwitchDto {
   @IsString()
   @IsNotEmpty()
-  assignmentId: string;
+  assignmentId!: string;
 }
 
 export class InviteUserDto {
   @IsEmail()
   @IsNotEmpty()
-  email: string;
+  email!: string;
 
   @IsString()
   @IsNotEmpty()
-  role: Role;
+  role!: Role;
 
   @IsString()
   @IsOptional()
@@ -443,7 +443,7 @@ export class InviteUserDto {
 export class SwitchOrganizationDto {
   @IsString()
   @IsNotEmpty()
-  organizationId: string;
+  organizationId!: string;
 }
 
 export class SwitchTenantDto {
@@ -458,11 +458,11 @@ export class SwitchTenantDto {
 }
 
 export class AcceptInvitationResponseDto {
-  email: string;
-  organizationName: string;
-  role: string;
-  requiresTempPassword: boolean;
-  inviteToken: string;
+  email!: string;
+  organizationName!: string;
+  role!: string;
+  requiresTempPassword!: boolean;
+  inviteToken!: string;
 }
 
 export class ServiceTokenRequestDto {
