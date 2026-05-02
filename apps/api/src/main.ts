@@ -195,7 +195,8 @@ function shouldCaptureRawBody(url: string): boolean {
     url.includes('/payments/webhooks/stripe') ||
     url.includes('/payments/webhooks/flutterwave') ||
     url.includes('/payments/webhooks/alipay') ||
-    url.includes('/payments/webhooks/lianlian')
+    url.includes('/payments/webhooks/lianlian') ||
+    url.includes('/telemetry/providers/smartcar/webhooks')
   );
 }
 

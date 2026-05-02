@@ -1,11 +1,16 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
+  MaxLength,
   Max,
   Min,
   ValidateIf,
@@ -33,6 +38,8 @@ const PROVIDERS = [
   'MANUAL_IMPORT',
   'MOCK',
 ] as const;
+
+const TELEMETRY_CAPABILITIES = ['READ', 'COMMANDS'] as const;
 
 export class VehicleCommandPayloadDto {
   @IsString()
@@ -122,4 +129,114 @@ export class ProviderWebhookPayloadDto {
   @IsOptional()
   @IsObject()
   rawPayload?: Record<string, unknown>;
+}
+
+export class CreateVehicleTelemetrySourceDto {
+  @IsString()
+  @IsIn(PROVIDERS)
+  provider?: (typeof PROVIDERS)[number];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  providerId?: string | null;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(240)
+  credentialRef?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(2)
+  @IsIn(TELEMETRY_CAPABILITIES, { each: true })
+  capabilities?: Array<(typeof TELEMETRY_CAPABILITIES)[number]>;
+
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+}
+
+export class UpdateVehicleTelemetrySourceDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  providerId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(240)
+  credentialRef?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(2)
+  @IsIn(TELEMETRY_CAPABILITIES, { each: true })
+  capabilities?: Array<(typeof TELEMETRY_CAPABILITIES)[number]>;
+
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+}
+
+export class SmartcarIssueTokenDto {
+  @IsString()
+  @IsNotEmpty()
+  vehicleId: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  providerId?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(240)
+  credentialRef: string;
+}
+
+export class SmartcarRefreshTokenDto {
+  @IsString()
+  @IsNotEmpty()
+  vehicleId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(240)
+  credentialRef: string;
+
+  @IsString()
+  @IsNotEmpty()
+  refreshToken: string;
+}
+
+export class SmartcarVehicleCommandDto {
+  @ValidateNested()
+  @Type(() => VehicleCommandPayloadDto)
+  command: VehicleCommandPayloadDto;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  providerId?: string;
+}
+
+export class TelemetryStorageRawQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(500)
+  limit?: number;
 }

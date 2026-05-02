@@ -5,12 +5,14 @@ import { CommandsModule } from '../commands/commands.module';
 import { SseModule } from '../sse/sse.module';
 import { WebhooksModule } from '../webhooks/webhooks.module';
 import { TelemetryController } from './telemetry.controller';
+import { SmartcarProviderService } from './smartcar-provider.service';
+import { TelemetryGatesService } from './telemetry-gates.service';
 import { TelemetryService } from './telemetry.service';
 
 @Module({
   imports: [ConfigModule, PrismaModule, CommandsModule, SseModule, WebhooksModule],
   controllers: [TelemetryController],
-  providers: [TelemetryService],
+  providers: [TelemetryService, TelemetryGatesService, SmartcarProviderService],
   exports: [TelemetryService],
 })
 export class TelemetryModule {}

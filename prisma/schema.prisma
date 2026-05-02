@@ -3068,6 +3068,11 @@ enum VehicleFaultSeverity {
   CRITICAL
 }
 
+enum TelemetryIngestAlertType {
+  INGEST_LAG
+  STALE
+}
+
 model Vehicle {
   id                    String          @id @default(uuid())
   userId                String
@@ -3113,6 +3118,7 @@ model Vehicle {
   telemetrySnapshots VehicleTelemetrySnapshot[]
   telemetryLatest   VehicleTelemetryLatest?
   faults            VehicleFault[]
+  telemetryIngestAlerts TelemetryIngestAlert[]
   commands          Command[]
 
   createdAt DateTime @default(now())
@@ -3220,6 +3226,26 @@ model VehicleFault {
   @@map("vehicle_faults")
   @@index([vehicleId, status, lastSeenAt], map: "vehicle_faults_vehicle_status_last_seen_at_idx")
   @@index([code, status], map: "vehicle_faults_code_status_idx")
+}
+
+model TelemetryIngestAlert {
+  id                String                   @id @default(uuid())
+  type              TelemetryIngestAlertType
+  provider          TelemetryProviderType
+  providerVehicleId String?                  @map("provider_vehicle_id")
+  vehicleId         String                   @map("vehicle_id")
+  observedAt        DateTime                 @default(now()) @map("observed_at")
+  lagMs             Int?                     @map("lag_ms")
+  message           String
+  metadata          Json?
+  createdAt         DateTime                 @default(now()) @map("created_at")
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@map("telemetry_ingest_alerts")
+  @@index([type, observedAt], map: "telemetry_ingest_alerts_type_observed_at_idx")
+  @@index([vehicleId, observedAt], map: "telemetry_ingest_alerts_vehicle_observed_at_idx")
+  @@index([provider, observedAt], map: "telemetry_ingest_alerts_provider_observed_at_idx")
 }
 
 model BatteryPack {

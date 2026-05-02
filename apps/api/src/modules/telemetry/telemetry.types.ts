@@ -20,6 +20,13 @@ export type VehicleCommandInput =
 
 export type VehicleCommandStatus = 'QUEUED' | 'SENT' | 'CONFIRMED' | 'FAILED';
 
+export type TelemetryFeatureGates = {
+  reads: boolean;
+  commandDispatch: boolean;
+  sse: boolean;
+  webhooks: boolean;
+};
+
 export type TelemetrySourceLineage = {
   provider: TelemetryProvider;
   providerId: string | null;
@@ -92,6 +99,28 @@ export type VehicleCommandResult = {
   commandId: string;
   status: VehicleCommandStatus;
   errorCode: string | null;
+};
+
+export type VehicleTelemetrySourceRecord = {
+  id: string;
+  vehicleId: string;
+  provider: TelemetryProvider;
+  providerId: string | null;
+  credentialRef: string | null;
+  enabled: boolean;
+  capabilities: Array<'READ' | 'COMMANDS'>;
+  health: 'HEALTHY' | 'DEGRADED' | 'OFFLINE' | 'UNKNOWN';
+  lastSyncedAt: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TelemetryWebhookIngestResult = {
+  accepted: boolean;
+  provider: TelemetryProvider;
+  lagMs: number | null;
+  isStale: boolean;
 };
 
 export type VehicleTelemetryProviderAdapter = {

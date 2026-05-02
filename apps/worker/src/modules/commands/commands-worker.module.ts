@@ -4,6 +4,7 @@ import { CommandEventsConsumer } from './command-events.consumer';
 import { CommandHistoryCleanupWorker } from './command-history-cleanup.worker';
 import { KafkaModule } from '../../platform/kafka.module';
 import { OcpiCommandCallbackService } from './ocpi-command-callback.service';
+import { TelemetryStorageMaintenanceWorker } from './telemetry-storage-maintenance.worker';
 import { WorkerTenantRoutingService } from './worker-tenant-routing.service';
 
 @Module({
@@ -12,6 +13,7 @@ import { WorkerTenantRoutingService } from './worker-tenant-routing.service';
     CommandOutboxWorker,
     CommandEventsConsumer,
     CommandHistoryCleanupWorker,
+    TelemetryStorageMaintenanceWorker,
     OcpiCommandCallbackService,
     WorkerTenantRoutingService,
   ],

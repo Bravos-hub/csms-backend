@@ -184,6 +184,12 @@ describe('CommandsService', () => {
       take: 10,
       select: {
         id: true,
+        domain: true,
+        vehicleId: true,
+        provider: true,
+        providerVehicleId: true,
+        providerCommandId: true,
+        resultCode: true,
         stationId: true,
         chargePointId: true,
         connectorId: true,
@@ -198,6 +204,12 @@ describe('CommandsService', () => {
     expect(result).toEqual([
       {
         id: 'cmd-1',
+        domain: undefined,
+        vehicleId: undefined,
+        provider: undefined,
+        providerVehicleId: undefined,
+        providerCommandId: undefined,
+        resultCode: undefined,
         stationId: 'station-1',
         chargePointId: 'cp-1',
         connectorId: '1',
