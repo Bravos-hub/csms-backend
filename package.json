@@ -41,6 +41,8 @@
     "ops:obs:smoke": "powershell -ExecutionPolicy Bypass -File ./scripts/ops/observability-smoke-check.ps1",
     "ops:observability:smoke": "powershell -ExecutionPolicy Bypass -File ./scripts/ops/observability-smoke-check.ps1",
     "ops:check-cross-repo-contracts": "tsx ./scripts/ops/check-cross-repo-contracts.ts",
+    "ops:vehicles:fleet-telemetry:verify": "tsx ./scripts/ops/check-vehicle-fleet-telemetry-migration.ts --strict true",
+    "ops:vehicles:fleet-telemetry:apply": "tsx ./scripts/ops/check-vehicle-fleet-telemetry-migration.ts --strict true --apply true",
     "ops:check-command-pipeline-migration": "tsx ./scripts/ops/check-command-pipeline-migration.ts",
     "ops:backfill-station-team-assignments": "tsx ./scripts/ops/backfill-station-team-assignments.ts",
     "ops:check-station-team-consistency": "tsx ./scripts/ops/check-station-team-consistency.ts",
