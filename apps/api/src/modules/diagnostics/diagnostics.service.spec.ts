@@ -101,6 +101,63 @@ describe('DiagnosticsService', () => {
     ]);
   });
 
+  it('allows tenant members with non-denied roles to acknowledge fleet faults', async () => {
+    const acknowledgedAt = new Date('2026-05-02T08:15:00.000Z');
+    prisma.vehicleFault.findUnique.mockResolvedValue({
+      id: 'fault-tenant-1',
+      vehicleId: 'veh-tenant-1',
+      metadata: { existing: true },
+      vehicle: {
+        id: 'veh-tenant-1',
+        userId: 'owner-1',
+        organizationId: 'org-tenant-1',
+      },
+    });
+    prisma.user.findUnique.mockResolvedValue({ role: 'DRIVER' });
+    prisma.tenantMembership.findFirst.mockResolvedValue({
+      roleKey: 'FLEET_MANAGER',
+    });
+    tenantContext.get.mockReturnValue({
+      effectiveOrganizationId: 'org-tenant-1',
+      authenticatedOrganizationId: 'org-tenant-1',
+    });
+    prisma.vehicleFault.update.mockResolvedValue({
+      id: 'fault-tenant-1',
+      status: 'ACKNOWLEDGED',
+      acknowledgedAt,
+    });
+
+    const result = await service.acknowledgeFault(
+      'user-tenant-1',
+      'fault-tenant-1',
+      'investigating',
+    );
+
+    expect(prisma.tenantMembership.findFirst).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-tenant-1',
+        organizationId: 'org-tenant-1',
+        status: 'ACTIVE',
+      },
+      select: { roleKey: true },
+    });
+    expect(prisma.vehicleFault.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'fault-tenant-1' },
+        data: expect.objectContaining({
+          status: 'ACKNOWLEDGED',
+          acknowledgedBy: 'user-tenant-1',
+        }),
+      }),
+    );
+    expect(result).toEqual({
+      ok: true,
+      faultId: 'fault-tenant-1',
+      status: 'ACKNOWLEDGED',
+      acknowledgedAt: acknowledgedAt.toISOString(),
+    });
+  });
+
   it('blocks tenant write operations for fleet-driver role', async () => {
     prisma.vehicleFault.findUnique.mockResolvedValue({
       id: 'fault-2',
@@ -119,6 +176,69 @@ describe('DiagnosticsService', () => {
       service.acknowledgeFault('user-2', 'fault-2', 'ack'),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.vehicleFault.update).not.toHaveBeenCalled();
+  });
+
+  it('blocks tenant write operations when active tenant context does not match vehicle tenant', async () => {
+    prisma.vehicleFault.findUnique.mockResolvedValue({
+      id: 'fault-ctx-1',
+      vehicleId: 'veh-ctx-1',
+      metadata: null,
+      vehicle: {
+        id: 'veh-ctx-1',
+        userId: 'owner-ctx-1',
+        organizationId: 'org-tenant-a',
+      },
+    });
+    prisma.user.findUnique.mockResolvedValue({ role: 'DRIVER' });
+    prisma.tenantMembership.findFirst.mockResolvedValue({
+      roleKey: 'FLEET_MANAGER',
+    });
+    tenantContext.get.mockReturnValue({
+      effectiveOrganizationId: 'org-tenant-b',
+      authenticatedOrganizationId: 'org-tenant-b',
+    });
+
+    await expect(
+      service.resolveFault('user-ctx-1', 'fault-ctx-1', 'resolved'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.vehicleFault.update).not.toHaveBeenCalled();
+  });
+
+  it('allows platform admins to modify tenant vehicle faults without tenant membership checks', async () => {
+    const resolvedAt = new Date('2026-05-02T08:45:00.000Z');
+    prisma.vehicleFault.findUnique.mockResolvedValue({
+      id: 'fault-platform-1',
+      vehicleId: 'veh-platform-1',
+      code: 'HV_CONTACTOR',
+      metadata: {},
+      vehicle: {
+        id: 'veh-platform-1',
+        userId: 'owner-platform-1',
+        organizationId: 'org-tenant-platform',
+      },
+    });
+    prisma.user.findUnique.mockResolvedValue({ role: 'SUPER_ADMIN' });
+    prisma.vehicleFault.update.mockResolvedValue({
+      id: 'fault-platform-1',
+      vehicleId: 'veh-platform-1',
+      code: 'HV_CONTACTOR',
+      status: 'RESOLVED',
+      resolvedAt,
+    });
+
+    const result = await service.resolveFault(
+      'platform-admin-1',
+      'fault-platform-1',
+      'remote fix',
+    );
+
+    expect(prisma.tenantMembership.findFirst).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      ok: true,
+      faultId: 'fault-platform-1',
+      status: 'RESOLVED',
+      resolvedAt: resolvedAt.toISOString(),
+    });
   });
 
   it('resolves a fault and emits resolved events', async () => {
