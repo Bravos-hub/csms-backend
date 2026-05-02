@@ -59,6 +59,17 @@ export class TwilioSendgridService {
 
     if (!response.ok) {
       const errorBody = await response.text();
+      this.logger.error(
+        `SendGrid API error (${response.status}): ${errorBody.slice(0, 300)}`,
+      );
+
+      // Fallback: Log the email content so developers can still see OTPs/links
+      this.logger.warn(`FALLBACK: Email that failed to send:
+To: ${params.to}
+Subject: ${params.subject}
+Content: ${params.html}
+      `);
+
       const sendgridError = new Error(
         `SendGrid API error (${response.status}): ${errorBody.slice(0, 300)}`,
       ) as Error & { statusCode?: number };

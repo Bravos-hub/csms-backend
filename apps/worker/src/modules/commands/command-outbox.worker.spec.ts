@@ -11,12 +11,29 @@ describe('CommandOutboxWorker tenant routing', () => {
   };
 
   const prisma = {
+    command: {
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
+    commandOutbox: {
+      update: jest.fn(),
+    },
+    commandEvent: {
+      create: jest.fn(),
+    },
+    auditLog: {
+      create: jest.fn(),
+    },
     chargePoint: {
       findUnique: jest.fn(),
     },
+    $transaction: jest.fn(),
   };
 
-  const kafka = {};
+  const kafka = {
+    publish: jest.fn(),
+    checkConnection: jest.fn(),
+  };
   const metrics = {
     increment: jest.fn(),
     setGauge: jest.fn(),
@@ -36,8 +53,38 @@ describe('CommandOutboxWorker tenant routing', () => {
   );
 
   beforeEach(() => {
+    config.get.mockReset();
     prisma.chargePoint.findUnique.mockReset();
+    prisma.command.findUnique.mockReset();
+    prisma.commandOutbox.update.mockReset();
+    prisma.command.update.mockReset();
+    prisma.commandEvent.create.mockReset();
+    prisma.auditLog.create.mockReset();
+    prisma.$transaction.mockReset();
     tenantRouting.runWithTenant.mockReset();
+    kafka.publish.mockReset();
+    kafka.checkConnection.mockReset();
+    metrics.increment.mockReset();
+    metrics.observeLatency.mockReset();
+    metrics.setGauge.mockReset();
+
+    config.get.mockReturnValue(undefined);
+    prisma.$transaction.mockImplementation(
+      async (
+        operation: (tx: {
+          commandOutbox: { update: typeof prisma.commandOutbox.update };
+          command: { update: typeof prisma.command.update };
+          commandEvent: { create: typeof prisma.commandEvent.create };
+          auditLog: { create: typeof prisma.auditLog.create };
+        }) => Promise<unknown>,
+      ) =>
+        operation({
+          commandOutbox: prisma.commandOutbox,
+          command: prisma.command,
+          commandEvent: prisma.commandEvent,
+          auditLog: prisma.auditLog,
+        }),
+    );
   });
 
   it('resolves charge point within tenant execution context when command has tenantId', async () => {
@@ -85,5 +132,91 @@ describe('CommandOutboxWorker tenant routing', () => {
       where: { id: 'cp-1' },
     });
     expect(targetOcppId).toBe('OCPP-1');
+  });
+
+  it('publishes VEHICLE domain commands through vehicle lifecycle path', async () => {
+    prisma.command.findUnique.mockResolvedValue({
+      id: 'cmd-veh-1',
+      commandType: 'LOCK',
+      domain: 'VEHICLE',
+      provider: 'MOCK',
+      vehicleId: 'veh-1',
+      providerCommandId: null,
+      requestedAt: new Date('2026-05-02T08:00:00.000Z'),
+      tenantId: null,
+    });
+
+    const publish = Reflect.get(worker as object, 'publish') as (outbox: {
+      id: string;
+      commandId: string;
+      attempts: number;
+    }) => Promise<void>;
+
+    await publish.call(worker, {
+      id: 'outbox-veh-1',
+      commandId: 'cmd-veh-1',
+      attempts: 1,
+    });
+
+    expect(prisma.commandOutbox.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'outbox-veh-1' },
+        data: expect.objectContaining({ status: 'Published', lockedAt: null }),
+      }),
+    );
+    expect(prisma.command.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'cmd-veh-1' },
+        data: expect.objectContaining({
+          status: 'Confirmed',
+          providerCommandId: expect.any(String),
+        }),
+      }),
+    );
+    expect(prisma.commandEvent.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('dead-letters unsupported VEHICLE command types through failure handler', async () => {
+    prisma.command.findUnique.mockResolvedValue({
+      id: 'cmd-veh-2',
+      commandType: 'FLASH_LIGHTS',
+      domain: 'VEHICLE',
+      provider: 'MOCK',
+      vehicleId: 'veh-2',
+      providerCommandId: null,
+      requestedAt: new Date('2026-05-02T08:10:00.000Z'),
+      tenantId: null,
+    });
+
+    const failureSpy = jest
+      .spyOn(
+        worker as unknown as {
+          handlePublishFailure: (
+            outbox: { id: string; commandId: string; attempts: number },
+            message: string,
+          ) => Promise<void>;
+        },
+        'handlePublishFailure',
+      )
+      .mockResolvedValue(undefined);
+
+    const publish = Reflect.get(worker as object, 'publish') as (outbox: {
+      id: string;
+      commandId: string;
+      attempts: number;
+    }) => Promise<void>;
+
+    await publish.call(worker, {
+      id: 'outbox-veh-2',
+      commandId: 'cmd-veh-2',
+      attempts: 2,
+    });
+
+    expect(failureSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'outbox-veh-2' }),
+      expect.stringContaining('Unsupported vehicle command type'),
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    failureSpy.mockRestore();
   });
 });

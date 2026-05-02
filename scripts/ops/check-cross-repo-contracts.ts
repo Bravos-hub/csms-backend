@@ -1,5 +1,6 @@
 import path from 'path';
 import { pathToFileURL } from 'url';
+import { promises as fs } from 'fs';
 import {
   COMMAND_CONTRACT_SCHEMA_VERSION as BACKEND_SCHEMA_VERSION,
   SUPPORTED_COMMAND_CONTRACT_SCHEMA_VERSIONS as BACKEND_SUPPORTED_SCHEMA_VERSIONS,
@@ -28,6 +29,17 @@ type GatewayEventsModule = {
 type GatewayTopicsModule = {
   KAFKA_TOPICS: Record<string, string>;
 };
+
+function pickMatches(input: string, expression: RegExp): string[] {
+  const values: string[] = [];
+  for (const match of input.matchAll(expression)) {
+    const value = match[1];
+    if (typeof value === 'string' && value.length > 0) {
+      values.push(value);
+    }
+  }
+  return values;
+}
 
 function parseBoolArg(flag: string, fallback: boolean): boolean {
   const index = process.argv.indexOf(flag);
@@ -179,6 +191,122 @@ async function main() {
       details: {
         strict,
         gatewayRoot,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      },
+    });
+  }
+
+  try {
+    const engineRoot = path.resolve(workspaceRoot, 'evzone-engine');
+    const backendRoot = path.resolve(workspaceRoot, 'evzone-backend');
+
+    const engineDiagnosticsModulePath = path.resolve(
+      engineRoot,
+      'src/diagnostics/module.ts',
+    );
+    const engineTelemetryAdapterPath = path.resolve(
+      engineRoot,
+      'src/telemetry/adapter.ts',
+    );
+    const backendTelemetryControllerPath = path.resolve(
+      backendRoot,
+      'apps/api/src/modules/telemetry/telemetry.controller.ts',
+    );
+    const backendDiagnosticsControllerPath = path.resolve(
+      backendRoot,
+      'apps/api/src/modules/diagnostics/diagnostics.controller.ts',
+    );
+    const backendTelemetryDtoPath = path.resolve(
+      backendRoot,
+      'apps/api/src/modules/telemetry/telemetry.dto.ts',
+    );
+
+    const [
+      engineDiagnosticsSource,
+      engineTelemetryAdapterSource,
+      backendTelemetryControllerSource,
+      backendDiagnosticsControllerSource,
+      backendTelemetryDtoSource,
+    ] = await Promise.all([
+      fs.readFile(engineDiagnosticsModulePath, 'utf8'),
+      fs.readFile(engineTelemetryAdapterPath, 'utf8'),
+      fs.readFile(backendTelemetryControllerPath, 'utf8'),
+      fs.readFile(backendDiagnosticsControllerPath, 'utf8'),
+      fs.readFile(backendTelemetryDtoPath, 'utf8'),
+    ]);
+
+    const endpointPairs = [
+      {
+        name: 'telemetry.status_endpoint',
+        engineFragment: '/telemetry/vehicles/${vehicleId}/status',
+        backendFragment: "@Get('vehicles/:vehicleId/status')",
+      },
+      {
+        name: 'telemetry.command_create_endpoint',
+        engineFragment: '/telemetry/vehicles/${vehicleId}/commands',
+        backendFragment: "@Post('vehicles/:vehicleId/commands')",
+      },
+      {
+        name: 'telemetry.command_status_endpoint',
+        engineFragment: '/telemetry/vehicles/${vehicleId}/commands/${commandId}',
+        backendFragment: "@Get('vehicles/:vehicleId/commands/:commandId')",
+      },
+      {
+        name: 'diagnostics.clear_fault_endpoint',
+        engineFragment: '/diagnostics/faults/${faultId}',
+        backendFragment: "@Delete('faults/:faultId')",
+      },
+    ] as const;
+
+    for (const endpoint of endpointPairs) {
+      checks.push({
+        name: endpoint.name,
+        ok:
+          engineDiagnosticsSource.includes(endpoint.engineFragment) &&
+          (endpoint.name.startsWith('diagnostics')
+            ? backendDiagnosticsControllerSource.includes(
+                endpoint.backendFragment,
+              )
+            : backendTelemetryControllerSource.includes(endpoint.backendFragment)),
+        details: {
+          engineFragment: endpoint.engineFragment,
+          backendFragment: endpoint.backendFragment,
+        },
+      });
+    }
+
+    const engineCommandTypes = Array.from(
+      new Set(
+        pickMatches(
+          engineTelemetryAdapterSource,
+          /\|\s*\{\s*type:\s*'([A-Z_]+)'/g,
+        ),
+      ),
+    ).sort();
+
+    const backendCommandTypesBlock =
+      backendTelemetryDtoSource.match(
+        /const COMMAND_TYPES = \[(?:.|\r|\n)*?\] as const;/,
+      )?.[0] || '';
+
+    const backendCommandTypes = Array.from(
+      new Set(pickMatches(backendCommandTypesBlock, /'([A-Z_]+)'/g)),
+    ).sort();
+
+    checks.push({
+      name: 'telemetry.command_types_alignment',
+      ok: JSON.stringify(engineCommandTypes) === JSON.stringify(backendCommandTypes),
+      details: {
+        engine: engineCommandTypes,
+        backend: backendCommandTypes,
+      },
+    });
+  } catch (error) {
+    checks.push({
+      name: 'engine_contract_load',
+      ok: !strict,
+      details: {
+        strict,
         error: error instanceof Error ? error.message : 'Unknown error',
       },
     });

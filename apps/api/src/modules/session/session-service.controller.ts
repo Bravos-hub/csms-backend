@@ -1,9 +1,10 @@
-import { Controller, Get, Post, Body, Param, Query, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { EventPattern, Payload } from '@nestjs/microservices';
 import { SessionService } from './session-service.service';
 import { StopSessionDto, SessionFilterDto } from './dto/session.dto';
 import { KAFKA_TOPICS } from '../../contracts/kafka-topics';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 type AuthenticatedRequest = Request & {
   user?: {
@@ -14,6 +15,7 @@ type AuthenticatedRequest = Request & {
 };
 
 @Controller('sessions')
+@UseGuards(JwtAuthGuard)
 export class SessionController {
   constructor(private readonly sessionService: SessionService) {}
 

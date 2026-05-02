@@ -174,6 +174,10 @@ export class SendMfaSetupOtpDto {
   @IsEnum(OtpChannel)
   @IsOptional()
   channel?: OtpChannel;
+
+  @IsString()
+  @IsOptional()
+  phone?: string;
 }
 
 export class VerifyMfaSetupOtpDto {

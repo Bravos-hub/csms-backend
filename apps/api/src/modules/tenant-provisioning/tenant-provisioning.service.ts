@@ -13,6 +13,26 @@ export class TenantProvisioningService {
   async listTenants() {
     return this.prisma.getControlPlaneClient().organization.findMany({
       orderBy: [{ suspendedAt: 'asc' }, { name: 'asc' }],
+      include: {
+        _count: {
+          select: {
+            sites: true,
+          },
+        },
+      },
+    });
+  }
+
+  async getTenant(id: string) {
+    return this.prisma.getControlPlaneClient().organization.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: {
+            sites: true,
+          },
+        },
+      },
     });
   }
 

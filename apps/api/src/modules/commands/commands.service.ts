@@ -7,6 +7,12 @@ import { CommandRequest, CommandResponse } from '../../contracts/commands';
 
 type CommandRecord = {
   id: string;
+  domain: string;
+  vehicleId: string | null;
+  provider: string | null;
+  providerVehicleId: string | null;
+  providerCommandId: string | null;
+  resultCode: string | null;
   stationId: string | null;
   chargePointId: string | null;
   connectorId: string | null;
@@ -16,6 +22,16 @@ type CommandRecord = {
   sentAt: Date | null;
   completedAt: Date | null;
   error: string | null;
+};
+
+type VehicleCommandEnqueueInput = {
+  vehicleId: string;
+  tenantId?: string | null;
+  provider: string;
+  providerVehicleId?: string | null;
+  commandType: string;
+  payload: Record<string, unknown>;
+  requestedBy?: string | null;
 };
 
 @Injectable()
@@ -176,6 +192,12 @@ export class CommandsService {
       where: { id: commandId },
       select: {
         id: true,
+        domain: true,
+        vehicleId: true,
+        provider: true,
+        providerVehicleId: true,
+        providerCommandId: true,
+        resultCode: true,
         stationId: true,
         chargePointId: true,
         connectorId: true,
@@ -189,6 +211,104 @@ export class CommandsService {
     });
     if (!command) return null;
     return this.toLifecycleRecord(command);
+  }
+
+  async enqueueVehicleCommand(
+    input: VehicleCommandEnqueueInput,
+  ): Promise<{
+    commandId: string;
+    status: 'QUEUED';
+    requestedAt: string;
+    providerCommandId: string | null;
+  }> {
+    const now = new Date();
+    const commandId = randomUUID();
+    const tenantId = this.optionalTrimmed(input.tenantId || undefined);
+
+    await this.prisma.command.create({
+      data: {
+        id: commandId,
+        domain: 'VEHICLE',
+        tenantId: tenantId || null,
+        stationId: null,
+        chargePointId: null,
+        connectorId: null,
+        vehicleId: input.vehicleId,
+        provider: input.provider,
+        providerVehicleId: input.providerVehicleId || input.vehicleId,
+        providerCommandId: null,
+        resultCode: null,
+        commandType: input.commandType,
+        payload: (input.payload || {}) as Prisma.InputJsonValue,
+        status: 'Queued',
+        requestedBy: input.requestedBy || null,
+        requestedAt: now,
+        sentAt: null,
+        completedAt: null,
+        correlationId: commandId,
+        idempotencyTtlSec: null,
+        error: null,
+      },
+    });
+
+    await this.prisma.commandOutbox.create({
+      data: {
+        commandId,
+        status: 'Queued',
+        attempts: 0,
+        lockedAt: null,
+        publishedAt: null,
+        lastError: null,
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+
+    await this.prisma.commandEvent.create({
+      data: {
+        commandId,
+        status: 'Queued',
+        payload: {
+          domain: 'VEHICLE',
+          vehicleId: input.vehicleId,
+          commandType: input.commandType,
+          provider: input.provider,
+        },
+        occurredAt: now,
+      },
+    });
+
+    return {
+      commandId,
+      status: 'QUEUED',
+      requestedAt: now.toISOString(),
+      providerCommandId: null,
+    };
+  }
+
+  async getVehicleCommandById(commandId: string, vehicleId: string) {
+    return this.prisma.command.findFirst({
+      where: {
+        id: commandId,
+        domain: 'VEHICLE',
+        vehicleId,
+      },
+      select: {
+        id: true,
+        domain: true,
+        vehicleId: true,
+        provider: true,
+        providerVehicleId: true,
+        providerCommandId: true,
+        resultCode: true,
+        commandType: true,
+        status: true,
+        requestedAt: true,
+        sentAt: true,
+        completedAt: true,
+        error: true,
+      },
+    });
   }
 
   async listCommands(filter: {
@@ -214,6 +334,12 @@ export class CommandsService {
       take: limit,
       select: {
         id: true,
+        domain: true,
+        vehicleId: true,
+        provider: true,
+        providerVehicleId: true,
+        providerCommandId: true,
+        resultCode: true,
         stationId: true,
         chargePointId: true,
         connectorId: true,
@@ -231,6 +357,12 @@ export class CommandsService {
   private toLifecycleRecord(command: CommandRecord) {
     return {
       id: command.id,
+      domain: command.domain,
+      vehicleId: command.vehicleId,
+      provider: command.provider,
+      providerVehicleId: command.providerVehicleId,
+      providerCommandId: command.providerCommandId,
+      resultCode: command.resultCode,
       stationId: command.stationId,
       chargePointId: command.chargePointId,
       connectorId: command.connectorId,

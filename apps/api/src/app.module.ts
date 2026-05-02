@@ -66,6 +66,8 @@ import { MqttModule } from '@app/mqtt';
 import { BatterySwapMqttAdapterModule } from './modules/adapters/battery-swap-mqtt-adapter/battery-swap-mqtt-adapter.module';
 import { LegacyEvseMqttAdapterModule } from './modules/adapters/legacy-evse-mqtt-adapter/legacy-evse-mqtt-adapter.module';
 import { MqttEdgeAdapterModule } from './modules/adapters/mqtt-edge-adapter/mqtt-edge-adapter.module';
+import { TelemetryModule } from './modules/telemetry/telemetry.module';
+import { DiagnosticsModule } from './modules/diagnostics/diagnostics.module';
 
 @Module({
   imports: [
@@ -138,6 +140,8 @@ import { MqttEdgeAdapterModule } from './modules/adapters/mqtt-edge-adapter/mqtt
     BatterySwapMqttAdapterModule,
     LegacyEvseMqttAdapterModule,
     MqttEdgeAdapterModule,
+    TelemetryModule,
+    DiagnosticsModule,
   ],
   controllers: [AppController],
   providers: [

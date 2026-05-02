@@ -487,7 +487,7 @@ export class AuthController {
     const userId = this.getAuthenticatedUserId(req);
     if (!userId)
       throw new BadRequestException('Authenticated user is required');
-    return this.authService.sendMfaSetupOtp(userId, body.channel);
+    return this.authService.sendMfaSetupOtp(userId, body.channel, body.phone);
   }
 
   @Post('mfa/setup/otp/verify')

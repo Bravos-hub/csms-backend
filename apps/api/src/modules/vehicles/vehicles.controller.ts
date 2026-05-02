@@ -14,6 +14,7 @@ import {
   HttpCode,
   HttpStatus,
   UnauthorizedException,
+  Query,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { VehiclesService } from './vehicles.service';
@@ -21,6 +22,7 @@ import {
   CreateVehicleDto,
   UpdateVehicleDto,
   SetActiveVehicleDto,
+  VehiclesScopeQueryDto,
 } from './vehicles.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -45,8 +47,8 @@ export class VehiclesController {
 
   /** GET /vehicles — list all vehicles for the authenticated user */
   @Get()
-  list(@CurrentUser() user: unknown) {
-    return this.svc.list(this.resolveUserId(user));
+  list(@CurrentUser() user: unknown, @Query() query: VehiclesScopeQueryDto) {
+    return this.svc.list(this.resolveUserId(user), query.scope ?? 'all');
   }
 
   /** POST /vehicles — create a new vehicle */

@@ -2,14 +2,39 @@ import {
   IsString,
   IsNotEmpty,
   IsOptional,
-  IsEnum,
   IsInt,
   IsArray,
   IsNumber,
   Min,
   Max,
+  IsIn,
 } from 'class-validator';
-import { PowertrainType, ConnectorType } from '@prisma/client';
+
+const POWERTRAIN_TYPES = ['BEV', 'PHEV', 'HEV', 'ICE'] as const;
+const CONNECTOR_TYPES = [
+  'TYPE_1',
+  'TYPE_2',
+  'CCS1',
+  'CCS2',
+  'CHADEMO',
+  'GBT_AC',
+  'GBT_DC',
+  'TESLA_NACS',
+  'TESLA_SCS',
+] as const;
+const VEHICLE_OWNERSHIP_TYPES = ['PERSONAL', 'ORGANIZATION', 'FLEET'] as const;
+const VEHICLE_STATUS_TYPES = ['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED'] as const;
+const TELEMETRY_PROVIDER_TYPES = [
+  'SMARTCAR',
+  'ENODE',
+  'AUTOPI',
+  'OPENDBC',
+  'MQTT_BMS',
+  'OBD_DONGLE',
+  'OEM_API',
+  'MANUAL_IMPORT',
+  'MOCK',
+] as const;
 
 export class CreateVehicleDto {
   @IsString()
@@ -33,8 +58,8 @@ export class CreateVehicleDto {
   @IsNotEmpty()
   licensePlate: string;
 
-  @IsEnum(PowertrainType)
-  powertrain: PowertrainType;
+  @IsIn(POWERTRAIN_TYPES)
+  powertrain: (typeof POWERTRAIN_TYPES)[number];
 
   @IsOptional()
   @IsString()
@@ -70,8 +95,51 @@ export class CreateVehicleDto {
 
   @IsOptional()
   @IsArray()
-  @IsEnum(ConnectorType, { each: true })
-  connectors?: ConnectorType[];
+  @IsIn(CONNECTOR_TYPES, { each: true })
+  connectors?: Array<(typeof CONNECTOR_TYPES)[number]>;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(VEHICLE_OWNERSHIP_TYPES)
+  ownershipType?: (typeof VEHICLE_OWNERSHIP_TYPES)[number];
+
+  @IsOptional()
+  @IsString()
+  organizationId?: string;
+
+  @IsOptional()
+  @IsString()
+  fleetAccountId?: string;
+
+  @IsOptional()
+  @IsString()
+  fleetDriverId?: string;
+
+  @IsOptional()
+  @IsString()
+  fleetDriverGroupId?: string;
+
+  @IsOptional()
+  @IsString()
+  depotSiteId?: string;
+
+  @IsOptional()
+  @IsString()
+  operatingRegion?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(VEHICLE_STATUS_TYPES)
+  vehicleStatus?: (typeof VEHICLE_STATUS_TYPES)[number];
+
+  @IsOptional()
+  @IsString()
+  vehicleRole?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(TELEMETRY_PROVIDER_TYPES)
+  telemetryProvider?: (typeof TELEMETRY_PROVIDER_TYPES)[number];
 }
 
 export class UpdateVehicleDto {
@@ -97,8 +165,8 @@ export class UpdateVehicleDto {
   licensePlate?: string;
 
   @IsOptional()
-  @IsEnum(PowertrainType)
-  powertrain?: PowertrainType;
+  @IsIn(POWERTRAIN_TYPES)
+  powertrain?: (typeof POWERTRAIN_TYPES)[number];
 
   @IsOptional()
   @IsString()
@@ -134,12 +202,62 @@ export class UpdateVehicleDto {
 
   @IsOptional()
   @IsArray()
-  @IsEnum(ConnectorType, { each: true })
-  connectors?: ConnectorType[];
+  @IsIn(CONNECTOR_TYPES, { each: true })
+  connectors?: Array<(typeof CONNECTOR_TYPES)[number]>;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(VEHICLE_OWNERSHIP_TYPES)
+  ownershipType?: (typeof VEHICLE_OWNERSHIP_TYPES)[number];
+
+  @IsOptional()
+  @IsString()
+  organizationId?: string;
+
+  @IsOptional()
+  @IsString()
+  fleetAccountId?: string;
+
+  @IsOptional()
+  @IsString()
+  fleetDriverId?: string;
+
+  @IsOptional()
+  @IsString()
+  fleetDriverGroupId?: string;
+
+  @IsOptional()
+  @IsString()
+  depotSiteId?: string;
+
+  @IsOptional()
+  @IsString()
+  operatingRegion?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(VEHICLE_STATUS_TYPES)
+  vehicleStatus?: (typeof VEHICLE_STATUS_TYPES)[number];
+
+  @IsOptional()
+  @IsString()
+  vehicleRole?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(TELEMETRY_PROVIDER_TYPES)
+  telemetryProvider?: (typeof TELEMETRY_PROVIDER_TYPES)[number];
 }
 
 export class SetActiveVehicleDto {
   @IsOptional()
   @IsString()
   vehicleId: string | null;
+}
+
+export class VehiclesScopeQueryDto {
+  @IsOptional()
+  @IsString()
+  @IsIn(['personal', 'tenant', 'all'])
+  scope?: 'personal' | 'tenant' | 'all';
 }

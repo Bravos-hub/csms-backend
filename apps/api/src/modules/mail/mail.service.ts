@@ -67,9 +67,22 @@ export class MailService {
       return true;
     }
 
+    // Always fallback if it's a credit limit error, even if status is 401
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('Maximum credits exceeded')) {
+      this.logger.warn(
+        'SendGrid credit limit reached. Triggering fallback to secondary provider.',
+      );
+      return true;
+    }
+
     if (error && typeof error === 'object' && 'statusCode' in error) {
       const { statusCode } = error as ErrorWithStatusCode;
-      if (typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500) {
+      if (
+        typeof statusCode === 'number' &&
+        statusCode >= 400 &&
+        statusCode < 500
+      ) {
         return false;
       }
     }

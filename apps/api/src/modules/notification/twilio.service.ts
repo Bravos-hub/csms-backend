@@ -44,6 +44,8 @@ export class TwilioService {
     }
 
     try {
+      this.logger.log(`Twilio SMS queued for ${to}`);
+      this.logger.warn(`FALLBACK: SMS message content sent to ${to}: ${body}`);
       return await this.client.messages.create({
         body,
         from,

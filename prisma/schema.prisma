@@ -367,6 +367,8 @@ model Organization {
   fleetDriverGroups FleetDriverGroup[]
   fleetDrivers FleetDriver[]
   fleetDriverTokens FleetDriverToken[]
+  vehicles    Vehicle[]
+  webhooks    Webhook[]
   pncContracts PncContract[]
   pncCertificates PncContractCertificate[]
   pncCertificateEvents PncCertificateEvent[]
@@ -1477,6 +1479,7 @@ model FleetAccount {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   driverGroups  FleetDriverGroup[]
   drivers       FleetDriver[]
+  vehicles      Vehicle[]
 
   @@map("fleet_accounts")
   @@unique([organizationId, name])
@@ -1503,6 +1506,7 @@ model FleetDriverGroup {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   fleetAccount FleetAccount @relation(fields: [fleetAccountId], references: [id], onDelete: Cascade)
   drivers      FleetDriver[]
+  vehicles     Vehicle[]
 
   @@map("fleet_driver_groups")
   @@unique([fleetAccountId, name])
@@ -1534,6 +1538,7 @@ model FleetDriver {
   group        FleetDriverGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
   user         User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
   tokens       FleetDriverToken[]
+  vehicles     Vehicle[]
 
   @@map("fleet_drivers")
   @@index([organizationId, status])
@@ -1995,6 +2000,7 @@ model Site {
   documents             SiteDocument[]
   tenantApplications    TenantApplication[]
   mqttDeviceRegistries  MqttDeviceRegistry[]  @relation("MqttDeviceRegistry")
+  vehicles              Vehicle[]
 
   // Document Verification
   documentsVerified   Boolean  @default(false)
@@ -2253,16 +2259,52 @@ model SiteDocument {
 }
 
 model Webhook {
-  id     String  @id @default(uuid())
-  url    String
-  events String
-  active Boolean @default(true)
-  secret String?
+  id             String  @id @default(uuid())
+  organizationId String? @map("organization_id")
+  url            String
+  events         String
+  active         Boolean @default(true)
+  secret         String?
+  timeoutMs      Int     @default(5000) @map("timeout_ms")
+  maxRetries     Int     @default(3) @map("max_retries")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  deliveries   WebhookDelivery[]
+
   @@map("webhooks")
+  @@index([organizationId, active], map: "webhooks_organization_id_active_idx")
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  DEAD_LETTER
+}
+
+model WebhookDelivery {
+  id             String                @id @default(uuid())
+  webhookId      String                @map("webhook_id")
+  eventType      String                @map("event_type")
+  payload        Json
+  status         WebhookDeliveryStatus @default(PENDING)
+  attempts       Int                   @default(0)
+  nextAttemptAt  DateTime?             @map("next_attempt_at")
+  deliveredAt    DateTime?             @map("delivered_at")
+  lastError      String?               @map("last_error")
+  responseStatus Int?                  @map("response_status")
+  responseBody   String?               @map("response_body")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@map("webhook_deliveries")
+  @@index([status, nextAttemptAt], map: "webhook_deliveries_status_next_attempt_at_idx")
+  @@index([webhookId, createdAt], map: "webhook_deliveries_webhook_id_created_at_idx")
 }
 
 enum DocumentCategory {
@@ -2450,10 +2492,16 @@ model MqttSubscriptionState {
 
 model Command {
   id            String    @id @default(uuid())
+  domain        String    @default("CHARGE_POINT")
   tenantId      String?   @map("tenant_id")
   stationId     String?   @map("station_id")
   chargePointId String?   @map("charge_point_id")
   connectorId   String?   @map("connector_id")
+  vehicleId     String?   @map("vehicle_id")
+  provider      String?
+  providerVehicleId String? @map("provider_vehicle_id")
+  providerCommandId String? @map("provider_command_id")
+  resultCode    String?   @map("result_code")
   commandType   String    @map("command_type")
   payload       Json?
   status        String
@@ -2464,6 +2512,7 @@ model Command {
   correlationId String?   @map("correlation_id")
   idempotencyTtlSec Int?   @map("idempotency_ttl_sec")
   error         String?
+  vehicle      Vehicle?   @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
   outboxEntries CommandOutbox[]
   events        CommandEvent[]
 
@@ -2471,6 +2520,8 @@ model Command {
   @@index([correlationId])
   @@index([status, requestedAt])
   @@index([tenantId, requestedAt], map: "commands_tenant_id_requested_at_idx")
+  @@index([domain, requestedAt], map: "commands_domain_requested_at_idx")
+  @@index([vehicleId, requestedAt], map: "commands_vehicle_id_requested_at_idx")
 }
 
 model CommandOutbox {
@@ -2968,9 +3019,68 @@ enum ConnectorType {
   TESLA_SCS
 }
 
+enum VehicleOwnershipType {
+  PERSONAL
+  ORGANIZATION
+  FLEET
+}
+
+enum VehicleStatusType {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+  RETIRED
+}
+
+enum TelemetryProviderType {
+  SMARTCAR
+  ENODE
+  AUTOPI
+  OPENDBC
+  MQTT_BMS
+  OBD_DONGLE
+  OEM_API
+  MANUAL_IMPORT
+  MOCK
+}
+
+enum VehicleTelemetryCapability {
+  READ
+  COMMANDS
+}
+
+enum VehicleTelemetryHealth {
+  HEALTHY
+  DEGRADED
+  OFFLINE
+  UNKNOWN
+}
+
+enum VehicleFaultLifecycleStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum VehicleFaultSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
 model Vehicle {
   id                    String          @id @default(uuid())
   userId                String
+  ownershipType         VehicleOwnershipType? @map("ownership_type")
+  organizationId        String?         @map("organization_id")
+  fleetAccountId        String?         @map("fleet_account_id")
+  fleetDriverId         String?         @map("fleet_driver_id")
+  fleetDriverGroupId    String?         @map("fleet_driver_group_id")
+  depotSiteId           String?         @map("depot_site_id")
+  operatingRegion       String?         @map("operating_region")
+  vehicleStatus         VehicleStatusType @default(ACTIVE) @map("vehicle_status")
+  vehicleRole           String?         @map("vehicle_role")
+  telemetryProvider     TelemetryProviderType @default(MOCK) @map("telemetry_provider")
   vehicleName           String
   make                  String
   model                 String
@@ -2991,9 +3101,19 @@ model Vehicle {
   isSwappable           Boolean         @default(false)
 
   // Relations
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sessions     Session[]
-  batteryPacks BatteryPack[]
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization      Organization?         @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  fleetAccount      FleetAccount?         @relation(fields: [fleetAccountId], references: [id], onDelete: SetNull)
+  fleetDriver       FleetDriver?          @relation(fields: [fleetDriverId], references: [id], onDelete: SetNull)
+  fleetDriverGroup  FleetDriverGroup?     @relation(fields: [fleetDriverGroupId], references: [id], onDelete: SetNull)
+  depotSite         Site?                 @relation(fields: [depotSiteId], references: [id], onDelete: SetNull)
+  sessions          Session[]
+  batteryPacks      BatteryPack[]
+  telemetrySources  VehicleTelemetrySource[]
+  telemetrySnapshots VehicleTelemetrySnapshot[]
+  telemetryLatest   VehicleTelemetryLatest?
+  faults            VehicleFault[]
+  commands          Command[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3001,7 +3121,105 @@ model Vehicle {
   @@map("vehicles")
   @@index([userId])
   @@index([userId, isActive])
+  @@index([organizationId], map: "vehicles_organization_id_idx")
+  @@index([fleetAccountId], map: "vehicles_fleet_account_id_idx")
+  @@index([fleetDriverId], map: "vehicles_fleet_driver_id_idx")
+  @@index([fleetDriverGroupId], map: "vehicles_fleet_driver_group_id_idx")
+  @@index([depotSiteId], map: "vehicles_depot_site_id_idx")
+  @@index([ownershipType, vehicleStatus], map: "vehicles_ownership_status_idx")
   @@index([licensePlate])
+}
+
+model VehicleTelemetrySource {
+  id                String                    @id @default(uuid())
+  vehicleId         String                    @map("vehicle_id")
+  provider          TelemetryProviderType
+  providerVehicleId String?                   @map("provider_vehicle_id")
+  capabilities      VehicleTelemetryCapability[] @default([])
+  credentialRef     String?                   @map("credential_ref")
+  enabled           Boolean                   @default(true)
+  health            VehicleTelemetryHealth    @default(UNKNOWN)
+  lastSyncedAt      DateTime?                 @map("last_synced_at")
+  metadata          Json?
+  createdAt         DateTime                  @default(now()) @map("created_at")
+  updatedAt         DateTime                  @updatedAt @map("updated_at")
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@map("vehicle_telemetry_sources")
+  @@unique([vehicleId, provider, providerVehicleId], map: "vehicle_tel_srcs_vehicle_provider_pvid_key")
+  @@index([vehicleId, enabled], map: "vehicle_telemetry_sources_vehicle_enabled_idx")
+  @@index([provider, health], map: "vehicle_telemetry_sources_provider_health_idx")
+}
+
+model VehicleTelemetrySnapshot {
+  id                String                @id @default(uuid())
+  vehicleId         String                @map("vehicle_id")
+  provider          TelemetryProviderType
+  providerVehicleId String?               @map("provider_vehicle_id")
+  collectedAt       DateTime              @default(now()) @map("collected_at")
+  lastSyncedAt      DateTime?             @map("last_synced_at")
+  battery           Json?
+  gps               Json?
+  odometer          Json?
+  charging          Json?
+  faults            Json?
+  sources           Json?
+  rawPayload        Json?                 @map("raw_payload")
+  createdAt         DateTime              @default(now()) @map("created_at")
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@map("vehicle_telemetry_snapshots")
+  @@index([vehicleId, collectedAt], map: "vehicle_telemetry_snapshots_vehicle_collected_at_idx")
+  @@index([provider, collectedAt], map: "vehicle_telemetry_snapshots_provider_collected_at_idx")
+}
+
+model VehicleTelemetryLatest {
+  vehicleId         String                @id @map("vehicle_id")
+  provider          TelemetryProviderType
+  providerVehicleId String?               @map("provider_vehicle_id")
+  lastSyncedAt      DateTime?             @map("last_synced_at")
+  sampledAt         DateTime              @default(now()) @map("sampled_at")
+  battery           Json?
+  gps               Json?
+  odometer          Json?
+  charging          Json?
+  faults            Json?
+  sources           Json?
+  updatedAt         DateTime              @updatedAt @map("updated_at")
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@map("vehicle_telemetry_latest")
+  @@index([provider, updatedAt], map: "vehicle_telemetry_latest_provider_updated_at_idx")
+}
+
+model VehicleFault {
+  id                String                     @id @default(uuid())
+  vehicleId         String                     @map("vehicle_id")
+  provider          TelemetryProviderType?
+  source            String?
+  code              String
+  severity          VehicleFaultSeverity       @default(WARNING)
+  description       String
+  status            VehicleFaultLifecycleStatus @default(OPEN)
+  recommendedAction String?                    @map("recommended_action")
+  firstSeenAt       DateTime                   @default(now()) @map("first_seen_at")
+  lastSeenAt        DateTime                   @default(now()) @map("last_seen_at")
+  acknowledgedAt    DateTime?                  @map("acknowledged_at")
+  acknowledgedBy    String?                    @map("acknowledged_by")
+  resolvedAt        DateTime?                  @map("resolved_at")
+  resolvedBy        String?                    @map("resolved_by")
+  metadata          Json?
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  updatedAt         DateTime                   @updatedAt @map("updated_at")
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@map("vehicle_faults")
+  @@index([vehicleId, status, lastSeenAt], map: "vehicle_faults_vehicle_status_last_seen_at_idx")
+  @@index([code, status], map: "vehicle_faults_code_status_idx")
 }
 
 model BatteryPack {

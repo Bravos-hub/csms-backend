@@ -70,6 +70,12 @@ export class PlatformController {
     return this.platformService.listTenants();
   }
 
+  @Get('tenants/:id')
+  @RequirePermissions('platform.tenants.read')
+  getTenant(@Param('id') id: string) {
+    return this.platformService.getTenant(id);
+  }
+
   @Post('tenants')
   @RequirePermissions('platform.tenants.write')
   createTenant(@Body() body: CreatePlatformTenantDto) {

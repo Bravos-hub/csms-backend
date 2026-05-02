@@ -35,6 +35,10 @@ export class PlatformService {
     return this.tenantProvisioning.listTenants();
   }
 
+  getTenant(id: string) {
+    return this.tenantProvisioning.getTenant(id);
+  }
+
   createTenant(dto: CreatePlatformTenantDto) {
     return this.tenantProvisioning.createTenant(dto);
   }

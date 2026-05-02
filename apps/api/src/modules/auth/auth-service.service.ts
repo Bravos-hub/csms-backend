@@ -2756,13 +2756,14 @@ export class AuthService {
   async sendMfaSetupOtp(
     userId: string,
     channel?: OtpChannel,
+    phone?: string,
   ): Promise<{
     success: boolean;
     channel: OtpDeliveryChannel;
     destination: string;
     expiresAt: string;
   }> {
-    const user = await this.prisma.user.findUnique({
+    let user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
         id: true,
@@ -2776,6 +2777,21 @@ export class AuthService {
 
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    if (phone && phone.trim() !== user.phone) {
+      user = await this.prisma.user.update({
+        where: { id: userId },
+        data: { phone: phone.trim() },
+        select: {
+          id: true,
+          email: true,
+          phone: true,
+          zoneId: true,
+          country: true,
+          region: true,
+        },
+      });
     }
 
     const challenge = await this.sendOtpChallengeToUser(

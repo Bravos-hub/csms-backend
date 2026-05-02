@@ -54,13 +54,29 @@ export class AfricasTalkingService {
       parsed = { raw: text };
     }
 
-    if (!response.ok) {
-      throw new Error(
-        `Africa's Talking API error (${response.status}): ${text.slice(0, 300)}`,
-      );
+    this.logger.debug(`Africa's Talking API Response Body: ${text}`);
+    this.logger.debug(
+      `Africa's Talking API Parsed Object: ${JSON.stringify(parsed)}`,
+    );
+
+    const recipients = (parsed.SMSMessageData as any)?.Recipients;
+    const messageStatus = (parsed.SMSMessageData as any)?.Message;
+
+    if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
+      const errorMsg =
+        messageStatus || (parsed as any).raw || 'Unknown delivery failure';
+      this.logger.error(`Africa's Talking delivery FAILED: ${errorMsg}`);
+      throw new Error(`Africa's Talking delivery FAILED: ${errorMsg}`);
+    }
+
+    const firstRecipient = recipients[0];
+    if (firstRecipient.status !== 'Success' && firstRecipient.status !== 'Buffered') {
+      this.logger.error(`Africa's Talking delivery FAILED for ${to}: ${firstRecipient.status}`);
+      throw new Error(`Africa's Talking delivery FAILED for ${to}: ${firstRecipient.status}`);
     }
 
     this.logger.log(`Africa's Talking SMS sent to ${to}`);
+    this.logger.warn(`FALLBACK: SMS message content sent to ${to}: ${message}`);
     return parsed;
   }
 }

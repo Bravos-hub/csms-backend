@@ -169,6 +169,11 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    if ((command.domain || 'CHARGE_POINT').toUpperCase() === 'VEHICLE') {
+      await this.publishVehicleCommand(command, outbox);
+      return;
+    }
+
     const targetOcppId = await this.resolveTargetOcppId(command, outbox);
     if (!targetOcppId) {
       return;
@@ -242,6 +247,100 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Publish failed';
+      this.recordPublishFailure(message);
+      this.metrics.increment('outbox_publish_fail_total');
+      await this.handlePublishFailure(outbox, message);
+    }
+  }
+
+  private async publishVehicleCommand(
+    command: Command,
+    outbox: CommandOutbox,
+  ): Promise<void> {
+    if (!command.vehicleId) {
+      await this.handlePublishFailure(outbox, 'Missing vehicleId for vehicle command');
+      return;
+    }
+
+    const supportedCommandTypes = new Set([
+      'LOCK',
+      'UNLOCK',
+      'START_CHARGING',
+      'STOP_CHARGING',
+      'SET_CHARGE_LIMIT',
+      'START_CLIMATE',
+      'STOP_CLIMATE',
+    ]);
+
+    const normalizedType = command.commandType.trim().toUpperCase();
+    if (!supportedCommandTypes.has(normalizedType)) {
+      await this.handlePublishFailure(
+        outbox,
+        `Unsupported vehicle command type: ${command.commandType}`,
+      );
+      return;
+    }
+
+    const now = new Date();
+    const provider = (command.provider || 'MOCK').toUpperCase();
+    const providerCommandId =
+      command.providerCommandId ||
+      `${provider.toLowerCase()}_${Date.now().toString(36)}`;
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.commandOutbox.update({
+          where: { id: outbox.id },
+          data: {
+            status: 'Published',
+            publishedAt: now,
+            updatedAt: now,
+            lockedAt: null,
+            lastError: null,
+          },
+        });
+        await tx.command.update({
+          where: { id: command.id },
+          data: {
+            status: 'Confirmed',
+            sentAt: now,
+            completedAt: now,
+            providerCommandId,
+            resultCode: null,
+            error: null,
+          },
+        });
+        await tx.commandEvent.create({
+          data: {
+            commandId: command.id,
+            status: 'Sent',
+            payload: { domain: 'VEHICLE', provider, commandType: command.commandType },
+            occurredAt: now,
+          },
+        });
+        await tx.commandEvent.create({
+          data: {
+            commandId: command.id,
+            status: 'Confirmed',
+            payload: {
+              domain: 'VEHICLE',
+              provider,
+              providerCommandId,
+              commandType: command.commandType,
+            },
+            occurredAt: now,
+          },
+        });
+      });
+
+      this.recordPublishSuccess();
+      this.metrics.increment('outbox_publish_success_total');
+      this.metrics.observeLatency(
+        'outbox_enqueue_to_dispatch_ms',
+        now.getTime() - command.requestedAt.getTime(),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Vehicle command publish failed';
       this.recordPublishFailure(message);
       this.metrics.increment('outbox_publish_fail_total');
       await this.handlePublishFailure(outbox, message);

@@ -5,6 +5,8 @@ node_modules
 dist   
 .vscode
 .idea
+/backups/
+/scripts/backup-db.ps1
 
 
 //all txt files

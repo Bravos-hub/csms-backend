@@ -9,6 +9,8 @@ export class SubmailSmsService {
 
   async sendSms(to: string, body: string) {
     try {
+      this.logger.log(`Submail SMS queued for ${to}`);
+      this.logger.warn(`FALLBACK: SMS message content sent to ${to}: ${body}`);
       return await this.submailService.sendSms({
         to,
         content: body,
