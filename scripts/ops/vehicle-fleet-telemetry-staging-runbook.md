@@ -26,9 +26,17 @@ pnpm prisma migrate deploy
 pnpm run ops:vehicles:fleet-telemetry:verify -- --strict true
 ```
 
-`strict=true` returns exit code `1` while any required check is still failing.
+For environments with self-signed TLS:
 
-## 4) Apply safe data backfill (optional, controlled)
+```bash
+pnpm run ops:vehicles:fleet-telemetry:verify -- --strict true --insecure-ssl true
+```
+
+`strict=true` returns exit code `1` while any required check is still failing. If step 3 fails, proceed to step 4 to run the safe data backfill, then re-run verification in step 5 after the backfill is complete.
+
+## 4) Apply safe data backfill
+
+Run this step only when step 3 detects missing or incomplete telemetry data, schema drift, or other failed checks. If step 3 reports all checks passed and no missing data is found, step 4 is optional and should be skipped.
 
 ```bash
 pnpm run ops:vehicles:fleet-telemetry:apply
@@ -46,4 +54,10 @@ pnpm run ops:vehicles:fleet-telemetry:apply -- --insecure-ssl true
 pnpm run ops:vehicles:fleet-telemetry:verify -- --strict true
 ```
 
-Proceed to feature-flag enablement only after this gate passes.
+For self-signed TLS:
+
+```bash
+pnpm run ops:vehicles:fleet-telemetry:verify -- --strict true --insecure-ssl true
+```
+
+This final verification is a hard gate when backfill was applied and must be run to confirm post-backfill consistency. If step 3 passed with no missing data and step 4 was skipped, this step can be treated as optional, though it is still recommended before feature-flag enablement.

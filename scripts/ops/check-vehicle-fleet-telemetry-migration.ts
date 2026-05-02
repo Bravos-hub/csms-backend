@@ -382,20 +382,6 @@ async function buildProfile(
 async function applyBackfill(client: Client): Promise<ApplySummary> {
   await client.query('BEGIN');
   try {
-    const ownershipTypeBackfilled = (
-      await client.query(
-        `
-          UPDATE "vehicles" v
-          SET "ownership_type" = CASE
-            WHEN v."organization_id" IS NOT NULL AND v."fleet_account_id" IS NOT NULL THEN 'FLEET'::"VehicleOwnershipType"
-            WHEN v."organization_id" IS NOT NULL THEN 'ORGANIZATION'::"VehicleOwnershipType"
-            ELSE 'PERSONAL'::"VehicleOwnershipType"
-          END
-          WHERE v."ownership_type" IS NULL
-        `,
-      )
-    ).rowCount;
-
     const organizationFromUserBackfilled = (
       await client.query(
         `
@@ -404,8 +390,8 @@ async function applyBackfill(client: Client): Promise<ApplySummary> {
           FROM "users" u
           WHERE v."userId" = u."id"
             AND v."organization_id" IS NULL
-            AND v."ownership_type" IN ('ORGANIZATION'::"VehicleOwnershipType", 'FLEET'::"VehicleOwnershipType")
             AND u."organizationId" IS NOT NULL
+            AND (v."ownership_type" IS NULL OR v."ownership_type" IN ('ORGANIZATION'::"VehicleOwnershipType", 'FLEET'::"VehicleOwnershipType"))
         `,
       )
     ).rowCount;
@@ -425,7 +411,21 @@ async function applyBackfill(client: Client): Promise<ApplySummary> {
           FROM one_active_membership m
           WHERE v."userId" = m."userId"
             AND v."organization_id" IS NULL
-            AND v."ownership_type" IN ('ORGANIZATION'::"VehicleOwnershipType", 'FLEET'::"VehicleOwnershipType")
+            AND (v."ownership_type" IS NULL OR v."ownership_type" IN ('ORGANIZATION'::"VehicleOwnershipType", 'FLEET'::"VehicleOwnershipType"))
+        `,
+      )
+    ).rowCount;
+
+    const ownershipTypeBackfilled = (
+      await client.query(
+        `
+          UPDATE "vehicles" v
+          SET "ownership_type" = CASE
+            WHEN v."organization_id" IS NOT NULL AND v."fleet_account_id" IS NOT NULL THEN 'FLEET'::"VehicleOwnershipType"
+            WHEN v."organization_id" IS NOT NULL THEN 'ORGANIZATION'::"VehicleOwnershipType"
+            ELSE 'PERSONAL'::"VehicleOwnershipType"
+          END
+          WHERE v."ownership_type" IS NULL
         `,
       )
     ).rowCount;
