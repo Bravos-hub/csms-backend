@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, TelemetryProviderType, UserRole } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { TenantContextService } from '@app/db';
 import { PrismaService } from '../../prisma.service';
 import { CommandsService } from '../commands/commands.service';
@@ -47,6 +48,12 @@ type TelemetryGps = NonNullable<UnifiedTelemetryData['gps']>;
 type TelemetryOdometer = UnifiedTelemetryData['odometer'];
 type TelemetryCharging = UnifiedTelemetryData['charging'];
 type ChargingStatus = NonNullable<TelemetryCharging['status']>;
+type SmartcarSessionSecrets = {
+  accessToken: string;
+  refreshToken: string | null;
+  expiresAt: string | null;
+  updatedAt: string;
+};
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
@@ -269,6 +276,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
   private pollActiveTimer: NodeJS.Timeout | null = null;
   private pollIdleTimer: NodeJS.Timeout | null = null;
   private pollRunning = false;
+  private readonly smartcarAuthTokenCache = new Map<string, SmartcarSessionSecrets>();
 
   private readonly adapters = new Map<TelemetryProvider, VehicleTelemetryProviderAdapter>([
     ['MOCK', new SyntheticTelemetryAdapter('MOCK')],
@@ -306,6 +314,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       clearInterval(this.pollIdleTimer);
       this.pollIdleTimer = null;
     }
+    this.smartcarAuthTokenCache.clear();
   }
 
   async listTelemetrySources(
@@ -461,12 +470,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException('Enabled SMARTCAR telemetry source not found');
     }
 
-    const sourceMetadata = asRecord(source.metadata);
-    const authPayload = asRecord(sourceMetadata.smartcarAuth);
-
     const session = await this.smartcar.issueToken({
       credentialRef: source.credentialRef,
-      sourceConfig: authPayload,
+      sourceConfig: this.resolveSmartcarSourceConfig(source),
     });
 
     await this.persistSmartcarAuthState(source, session);
@@ -507,12 +513,10 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       throw new UnauthorizedException('Unknown Smartcar credentialRef');
     }
 
-    const sourceMetadata = asRecord(source.metadata);
-    const authPayload = asRecord(sourceMetadata.smartcarAuth);
     const session = await this.smartcar.refreshToken({
       credentialRef: source.credentialRef,
       refreshToken: input.refreshToken,
-      sourceConfig: authPayload,
+      sourceConfig: this.resolveSmartcarSourceConfig(source),
     });
     await this.persistSmartcarAuthState(source, session);
 
@@ -545,7 +549,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
 
     const session = await this.smartcar.issueToken({
       credentialRef: source.credentialRef,
-      sourceConfig: asRecord(asRecord(source.metadata).smartcarAuth),
+      sourceConfig: this.resolveSmartcarSourceConfig(source),
     });
     await this.persistSmartcarAuthState(source, session);
 
@@ -599,7 +603,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
 
     const session = await this.smartcar.issueToken({
       credentialRef: source.credentialRef,
-      sourceConfig: asRecord(asRecord(source.metadata).smartcarAuth),
+      sourceConfig: this.resolveSmartcarSourceConfig(source),
     });
     await this.persistSmartcarAuthState(source, session);
 
@@ -610,7 +614,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     });
 
     const now = new Date();
-    const commandId = `cmd_${now.getTime().toString(36)}`;
+    const commandId = `cmd_${randomUUID()}`;
     await this.prisma.command.create({
       data: {
         id: commandId,
@@ -1161,19 +1165,34 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
 
         let status: UnifiedTelemetryData;
         if (provider === 'SMARTCAR') {
-          const source = await this.resolveSmartcarSource(vehicle.id, null);
-          if (source?.enabled && source.credentialRef && source.providerVehicleId) {
-            const session = await this.smartcar.issueToken({
-              credentialRef: source.credentialRef,
-              sourceConfig: asRecord(asRecord(source.metadata).smartcarAuth),
-            });
-            await this.persistSmartcarAuthState(source, session);
-            const snapshot = await this.smartcar.fetchStatus({
-              providerVehicleId: source.providerVehicleId,
-              accessToken: session.accessToken,
-            });
-            status = this.buildSmartcarUnifiedTelemetry(vehicle.id, snapshot);
-          } else {
+          try {
+            const source = await this.resolveSmartcarSource(vehicle.id, null);
+            if (source?.enabled && source.credentialRef && source.providerVehicleId) {
+              const session = await this.smartcar.issueToken({
+                credentialRef: source.credentialRef,
+                sourceConfig: this.resolveSmartcarSourceConfig(source),
+              });
+              await this.persistSmartcarAuthState(source, session);
+              const snapshot = await this.smartcar.fetchStatus({
+                providerVehicleId: source.providerVehicleId,
+                accessToken: session.accessToken,
+              });
+              status = this.buildSmartcarUnifiedTelemetry(vehicle.id, snapshot);
+            } else {
+              status = await adapter.fetchStatus({
+                vehicleId: vehicle.id,
+                providerVehicleId: await this.resolveProviderVehicleId(
+                  vehicle.id,
+                  provider,
+                ),
+                lastKnown,
+              });
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.logger.warn(
+              `SMARTCAR poll fallback for vehicle ${vehicle.id}: ${message}`,
+            );
             status = await adapter.fetchStatus({
               vehicleId: vehicle.id,
               providerVehicleId: await this.resolveProviderVehicleId(vehicle.id, provider),
@@ -1732,6 +1751,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       credentialRef: string;
     },
   ): Promise<void> {
+    this.persistSmartcarSessionSecrets(session);
     const metadata = asRecord(source.metadata);
     const existingAuth = asRecord(metadata.smartcarAuth);
 
@@ -1742,8 +1762,6 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
           ...metadata,
           smartcarAuth: {
             ...existingAuth,
-            accessToken: session.accessToken,
-            refreshToken: session.refreshToken,
             accessTokenExpiresAt: session.expiresAt,
             credentialRef: session.credentialRef,
             updatedAt: nowIso(),
@@ -1751,6 +1769,43 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
         }),
       },
     });
+  }
+
+  private persistSmartcarSessionSecrets(session: {
+    accessToken: string;
+    refreshToken: string | null;
+    expiresAt: string | null;
+    credentialRef: string;
+  }): void {
+    this.smartcarAuthTokenCache.set(session.credentialRef, {
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresAt: session.expiresAt,
+      updatedAt: nowIso(),
+    });
+  }
+
+  private resolveSmartcarSourceConfig(source: {
+    credentialRef: string | null;
+    metadata: unknown;
+  }): Record<string, unknown> {
+    const metadataAuth = asRecord(asRecord(source.metadata).smartcarAuth);
+    const credentialRef =
+      source.credentialRef || stringOrNull(metadataAuth.credentialRef);
+    const cachedSecrets = credentialRef
+      ? this.smartcarAuthTokenCache.get(credentialRef)
+      : undefined;
+
+    if (!cachedSecrets) {
+      return metadataAuth;
+    }
+
+    return {
+      ...metadataAuth,
+      accessToken: cachedSecrets.accessToken,
+      refreshToken: cachedSecrets.refreshToken,
+      accessTokenExpiresAt: cachedSecrets.expiresAt,
+    };
   }
 
   private buildSmartcarUnifiedTelemetry(

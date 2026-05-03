@@ -132,6 +132,7 @@ export class ProviderWebhookPayloadDto {
 }
 
 export class CreateVehicleTelemetrySourceDto {
+  @IsOptional()
   @IsString()
   @IsIn(PROVIDERS)
   provider?: (typeof PROVIDERS)[number];
@@ -141,6 +142,7 @@ export class CreateVehicleTelemetrySourceDto {
   @MaxLength(180)
   providerId?: string | null;
 
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
   @MaxLength(240)

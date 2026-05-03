@@ -116,6 +116,28 @@ describe('TelemetryStorageMaintenanceWorker', () => {
     expect(health.staleVehicleCount).toBe(1);
   });
 
+  it('treats rows with missing timestamps as zero-lag instead of throwing', async () => {
+    prisma.vehicleTelemetryLatest.findMany.mockResolvedValue([
+      {
+        vehicleId: 'veh-null-1',
+        lastSyncedAt: null,
+        sampledAt: null,
+      },
+    ]);
+
+    const computeIngestHealth = Reflect.get(
+      worker as object,
+      'computeIngestHealth',
+    ) as () => Promise<{ maxLagMs: number; staleVehicleCount: number }>;
+
+    const health = await computeIngestHealth.call(worker);
+
+    expect(health).toEqual({
+      maxLagMs: 0,
+      staleVehicleCount: 0,
+    });
+  });
+
   it('creates missing telemetry snapshot partitions only when table is partitioned', async () => {
     prisma.$queryRaw
       .mockResolvedValueOnce([{ partitioned: true }])

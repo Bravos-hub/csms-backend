@@ -5,12 +5,20 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { WorkerMetricsService } from '../observability/worker-metrics.service';
 
 type PartitionFlagRow = {
   partitioned: boolean;
 };
+
+function assertSafeSqlIdentifier(value: string, label: string): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
+    throw new Error(`Invalid SQL identifier for ${label}: ${value}`);
+  }
+  return value;
+}
 
 @Injectable()
 export class TelemetryStorageMaintenanceWorker
@@ -155,7 +163,10 @@ export class TelemetryStorageMaintenanceWorker
   }
 
   private async ensureSnapshotPartitions(monthsAhead: number): Promise<number> {
-    const tableName = 'vehicle_telemetry_snapshots';
+    const tableName = assertSafeSqlIdentifier(
+      'vehicle_telemetry_snapshots',
+      'snapshot table name',
+    );
     const isPartitioned = await this.isPartitionedTable(tableName);
     this.metrics.setGauge(
       'telemetry_snapshot_table_partitioned',
@@ -176,21 +187,17 @@ export class TelemetryStorageMaintenanceWorker
       const end = new Date(start);
       end.setUTCMonth(end.getUTCMonth() + 1);
       const yyyymm = `${start.getUTCFullYear()}${String(start.getUTCMonth() + 1).padStart(2, '0')}`;
-      const partitionName = `${tableName}_p${yyyymm}`;
+      const partitionName = assertSafeSqlIdentifier(
+        `${tableName}_p${yyyymm}`,
+        'snapshot partition name',
+      );
 
       const existed = await this.partitionExists(partitionName);
-      await this.prisma.$executeRaw`
-        DO $$
-        BEGIN
-          EXECUTE format(
-            'CREATE TABLE IF NOT EXISTS %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
-            ${partitionName},
-            ${tableName},
-            ${start.toISOString()},
-            ${end.toISOString()}
-          );
-        END $$;
-      `;
+      await this.prisma.$executeRaw(
+        Prisma.sql`CREATE TABLE IF NOT EXISTS ${Prisma.raw(`"${partitionName}"`)}
+        PARTITION OF ${Prisma.raw(`"${tableName}"`)}
+        FOR VALUES FROM (${start.toISOString()}) TO (${end.toISOString()})`,
+      );
       if (!existed) {
         created += 1;
       }
@@ -247,8 +254,13 @@ export class TelemetryStorageMaintenanceWorker
     const now = Date.now();
 
     for (const row of latestRows) {
-      const reference = row.lastSyncedAt || row.sampledAt;
-      const lagMs = Math.max(0, now - reference.getTime());
+      const reference =
+        row.lastSyncedAt instanceof Date
+          ? row.lastSyncedAt
+          : row.sampledAt instanceof Date
+            ? row.sampledAt
+            : null;
+      const lagMs = reference ? Math.max(0, now - reference.getTime()) : 0;
       if (lagMs > maxLagMs) {
         maxLagMs = lagMs;
       }

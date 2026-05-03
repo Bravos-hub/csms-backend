@@ -1,3 +1,4 @@
+import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'crypto';
 import { SmartcarProviderService } from './smartcar-provider.service';
@@ -180,6 +181,21 @@ describe('SmartcarProviderService', () => {
     expect(result.providerCommandId).toEqual(expect.stringMatching(/^smartcar_/));
   });
 
+  it('uses provider command id from smartcar response when available', async () => {
+    const fetchMock = global.fetch as unknown as jest.Mock;
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'provider-command-1' }));
+
+    const result = await service.sendCommand({
+      providerVehicleId: 'smartcar-veh-1',
+      accessToken: 'access-1',
+      command: {
+        type: 'LOCK',
+      },
+    });
+
+    expect(result.providerCommandId).toBe('provider-command-1');
+  });
+
   it('verifies webhook signatures using management token', () => {
     config.get.mockImplementation((key: string) =>
       key === 'SMARTCAR_MANAGEMENT_TOKEN' ? 'secret-token' : undefined,
@@ -191,5 +207,16 @@ describe('SmartcarProviderService', () => {
 
     expect(service.verifyWebhookSignature(body, signature)).toBe(true);
     expect(service.verifyWebhookSignature(body, 'mismatch')).toBe(false);
+  });
+
+  it('fails closed when management token is not configured', () => {
+    const body = '{"eventType":"VERIFY"}';
+
+    expect(() => service.verifyWebhookSignature(body, 'sig')).toThrow(
+      UnauthorizedException,
+    );
+    expect(() => service.verifyWebhookSignature(body, 'sig')).toThrow(
+      'SMARTCAR_MANAGEMENT_TOKEN is required for webhook verification',
+    );
   });
 });

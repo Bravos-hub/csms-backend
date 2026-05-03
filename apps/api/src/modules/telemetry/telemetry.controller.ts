@@ -13,8 +13,11 @@ import {
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/roles.guard';
 import {
   CreateVehicleTelemetrySourceDto,
   ProviderWebhookPayloadDto,
@@ -141,17 +144,35 @@ export class TelemetryController {
     @Param('sourceId') sourceId: string,
     @Body() dto: UpdateVehicleTelemetrySourceDto,
   ) {
+    const updates: {
+      providerId?: string | null;
+      credentialRef?: string;
+      enabled?: boolean;
+      capabilities?: Array<'READ' | 'COMMANDS'>;
+      metadata?: Record<string, unknown>;
+    } = {};
+
+    if (dto.providerId !== undefined) {
+      updates.providerId = dto.providerId || null;
+    }
+    if (dto.credentialRef !== undefined) {
+      updates.credentialRef = dto.credentialRef;
+    }
+    if (dto.enabled !== undefined) {
+      updates.enabled = dto.enabled;
+    }
+    if (dto.capabilities !== undefined) {
+      updates.capabilities = dto.capabilities;
+    }
+    if (dto.metadata !== undefined) {
+      updates.metadata = dto.metadata;
+    }
+
     return this.telemetry.updateTelemetrySource(
       this.resolveUserId(user),
       vehicleId,
       sourceId,
-      {
-        providerId: dto.providerId || null,
-        credentialRef: dto.credentialRef,
-        enabled: dto.enabled,
-        capabilities: dto.capabilities,
-        metadata: dto.metadata,
-      },
+      updates,
     );
   }
 
@@ -266,9 +287,15 @@ export class TelemetryController {
     @Body() payload: Record<string, unknown>,
     @Req() request: { rawBody?: string },
   ) {
+    if (!request.rawBody) {
+      throw new BadRequestException(
+        'Smartcar webhook raw body is required for signature verification',
+      );
+    }
+
     return this.telemetry.ingestSmartcarWebhook(
       payload,
-      request.rawBody || JSON.stringify(payload || {}),
+      request.rawBody,
       signature ?? legacySignature ?? null,
     );
   }
@@ -290,19 +317,22 @@ export class TelemetryController {
   }
 
   @Get('storage/raw')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.EVZONE_ADMIN)
   getRawSnapshots(@Query() query: TelemetryStorageRawQueryDto) {
     return this.telemetry.listRawSnapshots(query.limit ?? 100);
   }
 
   @Get('storage/alerts')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.EVZONE_ADMIN)
   getStorageAlerts(@Query() query: TelemetryStorageRawQueryDto) {
     return this.telemetry.listTelemetryAlerts(query.limit ?? 100);
   }
 
   @Post('storage/maintenance/retention')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.EVZONE_ADMIN)
   runStorageRetentionMaintenance() {
     return this.telemetry.runTelemetryRetentionMaintenance();
   }

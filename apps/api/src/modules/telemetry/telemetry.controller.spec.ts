@@ -168,6 +168,26 @@ describe('TelemetryController', () => {
     );
   });
 
+  it('does not overwrite providerId when omitted from source patch payload', async () => {
+    telemetry.updateTelemetrySource.mockResolvedValue({ id: 'src-1' });
+
+    await controller.updateSource(
+      { sub: 'user-1' },
+      'veh-1',
+      'src-1',
+      {
+        enabled: true,
+      },
+    );
+
+    const updateCalls = telemetry.updateTelemetrySource.mock.calls as Array<
+      [string, string, string, Record<string, unknown>]
+    >;
+    const updatePayload = updateCalls[0]?.[3] || {};
+    expect(updatePayload).toEqual({ enabled: true });
+    expect(updatePayload).not.toHaveProperty('providerId');
+  });
+
   it('requires provider and credentialRef for source creation', async () => {
     expect(() =>
       controller.createSource(
@@ -266,12 +286,14 @@ describe('TelemetryController', () => {
       { eventType: 'VEHICLE_STATE' },
       { rawBody: '{"eventType":"VEHICLE_STATE"}' },
     );
-    await controller.ingestSmartcarWebhook(
-      undefined,
-      'legacy-sig',
-      { eventType: 'VEHICLE_STATE' },
-      {},
-    );
+    expect(() =>
+      controller.ingestSmartcarWebhook(
+        undefined,
+        'legacy-sig',
+        { eventType: 'VEHICLE_STATE' },
+        {},
+      ),
+    ).toThrow(BadRequestException);
 
     expect(telemetry.ingestSmartcarWebhook).toHaveBeenNthCalledWith(
       1,
@@ -279,12 +301,7 @@ describe('TelemetryController', () => {
       '{"eventType":"VEHICLE_STATE"}',
       'sig-1',
     );
-    expect(telemetry.ingestSmartcarWebhook).toHaveBeenNthCalledWith(
-      2,
-      { eventType: 'VEHICLE_STATE' },
-      '{"eventType":"VEHICLE_STATE"}',
-      'legacy-sig',
-    );
+    expect(telemetry.ingestSmartcarWebhook).toHaveBeenCalledTimes(1);
   });
 
   it('rejects provider webhooks when secret is invalid', async () => {

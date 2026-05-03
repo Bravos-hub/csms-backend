@@ -4,7 +4,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { VehicleCommandInput } from './telemetry.types';
 
 type SmartcarTokenSession = {
@@ -111,6 +111,17 @@ function parseCredentials(raw: unknown): Record<string, unknown> {
     }
   }
   return asRecord(raw);
+}
+
+function extractProviderCommandId(payload: unknown): string | null {
+  const body = asRecord(payload);
+  const nestedData = asRecord(body.data);
+  return (
+    stringOrNull(body.id) ||
+    stringOrNull(body.commandId) ||
+    stringOrNull(nestedData.id) ||
+    stringOrNull(nestedData.commandId)
+  );
 }
 
 function parseCredentialConfig(
@@ -281,16 +292,18 @@ export class SmartcarProviderService {
     command: VehicleCommandInput;
   }): Promise<SmartcarCommandResult> {
     const vehicleId = input.providerVehicleId;
-    const providerCommandId = `smartcar_${Date.now().toString(36)}`;
+    const localCommandId = `smartcar_local_${randomUUID()}`;
 
     if (input.command.type === 'LOCK' || input.command.type === 'UNLOCK') {
-      await this.writeVehicleEndpoint(
+      const response = await this.writeVehicleEndpoint(
         vehicleId,
         '/security',
         { action: input.command.type },
         input.accessToken,
       );
-      return { providerCommandId };
+      return {
+        providerCommandId: extractProviderCommandId(response.body) || localCommandId,
+      };
     }
 
     if (
@@ -303,7 +316,7 @@ export class SmartcarProviderService {
         { action: input.command.type === 'START_CHARGING' ? 'START' : 'STOP' },
         input.accessToken,
       );
-      return { providerCommandId };
+      return { providerCommandId: localCommandId };
     }
 
     if (input.command.type === 'SET_CHARGE_LIMIT') {
@@ -314,7 +327,7 @@ export class SmartcarProviderService {
         { limit: Number((boundedLimit / 100).toFixed(2)) },
         input.accessToken,
       );
-      return { providerCommandId };
+      return { providerCommandId: localCommandId };
     }
 
     throw new BadRequestException(
@@ -325,7 +338,9 @@ export class SmartcarProviderService {
   verifyWebhookSignature(rawBody: string, signature: string | null): boolean {
     const managementToken = this.config.get<string>('SMARTCAR_MANAGEMENT_TOKEN');
     if (!managementToken) {
-      return true;
+      throw new UnauthorizedException(
+        'SMARTCAR_MANAGEMENT_TOKEN is required for webhook verification',
+      );
     }
 
     if (!signature) return false;
