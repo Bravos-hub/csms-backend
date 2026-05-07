@@ -1,4 +1,6 @@
+import { Transform } from 'class-transformer';
 import {
+  IsBoolean,
   IsString,
   IsNotEmpty,
   IsOptional,
@@ -23,7 +25,12 @@ const CONNECTOR_TYPES = [
   'TESLA_SCS',
 ] as const;
 const VEHICLE_OWNERSHIP_TYPES = ['PERSONAL', 'ORGANIZATION', 'FLEET'] as const;
-const VEHICLE_STATUS_TYPES = ['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED'] as const;
+const VEHICLE_STATUS_TYPES = [
+  'ACTIVE',
+  'INACTIVE',
+  'MAINTENANCE',
+  'RETIRED',
+] as const;
 const TELEMETRY_PROVIDER_TYPES = [
   'SMARTCAR',
   'ENODE',
@@ -35,6 +42,15 @@ const TELEMETRY_PROVIDER_TYPES = [
   'MANUAL_IMPORT',
   'MOCK',
 ] as const;
+
+function normalizeOptionalBoolean(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  return undefined;
+}
 
 export class CreateVehicleDto {
   @IsString()
@@ -97,6 +113,10 @@ export class CreateVehicleDto {
   @IsArray()
   @IsIn(CONNECTOR_TYPES, { each: true })
   connectors?: Array<(typeof CONNECTOR_TYPES)[number]>;
+
+  @IsOptional()
+  @IsBoolean()
+  isSwappable?: boolean;
 
   @IsOptional()
   @IsString()
@@ -206,6 +226,10 @@ export class UpdateVehicleDto {
   connectors?: Array<(typeof CONNECTOR_TYPES)[number]>;
 
   @IsOptional()
+  @IsBoolean()
+  isSwappable?: boolean;
+
+  @IsOptional()
   @IsString()
   @IsIn(VEHICLE_OWNERSHIP_TYPES)
   ownershipType?: (typeof VEHICLE_OWNERSHIP_TYPES)[number];
@@ -260,4 +284,9 @@ export class VehiclesScopeQueryDto {
   @IsString()
   @IsIn(['personal', 'tenant', 'all'])
   scope?: 'personal' | 'tenant' | 'all';
+
+  @IsOptional()
+  @Transform(({ value }) => normalizeOptionalBoolean(value))
+  @IsBoolean()
+  isSwappable?: boolean;
 }

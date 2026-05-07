@@ -48,7 +48,11 @@ export class VehiclesController {
   /** GET /vehicles — list all vehicles for the authenticated user */
   @Get()
   list(@CurrentUser() user: unknown, @Query() query: VehiclesScopeQueryDto) {
-    return this.svc.list(this.resolveUserId(user), query.scope ?? 'all');
+    return this.svc.list(
+      this.resolveUserId(user),
+      query.scope ?? 'all',
+      query.isSwappable,
+    );
   }
 
   /** POST /vehicles — create a new vehicle */

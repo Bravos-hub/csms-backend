@@ -26,7 +26,11 @@ export class VehiclesService {
 
   // ─── List ──────────────────────────────────────────────────────────────────
 
-  async list(userId: string, scope: 'personal' | 'tenant' | 'all' = 'all') {
+  async list(
+    userId: string,
+    scope: 'personal' | 'tenant' | 'all' = 'all',
+    isSwappable?: boolean,
+  ) {
     const tenantId = this.resolveTenantId();
     const clauses: Prisma.VehicleWhereInput[] = [];
 
@@ -41,8 +45,13 @@ export class VehiclesService {
       return [];
     }
 
+    const where: Prisma.VehicleWhereInput = { OR: clauses };
+    if (typeof isSwappable === 'boolean') {
+      where.isSwappable = isSwappable;
+    }
+
     return this.prisma.vehicle.findMany({
-      where: { OR: clauses },
+      where,
       orderBy: { createdAt: 'desc' },
     });
   }

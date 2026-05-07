@@ -1,0 +1,2 @@
+ALTER TABLE "vehicles"
+  ADD COLUMN IF NOT EXISTS "isSwappable" BOOLEAN NOT NULL DEFAULT false;
