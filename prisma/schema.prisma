@@ -3103,7 +3103,6 @@ model Vehicle {
   dcMaxKw               Float?
   connectors            ConnectorType[]
   isActive              Boolean         @default(false)
-  isSwappable           Boolean         @default(false)
 
   // Relations
   user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
