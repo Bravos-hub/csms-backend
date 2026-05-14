@@ -216,6 +216,20 @@ export class TelemetryController {
     );
   }
 
+  @Post('vehicles/:vehicleId/sources/:sourceId/test')
+  @UseGuards(JwtAuthGuard)
+  testSource(
+    @CurrentUser() user: unknown,
+    @Param('vehicleId') vehicleId: string,
+    @Param('sourceId') sourceId: string,
+  ) {
+    return this.telemetry.testTelemetrySource(
+      this.resolveUserId(user),
+      vehicleId,
+      sourceId,
+    );
+  }
+
   @Post('providers/smartcar/auth/token')
   @UseGuards(JwtAuthGuard)
   issueSmartcarToken(@CurrentUser() user: unknown, @Body() dto: SmartcarIssueTokenDto) {

@@ -52,7 +52,16 @@ export class VehiclesController {
       this.resolveUserId(user),
       query.scope ?? 'all',
       query.isSwappable,
+      query.skip,
+      query.take,
+      query.search,
     );
+  }
+
+  /** GET /vehicles/:id — get a single vehicle */
+  @Get(':id')
+  getById(@CurrentUser() user: unknown, @Param('id') id: string) {
+    return this.svc.getById(id, this.resolveUserId(user));
   }
 
   /** POST /vehicles — create a new vehicle */

@@ -23,6 +23,7 @@ describe('TelemetryController', () => {
     listRawSnapshots: jest.fn(),
     listTelemetryAlerts: jest.fn(),
     runTelemetryRetentionMaintenance: jest.fn(),
+    testTelemetrySource: jest.fn(),
   };
 
   const controller = new TelemetryController(
@@ -49,6 +50,7 @@ describe('TelemetryController', () => {
     telemetry.listRawSnapshots.mockReset();
     telemetry.listTelemetryAlerts.mockReset();
     telemetry.runTelemetryRetentionMaintenance.mockReset();
+    telemetry.testTelemetrySource.mockReset();
   });
 
   it('maps simple vehicle command payloads to service contract', async () => {
@@ -328,5 +330,15 @@ describe('TelemetryController', () => {
     expect(telemetry.listRawSnapshots).toHaveBeenCalledWith(100);
     expect(telemetry.listTelemetryAlerts).toHaveBeenCalledWith(50);
     expect(telemetry.runTelemetryRetentionMaintenance).toHaveBeenCalled();
+  });
+
+  it('forwards telemetry source test connection', async () => {
+    telemetry.testTelemetrySource.mockResolvedValue({ success: true, provider: 'SMARTCAR', health: 'HEALTHY' });
+
+    const result = await controller.testSource({ sub: 'user-1' }, 'veh-1', 'src-1');
+
+    expect(telemetry.testTelemetrySource).toHaveBeenCalledWith('user-1', 'veh-1', 'src-1');
+    expect(result).toEqual({ success: true, provider: 'SMARTCAR', health: 'HEALTHY' });
+
   });
 });

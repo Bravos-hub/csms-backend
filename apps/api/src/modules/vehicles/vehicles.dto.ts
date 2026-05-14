@@ -10,6 +10,7 @@ import {
   Min,
   Max,
   IsIn,
+  MinLength,
 } from 'class-validator';
 
 const POWERTRAIN_TYPES = ['BEV', 'PHEV', 'HEV', 'ICE'] as const;
@@ -289,4 +290,20 @@ export class VehiclesScopeQueryDto {
   @Transform(({ value }) => normalizeOptionalBoolean(value))
   @IsBoolean()
   isSwappable?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  skip?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  take?: number;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  search?: string;
 }

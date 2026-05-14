@@ -440,6 +440,39 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
   ): Promise<VehicleTelemetrySourceRecord> {
     return this.updateTelemetrySource(userId, vehicleId, sourceId, { enabled });
   }
+  async testTelemetrySource(
+    userId: string,
+    vehicleId: string,
+    sourceId: string,
+  ): Promise<{ success: boolean; provider: TelemetryProvider; health: VehicleTelemetrySourceRecord['health'] }> {
+    const vehicle = await this.findAccessibleVehicle(vehicleId, userId, 'read');
+    const source = await this.prisma.vehicleTelemetrySource.findFirst({
+      where: { id: sourceId, vehicleId: vehicle.id },
+    });
+    if (!source) {
+      throw new NotFoundException('Telemetry source not found');
+    }
+
+    const provider = providerFrom(source.provider);
+    if (provider === 'SMARTCAR') {
+      try {
+        const session = await this.smartcar.issueToken({
+          credentialRef: source.credentialRef || '',
+          sourceConfig: this.resolveSmartcarSourceConfig(source),
+        });
+        await this.smartcar.fetchStatus({
+          providerVehicleId: source.providerVehicleId || '',
+          accessToken: session.accessToken,
+        });
+        return { success: true, provider, health: 'HEALTHY' };
+      } catch {
+        return { success: true, provider, health: 'DEGRADED' };
+      }
+    }
+
+    return { success: true, provider, health: 'UNKNOWN' };
+  }
+
 
   async issueSmartcarToken(
     userId: string,

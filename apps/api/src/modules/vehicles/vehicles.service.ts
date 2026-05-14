@@ -30,6 +30,9 @@ export class VehiclesService {
     userId: string,
     scope: 'personal' | 'tenant' | 'all' = 'all',
     isSwappable?: boolean,
+    skip?: number,
+    take?: number,
+    search?: string,
   ) {
     const tenantId = this.resolveTenantId();
     const clauses: Prisma.VehicleWhereInput[] = [];
@@ -42,7 +45,7 @@ export class VehiclesService {
       clauses.push({ organizationId: tenantId });
     }
     if (!clauses.length) {
-      return [];
+      return { data: [], total: 0 };
     }
 
     const where: Prisma.VehicleWhereInput = { OR: clauses };
@@ -50,10 +53,56 @@ export class VehiclesService {
       where.isSwappable = isSwappable;
     }
 
-    return this.prisma.vehicle.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
+    if (search && search.trim().length > 0) {
+      const term = search.trim();
+      where.OR = [
+        { vehicleName: { contains: term, mode: 'insensitive' } },
+        { make: { contains: term, mode: 'insensitive' } },
+        { model: { contains: term, mode: 'insensitive' } },
+        { licensePlate: { contains: term, mode: 'insensitive' } },
+        { vin: { contains: term, mode: 'insensitive' } },
+      ];
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.vehicle.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: skip ?? 0,
+        take: take ?? 100,
+      }),
+      this.prisma.vehicle.count({ where }),
+    ]);
+
+    return { data, total };
+  }
+
+  // ─── Get by ID ─────────────────────────────────────────────────────────────
+
+  async getById(id: string, userId: string) {
+    const vehicle = await this.prisma.vehicle.findUnique({
+      where: { id },
     });
+    if (!vehicle) {
+      throw new NotFoundException('Vehicle not found');
+    }
+
+    if (vehicle.organizationId) {
+      await this.assertTenantAccess(userId, vehicle.organizationId, 'read');
+      return vehicle;
+    }
+
+    if (vehicle.userId !== userId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { role: true },
+      });
+      if (!user?.role || !PLATFORM_ADMIN_ROLES.has(user.role)) {
+        throw new ForbiddenException('Not your vehicle');
+      }
+    }
+
+    return vehicle;
   }
 
   // ─── Create ────────────────────────────────────────────────────────────────
@@ -194,7 +243,7 @@ export class VehiclesService {
     });
   }
 
-  // ─── Delete ────────────────────────────────────────────────────────────────
+  // ─── Delete ──────────────────────────────────────────────────────────────────
 
   async remove(vehicleId: string, userId: string) {
     const vehicle = await this.findAccessible(vehicleId, userId, 'write');

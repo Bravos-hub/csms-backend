@@ -135,4 +135,10 @@ export type VehicleTelemetryProviderAdapter = {
     providerVehicleId?: string | null;
     command: VehicleCommandInput;
   }) => Promise<{ providerCommandId: string | null }>;
+  verifyWebhook?: (input: {
+    rawBody: string;
+    signature: string;
+    secretRef: string;
+  }) => boolean;
+  ingestWebhook?: (payload: Record<string, unknown>) => UnifiedTelemetryData;
 };
