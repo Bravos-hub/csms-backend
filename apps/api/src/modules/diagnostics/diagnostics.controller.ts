@@ -36,6 +36,11 @@ export class DiagnosticsController {
     return this.diagnostics.getFaults(this.resolveUserId(user), vehicleId);
   }
 
+  @Get('vehicles/:vehicleId/summary')
+  getSummary(@CurrentUser() user: unknown, @Param('vehicleId') vehicleId: string) {
+    return this.diagnostics.getSummary(this.resolveUserId(user), vehicleId);
+  }
+
   @Patch('faults/:faultId/acknowledge')
   acknowledgeFault(
     @CurrentUser() user: unknown,

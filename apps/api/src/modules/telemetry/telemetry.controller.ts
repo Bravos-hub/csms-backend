@@ -107,6 +107,15 @@ export class TelemetryController {
     );
   }
 
+  @Get('vehicles/:vehicleId/command-capabilities')
+  @UseGuards(JwtAuthGuard)
+  getCommandCapabilities(
+    @CurrentUser() user: unknown,
+    @Param('vehicleId') vehicleId: string,
+  ) {
+    return this.telemetry.getCommandCapabilities(this.resolveUserId(user), vehicleId);
+  }
+
   @Get('vehicles/:vehicleId/sources')
   @UseGuards(JwtAuthGuard)
   listSources(@CurrentUser() user: unknown, @Param('vehicleId') vehicleId: string) {
@@ -349,5 +358,19 @@ export class TelemetryController {
   @Roles(UserRole.SUPER_ADMIN, UserRole.EVZONE_ADMIN)
   runStorageRetentionMaintenance() {
     return this.telemetry.runTelemetryRetentionMaintenance();
+  }
+
+  @Get('providers/health')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.EVZONE_ADMIN)
+  getProviderHealthAggregate() {
+    return this.telemetry.getProviderHealthAggregate();
+  }
+
+  @Get('storage/stats')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.EVZONE_ADMIN)
+  getStorageStats() {
+    return this.telemetry.getStorageStats();
   }
 }

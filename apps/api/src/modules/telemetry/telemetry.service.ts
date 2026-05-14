@@ -18,8 +18,11 @@ import { EventStreamService } from '../sse/sse.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { SmartcarProviderService } from './smartcar-provider.service';
 import { SmartcarTelemetryAdapter } from './providers/smartcar-telemetry.adapter';
+import { EnodeTelemetryAdapter } from './providers/enode-telemetry.adapter';
+import { MqttBmsTelemetryAdapter } from './providers/mqtt-bms-telemetry.adapter';
 import { SyntheticTelemetryAdapter } from './providers/synthetic-provider.adapter';
 import { TelemetryProviderRegistryService } from './providers/telemetry-provider-registry.service';
+import { TelemetrySignalRouterService } from './telemetry-signal-router.service';
 import { TelemetryGatesService } from './telemetry-gates.service';
 import {
   FaultAlert,
@@ -210,12 +213,16 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     private readonly smartcar: SmartcarProviderService,
     private readonly registry: TelemetryProviderRegistryService,
     private readonly smartcarAdapter: SmartcarTelemetryAdapter,
+    private readonly enodeAdapter: EnodeTelemetryAdapter,
+    private readonly mqttBmsAdapter: MqttBmsTelemetryAdapter,
+    private readonly signalRouter: TelemetrySignalRouterService,
   ) {}
 
   onModuleInit(): void {
     this.registry.register(this.smartcarAdapter);
-    this.registry.register(new SyntheticTelemetryAdapter('MOCK'));
-    for (const p of ['ENODE', 'AUTOPI', 'OPENDBC', 'MQTT_BMS', 'OBD_DONGLE', 'OEM_API', 'MANUAL_IMPORT'] as TelemetryProvider[]) {
+    this.registry.register(this.enodeAdapter);
+    this.registry.register(this.mqttBmsAdapter);
+    for (const p of ['AUTOPI', 'OPENDBC', 'OBD_DONGLE', 'OEM_API', 'MANUAL_IMPORT'] as TelemetryProvider[]) {
       this.registry.register(new SyntheticTelemetryAdapter(p));
     }
 
@@ -990,6 +997,38 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     }, vehicle.organizationId || undefined);
 
     return result;
+  }
+
+  async getCommandCapabilities(userId: string, vehicleId: string) {
+    const vehicle = await this.findAccessibleVehicle(vehicleId, userId, 'read');
+    const sources = await this.prisma.vehicleTelemetrySource.findMany({
+      where: { vehicleId: vehicle.id, enabled: true },
+    });
+
+    const commandTypes = new Set<string>();
+    for (const source of sources) {
+      if (!source.capabilities.includes('COMMANDS')) continue;
+      const adapter = this.registry.resolve(providerFrom(source.provider));
+      if (adapter?.sendCommand) {
+        commandTypes.add('LOCK');
+        commandTypes.add('UNLOCK');
+        commandTypes.add('START_CHARGING');
+        commandTypes.add('STOP_CHARGING');
+        commandTypes.add('SET_CHARGE_LIMIT');
+        commandTypes.add('START_CLIMATE');
+        commandTypes.add('STOP_CLIMATE');
+      }
+    }
+
+    return {
+      vehicleId: vehicle.id,
+      availableCommands: Array.from(commandTypes),
+      sources: sources.map((s) => ({
+        provider: s.provider,
+        capabilities: s.capabilities,
+        health: s.health,
+      })),
+    };
   }
 
   async ingestProviderWebhook(
@@ -2065,5 +2104,56 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     const expected = this.config.get<string>('TELEMETRY_PROVIDER_WEBHOOK_SECRET');
     if (!expected) return true;
     return Boolean(secret && secret === expected);
+  }
+
+  async getProviderHealthAggregate() {
+    const sources = await this.prisma.vehicleTelemetrySource.groupBy({
+      by: ['provider', 'health'],
+      _count: { health: true },
+    });
+
+    const aggregate = sources.reduce(
+      (acc, row) => {
+        if (!acc[row.provider]) {
+          acc[row.provider] = {};
+        }
+        acc[row.provider][row.health] = row._count.health;
+        return acc;
+      },
+      {} as Record<string, Record<string, number>>,
+    );
+
+    return { providers: aggregate };
+  }
+
+  async getStorageStats() {
+    const [snapshotCount, alertCount, staleSourceCount] = await Promise.all([
+      this.prisma.vehicleTelemetrySnapshot.count(),
+      this.prisma.telemetryIngestAlert.count(),
+      this.prisma.vehicleTelemetrySource.count({
+        where: {
+          enabled: true,
+          OR: [
+            { lastSyncedAt: null },
+            { lastSyncedAt: { lt: new Date(Date.now() - STALE_ALERT_THRESHOLD_MS) } },
+          ],
+        },
+      }),
+    ]);
+
+    const dailySnapshots = await this.prisma.vehicleTelemetrySnapshot.groupBy({
+      by: ['provider'],
+      _count: { provider: true },
+    });
+
+    return {
+      snapshotCount,
+      alertCount,
+      staleSourceCount,
+      dailySnapshots: dailySnapshots.map((d) => ({
+        provider: d.provider,
+        count: d._count.provider,
+      })),
+    };
   }
 }

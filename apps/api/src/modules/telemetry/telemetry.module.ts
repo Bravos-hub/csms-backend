@@ -7,6 +7,8 @@ import { WebhooksModule } from '../webhooks/webhooks.module';
 import { TelemetryController } from './telemetry.controller';
 import { SmartcarProviderService } from './smartcar-provider.service';
 import { SmartcarTelemetryAdapter } from './providers/smartcar-telemetry.adapter';
+import { EnodeTelemetryAdapter } from './providers/enode-telemetry.adapter';
+import { MqttBmsTelemetryAdapter } from './providers/mqtt-bms-telemetry.adapter';
 import { SyntheticTelemetryAdapter } from './providers/synthetic-provider.adapter';
 import { TelemetryProviderRegistryService } from './providers/telemetry-provider-registry.service';
 import { TelemetryGatesService } from './telemetry-gates.service';
@@ -20,6 +22,8 @@ import { TelemetryService } from './telemetry.service';
     TelemetryGatesService,
     SmartcarProviderService,
     SmartcarTelemetryAdapter,
+    EnodeTelemetryAdapter,
+    MqttBmsTelemetryAdapter,
     SyntheticTelemetryAdapter,
     TelemetryProviderRegistryService,
   ],

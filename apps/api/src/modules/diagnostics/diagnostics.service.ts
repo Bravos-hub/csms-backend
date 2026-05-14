@@ -66,6 +66,52 @@ export class DiagnosticsService {
     }));
   }
 
+  async getSummary(userId: string, vehicleId: string) {
+    const vehicle = await this.findAccessibleVehicle(vehicleId, userId, 'read');
+
+    const [faultCounts, latestTelemetry, sources] = await Promise.all([
+      this.prisma.vehicleFault.groupBy({
+        by: ['status'],
+        where: { vehicleId: vehicle.id },
+        _count: { status: true },
+      }),
+      this.prisma.vehicleTelemetryLatest.findUnique({
+        where: { vehicleId: vehicle.id },
+      }),
+      this.prisma.vehicleTelemetrySource.findMany({
+        where: { vehicleId: vehicle.id, enabled: true },
+        select: { provider: true, health: true, lastSyncedAt: true },
+      }),
+    ]);
+
+    const counts = faultCounts.reduce(
+      (acc, row) => {
+        acc[row.status] = row._count.status;
+        return acc;
+      },
+      { OPEN: 0, ACKNOWLEDGED: 0, RESOLVED: 0 } as Record<string, number>,
+    );
+
+    const criticalFaults = await this.prisma.vehicleFault.count({
+      where: { vehicleId: vehicle.id, status: { in: ['OPEN', 'ACKNOWLEDGED'] }, severity: 'CRITICAL' },
+    });
+
+    const sourceHealth = sources.reduce(
+      (acc, s) => {
+        acc[s.provider] = s.health;
+        return acc;
+      },
+      {} as Record<string, string>,
+    );
+
+    return {
+      faultCount: counts,
+      criticalFaults,
+      lastTelemetryAt: latestTelemetry?.updatedAt?.toISOString() || null,
+      sourceHealth,
+    };
+  }
+
   async acknowledgeFault(userId: string, faultId: string, note?: string) {
     const fault = await this.findAccessibleFault(faultId, userId, 'write');
 

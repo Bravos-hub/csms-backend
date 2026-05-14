@@ -33,7 +33,7 @@ function buildLineage(
   freshnessMs: number | null;
   isStale: boolean;
 } {
-  const freshnessMs = lastSyncedAt ? Date.now() - Date.parse(lastSyncedAt) : null;
+  const freshnessMs = lastSyncedAt ? Math.max(0, Date.now() - Date.parse(lastSyncedAt)) : null;
   return {
     provider,
     providerId,
