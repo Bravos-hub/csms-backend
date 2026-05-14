@@ -5,7 +5,13 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
-import { VehicleCommandInput } from './telemetry.types';
+import { PrismaService } from '../../prisma.service';
+import {
+  TelemetryProvider,
+  UnifiedTelemetryData,
+  VehicleCommandInput,
+  VehicleTelemetryProviderAdapter,
+} from './telemetry.types';
 
 type SmartcarTokenSession = {
   accessToken: string;
@@ -168,6 +174,32 @@ function parseCredentialConfig(
       stringOrNull(byRef.accessTokenExpiresAt) ||
       null,
   };
+}
+
+
+function buildLineage(
+  provider: TelemetryProvider,
+  providerId: string | null,
+  lastSyncedAt: string | null,
+): {
+  provider: TelemetryProvider;
+  providerId: string | null;
+  lastSyncedAt: string | null;
+  freshnessMs: number | null;
+  isStale: boolean;
+} {
+  const freshnessMs = lastSyncedAt ? Math.max(0, Date.now() - Date.parse(lastSyncedAt)) : null;
+  return {
+    provider,
+    providerId,
+    lastSyncedAt,
+    freshnessMs,
+    isStale: freshnessMs === null ? true : freshnessMs > 60_000,
+  };
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
 }
 
 @Injectable()

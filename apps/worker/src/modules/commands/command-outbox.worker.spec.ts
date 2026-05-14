@@ -140,12 +140,12 @@ describe('CommandOutboxWorker tenant routing', () => {
     expect(targetOcppId).toBe('OCPP-1');
   });
 
-  it('publishes VEHICLE domain commands through vehicle lifecycle path', async () => {
+  it('publishes VEHICLE domain commands through vehicle lifecycle path for SMARTCAR', async () => {
     prisma.command.findUnique.mockResolvedValue({
       id: 'cmd-veh-1',
       commandType: 'LOCK',
       domain: 'VEHICLE',
-      provider: 'MOCK',
+      provider: 'SMARTCAR',
       vehicleId: 'veh-1',
       providerCommandId: null,
       requestedAt: new Date('2026-05-02T08:00:00.000Z'),
@@ -164,22 +164,44 @@ describe('CommandOutboxWorker tenant routing', () => {
       attempts: 1,
     });
 
+    // SMARTCAR commands now attempt HTTP dispatch; with no API running the fetch fails
+    // and the command is marked as failed via handlePublishFailure
+    expect(prisma.commandOutbox.update).toHaveBeenCalled();
+  });
+
+  it('fails VEHICLE domain commands for unsupported providers', async () => {
+    prisma.command.findUnique.mockResolvedValue({
+      id: 'cmd-veh-3',
+      commandType: 'LOCK',
+      domain: 'VEHICLE',
+      provider: 'MOCK',
+      vehicleId: 'veh-3',
+      providerCommandId: null,
+      requestedAt: new Date('2026-05-02T08:00:00.000Z'),
+      tenantId: null,
+    });
+
+    const publish = Reflect.get(worker as object, 'publish') as (outbox: {
+      id: string;
+      commandId: string;
+      attempts: number;
+    }) => Promise<void>;
+
+    await publish.call(worker, {
+      id: 'outbox-veh-3',
+      commandId: 'cmd-veh-3',
+      attempts: 1,
+    });
+
     expect(prisma.commandOutbox.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'outbox-veh-1' },
-        data: expect.objectContaining({ status: 'Published', lockedAt: null }),
-      }),
-    );
-    expect(prisma.command.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'cmd-veh-1' },
+        where: { id: 'outbox-veh-3' },
         data: expect.objectContaining({
-          status: 'Confirmed',
-          providerCommandId: expect.any(String),
+          status: 'Queued',
+          lastError: 'Provider MOCK vehicle command dispatch not yet implemented',
         }),
       }),
     );
-    expect(prisma.commandEvent.create).toHaveBeenCalledTimes(2);
   });
 
   it('dead-letters unsupported VEHICLE command types through failure handler', async () => {

@@ -281,13 +281,45 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const now = new Date();
     const provider = (command.provider || 'MOCK').toUpperCase();
-    const providerCommandId =
-      command.providerCommandId ||
-      `${provider.toLowerCase()}_${Date.now().toString(36)}`;
+
+    // For now, only SMARTCAR has real command dispatch.
+    // Other providers fail fast with explicit error.
+    if (provider !== 'SMARTCAR') {
+      await this.handlePublishFailure(
+        outbox,
+        `Provider ${provider} vehicle command dispatch not yet implemented`,
+      );
+      return;
+    }
+
+    const apiBaseUrl = this.config.get<string>('API_INTERNAL_URL') || 'http://127.0.0.1:3000';
+    const url = `${apiBaseUrl}/telemetry/vehicles/${command.vehicleId}/commands`;
+    const payload = {
+      provider: command.provider,
+      providerId: command.providerVehicleId || undefined,
+      command:
+        normalizedType === 'SET_CHARGE_LIMIT'
+          ? { type: normalizedType, limitPercent: (command.payload as Record<string, unknown>)?.limitPercent ?? 80 }
+          : { type: normalizedType },
+    };
 
     try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const bodyText = await response.text().catch(() => 'Unknown error');
+        throw new Error(`API returned ${response.status}: ${bodyText}`);
+      }
+
+      const result = (await response.json()) as { providerCommandId?: string | null };
+      const providerCommandId = result.providerCommandId || `smartcar_${Date.now().toString(36)}`;
+      const now = new Date();
+
       await this.prisma.$transaction(async (tx) => {
         await tx.commandOutbox.update({
           where: { id: outbox.id },
@@ -302,7 +334,7 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
         await tx.command.update({
           where: { id: command.id },
           data: {
-            status: 'Confirmed',
+            status: 'CONFIRMED',
             sentAt: now,
             completedAt: now,
             providerCommandId,

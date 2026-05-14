@@ -52,6 +52,7 @@
     "ops:payments:cutover:endpoints": "tsx ./scripts/ops/payment-cutover-check.ts --phase endpoints",
     "ops:payments:cutover:pre": "tsx ./scripts/ops/payment-cutover-check.ts --phase pre",
     "ops:payments:cutover:post": "tsx ./scripts/ops/payment-cutover-check.ts --phase post",
+    "ops:cleanup:seeded-control-plane": "tsx ./scripts/ops/cleanup-seeded-control-plane.ts",
     "ops:migrate-open-onboarding-records": "tsx ./scripts/migrate-open-onboarding-records.ts",
     "prisma:refresh": "node scripts/prisma-refresh.js",
     "prisma:check": "node scripts/prisma-check.js",
