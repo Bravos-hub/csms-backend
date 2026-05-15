@@ -4,6 +4,10 @@ export const LEGACY_ROLE_KEYS = [
   'EVZONE_OPERATOR',
   'SWAP_PROVIDER_ADMIN',
   'SWAP_PROVIDER_OPERATOR',
+  'BATTERY_PROVIDER_ADMIN',
+  'BATTERY_PROVIDER_MANAGER',
+  'BATTERY_PROVIDER_TECHNICIAN',
+  'BATTERY_PROVIDER_VIEWER',
   'SITE_OWNER',
   'STATION_OWNER',
   'OWNER',
@@ -35,6 +39,10 @@ export const CANONICAL_ROLE_KEYS = [
   'FIELD_TECHNICIAN',
   'TENANT_FINANCE_ANALYST',
   'EXTERNAL_PROVIDER_OPERATOR',
+  'BATTERY_PROVIDER_ADMIN',
+  'BATTERY_PROVIDER_MANAGER',
+  'BATTERY_PROVIDER_TECHNICIAN',
+  'BATTERY_PROVIDER_VIEWER',
 ] as const;
 
 export type CanonicalRoleKey = (typeof CANONICAL_ROLE_KEYS)[number];
@@ -256,6 +264,60 @@ const EXTERNAL_PROVIDER_OPERATOR_PERMISSIONS = [
   'ocpi.commands.write',
 ] as const;
 
+const BATTERY_PROVIDER_ADMIN_PERMISSIONS = [
+  'batteryProvider.dashboard.read',
+  'batteryProvider.packs.read',
+  'batteryProvider.packs.manage',
+  'batteryProvider.cabinets.read',
+  'batteryProvider.cabinets.manage',
+  'batteryProvider.swapSessions.read',
+  'batteryProvider.telemetry.read',
+  'batteryProvider.rawTelemetry.read',
+  'batteryProvider.alerts.read',
+  'batteryProvider.alerts.manage',
+  'batteryProvider.maintenance.read',
+  'batteryProvider.maintenance.manage',
+  'batteryProvider.sla.read',
+  'batteryProvider.settings.read',
+] as const;
+
+const BATTERY_PROVIDER_MANAGER_PERMISSIONS = [
+  'batteryProvider.dashboard.read',
+  'batteryProvider.packs.read',
+  'batteryProvider.packs.manage',
+  'batteryProvider.cabinets.read',
+  'batteryProvider.cabinets.manage',
+  'batteryProvider.swapSessions.read',
+  'batteryProvider.telemetry.read',
+  'batteryProvider.alerts.read',
+  'batteryProvider.alerts.manage',
+  'batteryProvider.maintenance.read',
+  'batteryProvider.maintenance.manage',
+  'batteryProvider.sla.read',
+  'batteryProvider.settings.read',
+] as const;
+
+const BATTERY_PROVIDER_TECHNICIAN_PERMISSIONS = [
+  'batteryProvider.dashboard.read',
+  'batteryProvider.packs.read',
+  'batteryProvider.cabinets.read',
+  'batteryProvider.swapSessions.read',
+  'batteryProvider.telemetry.read',
+  'batteryProvider.alerts.read',
+  'batteryProvider.maintenance.read',
+  'batteryProvider.maintenance.manage',
+] as const;
+
+const BATTERY_PROVIDER_VIEWER_PERMISSIONS = [
+  'batteryProvider.dashboard.read',
+  'batteryProvider.packs.read',
+  'batteryProvider.cabinets.read',
+  'batteryProvider.swapSessions.read',
+  'batteryProvider.telemetry.read',
+  'batteryProvider.alerts.read',
+  'batteryProvider.sla.read',
+] as const;
+
 const TENANT_FINANCE_ANALYST_PERMISSIONS = [
   'finance.billing.read',
   'finance.payouts.read',
@@ -469,6 +531,54 @@ export const CANONICAL_ROLE_DEFINITIONS: Record<
     defaultLegacyRole: 'SWAP_PROVIDER_OPERATOR',
     permissions: dedupe(EXTERNAL_PROVIDER_OPERATOR_PERMISSIONS),
   },
+  BATTERY_PROVIDER_ADMIN: {
+    key: 'BATTERY_PROVIDER_ADMIN',
+    label: 'Battery Provider Admin',
+    description:
+      'Full operational control over battery packs, cabinets, swap sessions, and provider SLA for an assigned tenant scope.',
+    family: 'provider',
+    scopeType: 'provider',
+    permissionScope: 'TENANT',
+    customizable: true,
+    defaultLegacyRole: 'BATTERY_PROVIDER_ADMIN',
+    permissions: dedupe(BATTERY_PROVIDER_ADMIN_PERMISSIONS),
+  },
+  BATTERY_PROVIDER_MANAGER: {
+    key: 'BATTERY_PROVIDER_MANAGER',
+    label: 'Battery Provider Manager',
+    description:
+      'Manager role for battery provider operations with pack and cabinet management rights.',
+    family: 'provider',
+    scopeType: 'provider',
+    permissionScope: 'TENANT',
+    customizable: true,
+    defaultLegacyRole: 'BATTERY_PROVIDER_MANAGER',
+    permissions: dedupe(BATTERY_PROVIDER_MANAGER_PERMISSIONS),
+  },
+  BATTERY_PROVIDER_TECHNICIAN: {
+    key: 'BATTERY_PROVIDER_TECHNICIAN',
+    label: 'Battery Provider Technician',
+    description:
+      'Field technician role focused on pack diagnostics, cabinet checks, and maintenance dispatch.',
+    family: 'provider',
+    scopeType: 'provider',
+    permissionScope: 'TENANT',
+    customizable: true,
+    defaultLegacyRole: 'BATTERY_PROVIDER_TECHNICIAN',
+    permissions: dedupe(BATTERY_PROVIDER_TECHNICIAN_PERMISSIONS),
+  },
+  BATTERY_PROVIDER_VIEWER: {
+    key: 'BATTERY_PROVIDER_VIEWER',
+    label: 'Battery Provider Viewer',
+    description:
+      'Read-only role for battery provider dashboards, telemetry, and SLA reports.',
+    family: 'provider',
+    scopeType: 'provider',
+    permissionScope: 'TENANT',
+    customizable: true,
+    defaultLegacyRole: 'BATTERY_PROVIDER_VIEWER',
+    permissions: dedupe(BATTERY_PROVIDER_VIEWER_PERMISSIONS),
+  },
 };
 
 export const LEGACY_ROLE_TO_CANONICAL_ROLE: Record<
@@ -480,6 +590,10 @@ export const LEGACY_ROLE_TO_CANONICAL_ROLE: Record<
   EVZONE_OPERATOR: 'PLATFORM_NOC_LEAD',
   SWAP_PROVIDER_ADMIN: 'ROAMING_MANAGER',
   SWAP_PROVIDER_OPERATOR: 'EXTERNAL_PROVIDER_OPERATOR',
+  BATTERY_PROVIDER_ADMIN: 'BATTERY_PROVIDER_ADMIN',
+  BATTERY_PROVIDER_MANAGER: 'BATTERY_PROVIDER_MANAGER',
+  BATTERY_PROVIDER_TECHNICIAN: 'BATTERY_PROVIDER_TECHNICIAN',
+  BATTERY_PROVIDER_VIEWER: 'BATTERY_PROVIDER_VIEWER',
   SITE_OWNER: 'SITE_HOST',
   STATION_OWNER: 'TENANT_ADMIN',
   OWNER: 'SITE_HOST',

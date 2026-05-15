@@ -1,11 +1,13 @@
 import {
   BadRequestException,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../../prisma.service';
+import { Prisma } from '@prisma/client';
 import {
   TelemetryProvider,
   UnifiedTelemetryData,
@@ -46,6 +48,12 @@ type SmartcarStatusSnapshot = {
 type SmartcarCommandResult = {
   providerCommandId: string;
 };
+type ChargingStatus = NonNullable<UnifiedTelemetryData['charging']>['status'];
+
+function toInputJsonValue(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value ?? {})) as Prisma.InputJsonValue;
+}
+
 
 type SmartcarHttpResponse = {
   status: number;
@@ -177,6 +185,8 @@ function parseCredentialConfig(
 }
 
 
+
+
 function buildLineage(
   provider: TelemetryProvider,
   providerId: string | null,
@@ -203,8 +213,14 @@ function nowIso(): string {
 }
 
 @Injectable()
-export class SmartcarProviderService {
+export class SmartcarProviderService implements VehicleTelemetryProviderAdapter {
+  provider = 'SMARTCAR' as TelemetryProvider;
+  private readonly authTokenCache = new Map<string, SmartcarTokenSession>();
+
+
   constructor(
+    private readonly prisma: PrismaService,
+
     private readonly config: ConfigService<Record<string, unknown>>,
   ) {}
 
@@ -274,7 +290,7 @@ export class SmartcarProviderService {
     return parseTokenResponse(result.body, input.credentialRef);
   }
 
-  async fetchStatus(input: {
+  async fetchVehicleSnapshot(input: {
     providerVehicleId: string;
     accessToken: string;
   }): Promise<SmartcarStatusSnapshot> {
@@ -318,7 +334,7 @@ export class SmartcarProviderService {
     };
   }
 
-  async sendCommand(input: {
+  async dispatchVehicleCommand(input: {
     providerVehicleId: string;
     accessToken: string;
     command: VehicleCommandInput;
@@ -365,6 +381,295 @@ export class SmartcarProviderService {
     throw new BadRequestException(
       `Smartcar does not support ${input.command.type} command`,
     );
+  }
+
+
+  async fetchStatus(input: {
+    vehicleId: string;
+    providerVehicleId?: string | null;
+    lastKnown?: UnifiedTelemetryData | null;
+  }): Promise<UnifiedTelemetryData> {
+    const source = await this.prisma.vehicleTelemetrySource.findFirst({
+      where: {
+        vehicleId: input.vehicleId,
+        provider: 'SMARTCAR',
+        enabled: true,
+        ...(input.providerVehicleId ? { providerVehicleId: input.providerVehicleId } : {}),
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    if (!source || !source.providerVehicleId || !source.credentialRef) {
+      throw new NotFoundException(
+        'Enabled SMARTCAR telemetry source with credentialRef is required',
+      );
+    }
+
+    const session = await this.issueToken({
+      credentialRef: source.credentialRef,
+      sourceConfig: this.resolveSourceConfig(source),
+    });
+
+    await this.persistSmartcarAuthState(source, session);
+
+    const snapshot = await this.fetchVehicleSnapshot({
+      providerVehicleId: source.providerVehicleId,
+      accessToken: session.accessToken,
+    });
+
+    return this.buildSmartcarUnifiedTelemetry(input.vehicleId, snapshot);
+  }
+
+  async sendCommand(input: {
+    vehicleId: string;
+    providerVehicleId?: string | null;
+    command: VehicleCommandInput;
+  }): Promise<{ providerCommandId: string | null }> {
+    const source = await this.prisma.vehicleTelemetrySource.findFirst({
+      where: {
+        vehicleId: input.vehicleId,
+        provider: 'SMARTCAR',
+        enabled: true,
+        ...(input.providerVehicleId ? { providerVehicleId: input.providerVehicleId } : {}),
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    if (!source || !source.providerVehicleId || !source.credentialRef) {
+      throw new NotFoundException(
+        'Enabled SMARTCAR telemetry source with credentialRef is required',
+      );
+    }
+
+    const session = await this.issueToken({
+      credentialRef: source.credentialRef,
+      sourceConfig: this.resolveSourceConfig(source),
+    });
+
+    await this.persistSmartcarAuthState(source, session);
+
+    const result = await this.dispatchVehicleCommand({
+      providerVehicleId: source.providerVehicleId,
+      accessToken: session.accessToken,
+      command: input.command,
+    });
+
+    return { providerCommandId: result.providerCommandId };
+  }
+
+  verifyWebhook(input: { rawBody: string; signature?: string | null; secretRef?: string | null; }): Promise<boolean> {
+    return Promise.resolve(this.verifyWebhookSignature(input.rawBody, input.signature || null));
+  }
+
+  async ingestWebhook(payload: Record<string, unknown>): Promise<UnifiedTelemetryData> {
+    const eventData = asRecord(payload.data);
+    const vehicleId =
+      stringOrNull(payload.vehicleId) ||
+      stringOrNull(asRecord(eventData.vehicle).id) ||
+      stringOrNull(payload.providerVehicleId) ||
+      '';
+    const providerVehicleId = stringOrNull(payload.providerVehicleId) || vehicleId;
+    const lastSyncedAt = this.extractWebhookTimestamp(payload);
+    const snapshot = this.buildSmartcarUnifiedTelemetry(vehicleId, {
+      providerVehicleId,
+      batterySoc:
+        numberOrNull(asRecord(payload.battery).soc) ??
+        numberOrNull(asRecord(eventData.battery).percentRemaining),
+      rangeKm:
+        numberOrNull(asRecord(payload.battery).estimatedRangeKm) ??
+        numberOrNull(asRecord(eventData.battery).range),
+      isPluggedIn:
+        boolOrNull(asRecord(payload.charging).isPluggedIn) ??
+        boolOrNull(asRecord(asRecord(eventData.charge).isPluggedIn)),
+      chargeState:
+        stringOrNull(asRecord(payload.charging).status) ??
+        stringOrNull(asRecord(eventData.charge).state),
+      chargeLimitPercent:
+        numberOrNull(asRecord(payload.charging).chargeLimitPercent) ??
+        (numberOrNull(asRecord(eventData.chargeLimit).limit) !== null
+          ? Number((Number(asRecord(eventData.chargeLimit).limit) * 100).toFixed(2))
+          : null),
+      odometerKm:
+        numberOrNull(asRecord(payload.odometer).totalKm) ??
+        numberOrNull(asRecord(eventData.odometer).distance),
+      latitude:
+        numberOrNull(asRecord(payload.gps).latitude) ??
+        numberOrNull(asRecord(eventData.location).latitude),
+      longitude:
+        numberOrNull(asRecord(payload.gps).longitude) ??
+        numberOrNull(asRecord(eventData.location).longitude),
+      isLocked:
+        boolOrNull(asRecord(payload.security).isLocked) ??
+        boolOrNull(asRecord(eventData.security).isLocked),
+    });
+
+    return {
+      ...snapshot,
+      vehicleId,
+      providerId: providerVehicleId,
+      lastSyncedAt,
+    };
+  }
+
+  private resolveSourceConfig(source: {
+    credentialRef: string | null;
+    metadata: unknown;
+  }): Record<string, unknown> {
+    const metadataAuth = asRecord(asRecord(source.metadata).smartcarAuth);
+    const credentialRef =
+      source.credentialRef || stringOrNull(metadataAuth.credentialRef);
+    const cachedSecrets = credentialRef
+      ? this.authTokenCache.get(credentialRef)
+      : undefined;
+
+    if (!cachedSecrets) {
+      return metadataAuth;
+    }
+
+    return {
+      ...metadataAuth,
+      accessToken: cachedSecrets.accessToken,
+      refreshToken: cachedSecrets.refreshToken,
+      accessTokenExpiresAt: cachedSecrets.expiresAt,
+    };
+  }
+
+  private persistSessionSecrets(session: {
+    accessToken: string;
+    refreshToken: string | null;
+    expiresAt: string | null;
+    credentialRef: string;
+  }): void {
+    this.authTokenCache.set(session.credentialRef, {
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresAt: session.expiresAt,
+      credentialRef: session.credentialRef,
+    });
+  }
+
+  private async persistSmartcarAuthState(
+    source: { id: string; metadata: unknown },
+    session: {
+      accessToken: string;
+      refreshToken: string | null;
+      expiresAt: string | null;
+      credentialRef: string;
+    },
+  ): Promise<void> {
+    this.persistSessionSecrets(session);
+    const metadata = asRecord(source.metadata);
+    const existingAuth = asRecord(metadata.smartcarAuth);
+
+    await this.prisma.vehicleTelemetrySource.update({
+      where: { id: source.id },
+      data: {
+        metadata: toInputJsonValue({
+          ...metadata,
+          smartcarAuth: {
+            ...existingAuth,
+            accessTokenExpiresAt: session.expiresAt,
+            credentialRef: session.credentialRef,
+            updatedAt: nowIso(),
+          },
+        }),
+      },
+    });
+  }
+
+  buildSmartcarUnifiedTelemetry(
+    vehicleId: string,
+    snapshot: {
+      providerVehicleId: string;
+      batterySoc: number | null;
+      rangeKm: number | null;
+      isPluggedIn: boolean | null;
+      chargeState: string | null;
+      chargeLimitPercent: number | null;
+      odometerKm: number | null;
+      latitude: number | null;
+      longitude: number | null;
+      isLocked: boolean | null;
+    },
+  ): UnifiedTelemetryData {
+    const lastSyncedAt = nowIso();
+    const lineage = buildLineage('SMARTCAR', snapshot.providerVehicleId, lastSyncedAt);
+    const hasGps =
+      typeof snapshot.latitude === 'number' && typeof snapshot.longitude === 'number';
+
+    return {
+      vehicleId,
+      provider: 'SMARTCAR',
+      providerId: snapshot.providerVehicleId,
+      lastSyncedAt,
+      battery: {
+        soh: null,
+        soc: snapshot.batterySoc,
+        temperatureC: null,
+        voltageV: null,
+        currentA: null,
+        estimatedRangeKm: snapshot.rangeKm,
+      },
+      gps: hasGps
+        ? {
+            latitude: snapshot.latitude,
+            longitude: snapshot.longitude,
+            headingDeg: null,
+            speedKph: null,
+            altitudeM: null,
+          }
+        : null,
+      odometer: {
+        totalKm: snapshot.odometerKm,
+        tripKm: null,
+      },
+      faults: [],
+      charging: {
+        status: this.mapSmartcarChargeState(snapshot.chargeState),
+        powerKw: null,
+        isPluggedIn: snapshot.isPluggedIn,
+        chargeLimitPercent: snapshot.chargeLimitPercent,
+      },
+      sources: {
+        battery: lineage,
+        gps: hasGps ? lineage : null,
+        odometer: lineage,
+        faults: lineage,
+        charging: lineage,
+        signals: {
+          batterySoc: lineage,
+          batterySoh: lineage,
+          hvCurrent: lineage,
+          hvVoltage: lineage,
+          gpsSpeed: hasGps ? lineage : null,
+          gpsHeading: hasGps ? lineage : null,
+        },
+      },
+    };
+  }
+
+  private mapSmartcarChargeState(value: string | null): ChargingStatus | null {
+    const normalized = (value || '').trim().toUpperCase();
+    if (normalized === 'CHARGING') return 'CHARGING';
+    if (normalized === 'FULLY_CHARGED') return 'COMPLETED';
+    if (normalized === 'NOT_CHARGING') return 'IDLE';
+    return null;
+  }
+
+  private extractWebhookTimestamp(payload: Record<string, unknown>): string | null {
+    const data = asRecord(payload.data);
+    const meta = asRecord(payload.meta);
+    const deliveredAt = meta.deliveredAt;
+
+    if (typeof deliveredAt === 'number' && Number.isFinite(deliveredAt)) {
+      return new Date(deliveredAt).toISOString();
+    }
+
+    const fromPayload =
+      stringOrNull(payload.timestamp) ||
+      stringOrNull(data.timestamp) ||
+      stringOrNull(data.eventTime);
+    return fromPayload || nowIso();
   }
 
   verifyWebhookSignature(rawBody: string, signature: string | null): boolean {

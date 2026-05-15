@@ -68,6 +68,7 @@ import { LegacyEvseMqttAdapterModule } from './modules/adapters/legacy-evse-mqtt
 import { MqttEdgeAdapterModule } from './modules/adapters/mqtt-edge-adapter/mqtt-edge-adapter.module';
 import { TelemetryModule } from './modules/telemetry/telemetry.module';
 import { DiagnosticsModule } from './modules/diagnostics/diagnostics.module';
+import { BatteryProvidersModule } from './modules/battery-providers/battery-providers.module';
 
 @Module({
   imports: [
@@ -142,6 +143,7 @@ import { DiagnosticsModule } from './modules/diagnostics/diagnostics.module';
     MqttEdgeAdapterModule,
     TelemetryModule,
     DiagnosticsModule,
+    BatteryProvidersModule,
   ],
   controllers: [AppController],
   providers: [

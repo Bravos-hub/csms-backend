@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventPattern, Payload, Ctx, MqttContext } from '@nestjs/microservices';
-import { Prisma } from '@prisma/client';
+import { BatteryPackStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 
 interface BmsTelemetryPayload {
@@ -56,13 +56,13 @@ export class BmsService {
         data: {
           serialNumber: packSerialNumber,
           bmsType: this.readString(data.bmsType) || 'UNKNOWN_3RD_PARTY',
-          status: 'READY',
+          status: BatteryPackStatus.READY,
           capacityAh: this.readNumber(data.capacity) || 0,
         },
       });
     }
 
-    if (pack.status === 'FAULTED' || pack.status === 'RETIRED') {
+    if (pack.status === BatteryPackStatus.FAULTED || pack.status === BatteryPackStatus.RETIRED) {
       return;
     }
 
@@ -161,7 +161,7 @@ export class BmsService {
 
     await this.prisma.batteryPack.update({
       where: { id: pack.id },
-      data: { status: 'LOCKED_REMOTE' },
+      data: { status: BatteryPackStatus.LOCKED },
     });
 
     return { success: true, message: 'Pack locked' };

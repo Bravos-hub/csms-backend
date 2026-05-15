@@ -27,7 +27,7 @@ export class BatterySwapDeviceRegistryService {
       vendorDeviceId: registry.vendorDeviceId,
       vendorProviderId: registry.vendorProviderId || 'UNKNOWN_PROVIDER',
       internalStationId: registry.stationId || 'UNKNOWN_STATION',
-      internalSiteId: registry.siteId,
+      internalSiteId: registry.siteId || 'UNKNOWN_SITE',
       tenantId: registry.tenantId,
       capabilities: {
         canRemoteControl:

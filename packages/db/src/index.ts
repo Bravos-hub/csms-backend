@@ -4,3 +4,4 @@ export * from './tenant-routing.types';
 export * from './tenant-context.service';
 export * from './tenant-routing-config.service';
 export * from './tenant-prisma-routing.service';
+export * from './battery-provider-context.service';

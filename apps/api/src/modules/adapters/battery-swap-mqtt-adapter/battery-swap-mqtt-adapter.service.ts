@@ -13,6 +13,7 @@ import {
 } from './payload-normalizer.service';
 import { BatterySwapDeviceRegistryService } from './device-registry.service';
 import { BatterySwapStateMachineService } from './state-machine.service';
+import { BatterySwapPersistenceService } from './battery-swap-persistence.service';
 
 @Injectable()
 export class BatterySwapMqttAdapterService extends BaseMqttAdapter {
@@ -24,6 +25,7 @@ export class BatterySwapMqttAdapterService extends BaseMqttAdapter {
     private readonly registry: BatterySwapDeviceRegistryService,
     private readonly stateMachine: BatterySwapStateMachineService,
     private readonly eventPublisher: MqttEventPublisherService,
+    private readonly persistence: BatterySwapPersistenceService,
   ) {
     super();
   }
@@ -159,6 +161,10 @@ export class BatterySwapMqttAdapterService extends BaseMqttAdapter {
             deviceInfo.internalSiteId,
             rawPayload,
           );
+          await this.persistence.persistCabinetStatus(
+            deviceInfo.tenantId,
+            evt,
+          );
           this.eventPublisher.publishBatteryCabinetStatus(
             evt,
             deviceInfo.tenantId,
@@ -171,6 +177,7 @@ export class BatterySwapMqttAdapterService extends BaseMqttAdapter {
             deviceInfo.internalSiteId,
             rawPayload,
           );
+          await this.persistence.persistPackState(deviceInfo.tenantId, evt);
           this.eventPublisher.publishBatteryPackState(evt, deviceInfo.tenantId);
           break;
         }
@@ -184,6 +191,7 @@ export class BatterySwapMqttAdapterService extends BaseMqttAdapter {
             deviceInfo.vendorDeviceId,
             evt.stage,
           );
+          await this.persistence.persistSwapSession(deviceInfo.tenantId, evt);
           this.eventPublisher.publishBatterySwapSession(
             evt,
             deviceInfo.tenantId,

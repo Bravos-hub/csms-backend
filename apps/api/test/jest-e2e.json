@@ -14,6 +14,8 @@
     "^@app/database$": "<rootDir>/../../../packages/db/src",
     "^@app/database/(.*)$": "<rootDir>/../../../packages/db/src/$1",
     "^@app/db$": "<rootDir>/../../../packages/db/src",
-    "^@app/db/(.*)$": "<rootDir>/../../../packages/db/src/$1"
+    "^@app/db/(.*)$": "<rootDir>/../../../packages/db/src/$1",
+    "^@app/mqtt$": "<rootDir>/../../../packages/mqtt/src",
+    "^@app/mqtt/(.*)$": "<rootDir>/../../../packages/mqtt/src/$1"
   }
 }

@@ -4,6 +4,7 @@ import { BatterySwapPayloadNormalizer } from './payload-normalizer.service';
 import { BatterySwapDeviceRegistryService } from './device-registry.service';
 import { BatterySwapStateMachineService } from './state-machine.service';
 import { BatterySwapMqttAdapterService } from './battery-swap-mqtt-adapter.service';
+import { BatterySwapPersistenceService } from './battery-swap-persistence.service';
 
 @Module({
   imports: [PrismaModule],
@@ -12,6 +13,7 @@ import { BatterySwapMqttAdapterService } from './battery-swap-mqtt-adapter.servi
     BatterySwapDeviceRegistryService,
     BatterySwapStateMachineService,
     BatterySwapMqttAdapterService,
+    BatterySwapPersistenceService,
   ],
   exports: [BatterySwapMqttAdapterService],
 })

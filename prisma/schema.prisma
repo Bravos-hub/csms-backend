@@ -307,6 +307,278 @@ model ProviderDocument {
   @@map("provider_documents")
 }
 
+model BatteryPack {
+  id                String              @id @default(uuid())
+  serialNumber      String              @unique
+  status            BatteryPackStatus   @default(READY)
+  bmsType           String              @default("UNKNOWN_3RD_PARTY")
+  capacityAh        Float               @default(0)
+  soc               Float?
+  soh               Float?
+  voltage           Float?
+  current           Float?
+  temperature       Float?
+  cycleCount        Int                 @default(0)
+  healthScore       Float?
+  firmwareVersion   String?
+  providerId        String?
+  stationId         String?
+  cabinetId         String?
+  slotId            String?
+  orgId             String?
+  tenantId          String?
+  lastTelemetryAt   DateTime?
+  quarantinedAt     DateTime?
+  retiredAt         DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  telemetry         BatteryTelemetry[]
+  slot              BatteryCabinetSlot? @relation("PackSlot")
+
+  @@index([serialNumber])
+  @@index([status])
+  @@index([providerId])
+  @@index([stationId])
+  @@index([orgId])
+  @@index([tenantId])
+  @@map("battery_packs")
+}
+
+model BatteryTelemetry {
+  id            String      @id @default(uuid())
+  packId        String
+  source        String      @default("MQTT_BMS")
+  voltage       Float?
+  current       Float?
+  soc           Float?
+  soh           Float?
+  temps         Float[]     @default([])
+  cells         Float[]     @default([])
+  cellVoltages  Json?
+  alerts        Json?
+  rawPayload    Json?
+  timestamp     DateTime    @default(now())
+  ingestedAt    DateTime    @default(now())
+  createdAt     DateTime    @default(now())
+  pack          BatteryPack @relation(fields: [packId], references: [id], onDelete: Cascade)
+
+  @@index([packId])
+  @@index([timestamp])
+  @@index([source])
+  @@map("battery_telemetry")
+}
+
+model BatteryCabinet {
+  id              String               @id @default(uuid())
+  cabinetId       String   @unique
+  stationId       String
+  providerId      String
+  tenantId        String
+  orgId           String?
+  status          BatteryCabinetStatus @default(ONLINE)
+  isOnline        Boolean              @default(true)
+  powerState      String               @default("OK")
+  doorLocked      Boolean              @default(true)
+  robotHealth     String               @default("OK")
+  totalSlots      Int                  @default(0)
+  occupiedSlots   Int                  @default(0)
+  faultCodes      String[]             @default([])
+  lastHeartbeatAt DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  slots           BatteryCabinetSlot[]
+
+  @@index([cabinetId])
+  @@index([stationId])
+  @@index([providerId])
+  @@index([tenantId])
+  @@index([status])
+  @@map("battery_cabinets")
+}
+
+model BatteryCabinetSlot {
+  id          String         @id @default(uuid())
+  cabinetId   String
+  slotNumber  Int
+  status      String         @default("EMPTY")
+  packId      String?        @unique
+  isEnabled   Boolean        @default(true)
+  faultReason String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  cabinet     BatteryCabinet @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+  pack        BatteryPack?   @relation(name: "PackSlot", fields: [packId], references: [id])
+
+  @@unique([cabinetId, slotNumber])
+  @@index([cabinetId])
+  @@index([packId])
+  @@map("battery_cabinet_slots")
+}
+
+model SwapSession {
+  id                   String           @id @default(uuid())
+  sessionId            String   @unique
+  stationId            String
+  cabinetId            String?
+  providerId           String
+  tenantId             String
+  orgId                String?
+  vehicleId            String?
+  riderId              String?
+  inboundPackId        String?
+  outboundPackId       String?
+  stage                SwapSessionStage @default(INITIATED)
+  startedAt            DateTime         @default(now())
+  completedAt          DateTime?
+  durationSec          Int?
+  failureReason        String?
+  attendantId          String?
+  paymentStatus        String?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  @@index([sessionId])
+  @@index([stationId])
+  @@index([providerId])
+  @@index([tenantId])
+  @@index([stage])
+  @@index([startedAt])
+  @@map("swap_sessions")
+}
+
+model MqttDeviceRegistry {
+  id               String   @id @default(uuid())
+  vendorDeviceId   String   @unique
+  integrationType  String?
+  deviceType       String?
+  tenantId         String
+  siteId           String?
+  stationId        String?
+  providerId       String?
+  vendorProviderId String?
+  capabilities     Json?
+  metadata         Json?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  site             Site?    @relation(fields: [siteId], references: [id])
+
+  @@index([vendorDeviceId])
+  @@index([siteId])
+  @@index([stationId])
+  @@index([tenantId])
+  @@index([isActive])
+  @@map("mqtt_device_registries")
+}
+
+model MqttVendorPayloadLog {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  vendorDeviceId      String?
+  deviceRegistryId    String?
+  topic               String
+  payload             Json
+  normalizedEventType String?
+  errorMessage        String?
+  processedAt         DateTime?
+  createdAt           DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([vendorDeviceId])
+  @@index([normalizedEventType])
+  @@index([createdAt])
+  @@map("mqtt_vendor_payload_logs")
+}
+
+model BatteryProviderAssignment {
+  id                 String                          @id @default(uuid())
+  tenantId           String
+  providerId         String
+  assignedStationIds String[]                        @default([])
+  assignedCabinetIds String[]                        @default([])
+  status             BatteryProviderAssignmentStatus @default(PENDING)
+  contractType       String?
+  startedAt          DateTime                        @default(now())
+  endedAt            DateTime?
+  createdAt          DateTime                        @default(now())
+  updatedAt          DateTime                        @updatedAt
+
+  @@index([tenantId])
+  @@index([providerId])
+  @@index([status])
+  @@map("battery_provider_assignments")
+}
+
+model BatteryProviderUserScope {
+  id                 String                   @id @default(uuid())
+  userId             String
+  tenantId           String
+  providerId         String
+  role               BatteryProviderUserRole  @default(VIEWER)
+  assignedStationIds String[]                 @default([])
+  assignedCabinetIds String[]                 @default([])
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  @@index([userId])
+  @@index([tenantId])
+  @@index([providerId])
+  @@unique([userId, tenantId, providerId])
+  @@map("battery_provider_user_scopes")
+}
+
+model BatteryProviderSlaSnapshot {
+  id                    String   @id @default(uuid())
+  tenantId              String
+  providerId            String
+  periodStart           DateTime
+  periodEnd             DateTime
+  providerUptimePct     Float    @default(0)
+  cabinetUptimePct      Float    @default(0)
+  telemetryFreshnessPct Float    @default(0)
+  packAvailabilityPct   Float    @default(0)
+  failedSwapRatePct     Float    @default(0)
+  avgResolutionMinutes  Float    @default(0)
+  slaBreaches           Int      @default(0)
+  createdAt             DateTime @default(now())
+
+  @@unique([tenantId, providerId, periodStart])
+  @@index([tenantId, providerId])
+  @@index([periodStart, periodEnd])
+  @@map("battery_provider_sla_snapshots")
+}
+
+model BatteryProviderAlert {
+  id               String                       @id @default(uuid())
+  tenantId         String
+  providerId       String
+  category         BatteryProviderAlertCategory
+  severity         BatteryProviderAlertSeverity
+  status           BatteryProviderAlertStatus   @default(OPEN)
+  assetType        String
+  assetId          String
+  message          String
+  firstSeenAt      DateTime                     @default(now())
+  lastSeenAt       DateTime                     @default(now())
+  assignedToUserId String?
+  acknowledgedBy   String?
+  acknowledgedAt   DateTime?
+  resolvedBy       String?
+  resolvedAt       DateTime?
+  escalatedToOrgId String?
+  metadata         Json?
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+
+  @@index([tenantId, providerId])
+  @@index([status])
+  @@index([severity])
+  @@index([category])
+  @@index([assetId])
+  @@index([createdAt])
+  @@map("battery_provider_alerts")
+}
+
 model CompliancePolicy {
   id        String   @id @default(uuid())
   code      String   @unique
@@ -1638,6 +1910,7 @@ model Site {
   tenantApplications  TenantApplication[]
   tenants             SiteTenant[]
   vehicles            Vehicle[]
+  mqttDeviceRegistries MqttDeviceRegistry[]
 
   @@map("sites")
 }
@@ -2561,6 +2834,10 @@ enum UserRole {
   TECHNICIAN_PUBLIC
   SWAP_PROVIDER_ADMIN
   SWAP_PROVIDER_OPERATOR
+  BATTERY_PROVIDER_ADMIN
+  BATTERY_PROVIDER_MANAGER
+  BATTERY_PROVIDER_TECHNICIAN
+  BATTERY_PROVIDER_VIEWER
 }
 
 enum CanonicalRoleKey {
@@ -2579,6 +2856,10 @@ enum CanonicalRoleKey {
   FIELD_TECHNICIAN
   TENANT_FINANCE_ANALYST
   EXTERNAL_PROVIDER_OPERATOR
+  BATTERY_PROVIDER_ADMIN
+  BATTERY_PROVIDER_MANAGER
+  BATTERY_PROVIDER_TECHNICIAN
+  BATTERY_PROVIDER_VIEWER
 }
 
 enum PermissionScope {
@@ -2941,4 +3222,79 @@ enum VehicleFaultSeverity {
 enum TelemetryIngestAlertType {
   INGEST_LAG
   STALE
+}
+
+enum BatteryPackStatus {
+  READY
+  CHARGING
+  RESERVED
+  IN_SWAP
+  IN_TRANSIT
+  DEGRADED
+  FAULTED
+  LOCKED
+  QUARANTINED
+  MAINTENANCE
+  RETIRED
+  UNKNOWN
+}
+
+enum SwapSessionStage {
+  INITIATED
+  DOCKING
+  DISCONNECTING_OLD
+  RECONNECTING_NEW
+  UNDOCKING
+  COMPLETE
+  FAILED
+  CANCELLED
+}
+
+enum BatteryCabinetStatus {
+  ONLINE
+  OFFLINE
+  DEGRADED
+  MAINTENANCE
+  FAULTED
+}
+
+enum BatteryProviderAssignmentStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING
+  TERMINATED
+}
+
+enum BatteryProviderUserRole {
+  ADMIN
+  MANAGER
+  TECHNICIAN
+  VIEWER
+}
+
+enum BatteryProviderAlertCategory {
+  BATTERY_SAFETY
+  CABINET_FAULT
+  BMS_OFFLINE
+  STALE_TELEMETRY
+  PACK_DEGRADATION
+  SWAP_FAILURE
+  TAMPER
+  MAINTENANCE_OVERDUE
+  SLA_BREACH
+}
+
+enum BatteryProviderAlertSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum BatteryProviderAlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  ASSIGNED
+  RESOLVED
+  ESCALATED
 }

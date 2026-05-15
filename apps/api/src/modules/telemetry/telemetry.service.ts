@@ -219,7 +219,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
-    this.registry.register(this.smartcarAdapter);
+    this.registry.register(this.smartcar);
     this.registry.register(this.enodeAdapter);
     this.registry.register(this.mqttBmsAdapter);
     for (const p of ['AUTOPI', 'OPENDBC', 'OBD_DONGLE', 'OEM_API', 'MANUAL_IMPORT'] as TelemetryProvider[]) {
@@ -390,7 +390,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
           credentialRef: source.credentialRef || '',
           sourceConfig: this.resolveSmartcarSourceConfig(source),
         });
-        await this.smartcar.fetchStatus({
+        await this.smartcar.fetchVehicleSnapshot({
           providerVehicleId: source.providerVehicleId || '',
           accessToken: session.accessToken,
         });
@@ -516,7 +516,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     });
     await this.persistSmartcarAuthState(source, session);
 
-    const snapshot = await this.smartcar.fetchStatus({
+    const snapshot = await this.smartcar.fetchVehicleSnapshot({
       providerVehicleId: source.providerVehicleId,
       accessToken: session.accessToken,
     });
@@ -570,7 +570,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     });
     await this.persistSmartcarAuthState(source, session);
 
-    const providerResponse = await this.smartcar.sendCommand({
+    const providerResponse = await this.smartcar.dispatchVehicleCommand({
       providerVehicleId: source.providerVehicleId,
       accessToken: session.accessToken,
       command: input.command,
@@ -841,12 +841,6 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     }
 
     const provider = providerFrom(query?.provider || vehicle.telemetryProvider);
-    if (provider === 'SMARTCAR') {
-      const source = await this.resolveSmartcarSource(vehicle.id, query?.providerId || null);
-      if (source?.enabled && source.credentialRef && source.providerVehicleId) {
-        return this.getSmartcarVehicleStatus(userId, vehicleId, query?.providerId || null);
-      }
-    }
     const adapter = this.registry.resolve(provider) || this.registry.resolve('MOCK');
     const lastKnown = latest
       ? this.toUnifiedTelemetryFromLatest(vehicle.id, latest)
@@ -859,6 +853,14 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     });
 
     await this.persistTelemetrySnapshot(vehicle.id, fetched, { rawPayload: null });
+    await this.writeIngestAlertIfNeeded({
+      provider: fetched.provider,
+      providerId: fetched.providerId,
+      vehicleId: vehicle.id,
+      lastSyncedAt: fetched.lastSyncedAt,
+      source: 'poll',
+      message: `${fetched.provider} telemetry status pull freshness check`,
+    });
     await this.syncFaultLifecycle(vehicle, fetched.faults, 'provider-sync', fetched.provider);
     await this.emitVehicleEvent('vehicle.telemetry.updated', {
       vehicleId: vehicle.id,
@@ -910,19 +912,78 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       'Telemetry command dispatch is disabled for this tenant',
     );
     const provider = providerFrom(input.provider || vehicle.telemetryProvider);
-    if (provider === 'SMARTCAR') {
-      const source = await this.resolveSmartcarSource(vehicle.id, input.providerId || null);
-      if (source?.enabled && source.credentialRef && source.providerVehicleId) {
-        return this.sendSmartcarVehicleCommand(userId, vehicleId, {
-          providerId: input.providerId || null,
-          command: input.command,
-        });
-      }
-    }
+    const adapter = this.registry.resolve(provider);
     const providerVehicleId =
       input.providerId ||
       (await this.resolveProviderVehicleId(vehicle.id, provider)) ||
       vehicle.id;
+
+    if (adapter?.sendCommand) {
+      try {
+        const providerResponse = await adapter.sendCommand({
+          vehicleId: vehicle.id,
+          providerVehicleId,
+          command: input.command,
+        });
+
+        const now = new Date();
+        const commandId = `cmd_${randomUUID()}`;
+        await this.prisma.command.create({
+          data: {
+            id: commandId,
+            domain: 'VEHICLE',
+            tenantId: vehicle.organizationId || null,
+            stationId: null,
+            chargePointId: null,
+            connectorId: null,
+            vehicleId: vehicle.id,
+            provider,
+            providerVehicleId,
+            providerCommandId: providerResponse.providerCommandId,
+            resultCode: null,
+            commandType: input.command.type,
+            payload: toInputJsonValue({
+              ...asRecord(input.command),
+              providerId: providerVehicleId,
+            }),
+            status: 'Sent',
+            requestedBy: userId,
+            requestedAt: now,
+            sentAt: now,
+            completedAt: null,
+            correlationId: commandId,
+            idempotencyTtlSec: null,
+            error: null,
+          },
+        });
+
+        const result: VehicleCommandResult = {
+          accepted: true,
+          provider,
+          providerCommandId: providerResponse.providerCommandId,
+          commandId,
+          status: 'SENT',
+          errorCode: null,
+        };
+
+        await this.emitVehicleEvent(
+          'vehicle.command.updated',
+          {
+            vehicleId: vehicle.id,
+            commandId: result.commandId,
+            status: result.status,
+            provider: result.provider,
+          },
+          vehicle.organizationId || undefined,
+        );
+
+        return result;
+      } catch (err) {
+        this.logger.warn(
+          `Immediate command dispatch failed for ${provider}, falling back to queue: ${(err as Error).message}`,
+        );
+      }
+    }
 
     const queued = await this.commands.enqueueVehicleCommand({
       vehicleId: vehicle.id,
@@ -1159,47 +1220,18 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
         }
 
         let status: UnifiedTelemetryData;
-        if (provider === 'SMARTCAR') {
-          try {
-            const source = await this.resolveSmartcarSource(vehicle.id, null);
-            if (source?.enabled && source.credentialRef && source.providerVehicleId) {
-              const session = await this.smartcar.issueToken({
-                credentialRef: source.credentialRef,
-                sourceConfig: this.resolveSmartcarSourceConfig(source),
-              });
-              await this.persistSmartcarAuthState(source, session);
-              const snapshot = await this.smartcar.fetchStatus({
-                providerVehicleId: source.providerVehicleId,
-                accessToken: session.accessToken,
-              });
-              status = this.buildSmartcarUnifiedTelemetry(vehicle.id, snapshot);
-            } else {
-              status = await adapter.fetchStatus({
-                vehicleId: vehicle.id,
-                providerVehicleId: await this.resolveProviderVehicleId(
-                  vehicle.id,
-                  provider,
-                ),
-                lastKnown,
-              });
-            }
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.logger.warn(
-              `SMARTCAR poll fallback for vehicle ${vehicle.id}: ${message}`,
-            );
-            status = await adapter.fetchStatus({
-              vehicleId: vehicle.id,
-              providerVehicleId: await this.resolveProviderVehicleId(vehicle.id, provider),
-              lastKnown,
-            });
-          }
-        } else {
+        try {
           status = await adapter.fetchStatus({
             vehicleId: vehicle.id,
             providerVehicleId: await this.resolveProviderVehicleId(vehicle.id, provider),
             lastKnown,
           });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.warn(
+            `${provider} poll failed for vehicle ${vehicle.id}: ${message}`,
+          );
+          continue;
         }
 
         await this.persistTelemetrySnapshot(vehicle.id, status, { rawPayload: null });

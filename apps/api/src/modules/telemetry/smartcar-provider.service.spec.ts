@@ -8,7 +8,15 @@ describe('SmartcarProviderService', () => {
     get: jest.fn(),
   };
 
+  const prisma = {
+    vehicleTelemetrySource: {
+      findFirst: jest.fn(),
+      update: jest.fn().mockResolvedValue({}),
+    },
+  };
+
   const service = new SmartcarProviderService(
+    prisma as unknown as import('../../prisma.service').PrismaService,
     config as unknown as ConfigService<Record<string, unknown>>,
   );
 
@@ -138,7 +146,7 @@ describe('SmartcarProviderService', () => {
       return Promise.resolve(new Response('', { status: 404 }));
     });
 
-    const status = await service.fetchStatus({
+    const status = await service.fetchVehicleSnapshot({
       providerVehicleId: 'smartcar-veh-1',
       accessToken: 'access-1',
     });
@@ -162,7 +170,7 @@ describe('SmartcarProviderService', () => {
     const fetchMock = global.fetch as unknown as jest.Mock;
     fetchMock.mockResolvedValue(jsonResponse({}));
 
-    const result = await service.sendCommand({
+    const result = await service.dispatchVehicleCommand({
       providerVehicleId: 'smartcar-veh-1',
       accessToken: 'access-1',
       command: {
@@ -185,7 +193,7 @@ describe('SmartcarProviderService', () => {
     const fetchMock = global.fetch as unknown as jest.Mock;
     fetchMock.mockResolvedValue(jsonResponse({ id: 'provider-command-1' }));
 
-    const result = await service.sendCommand({
+    const result = await service.dispatchVehicleCommand({
       providerVehicleId: 'smartcar-veh-1',
       accessToken: 'access-1',
       command: {

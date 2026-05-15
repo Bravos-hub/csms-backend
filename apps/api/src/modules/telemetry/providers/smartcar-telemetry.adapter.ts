@@ -38,7 +38,7 @@ export class SmartcarTelemetryAdapter implements VehicleTelemetryProviderAdapter
       credentialRef: `smartcar:${input.vehicleId}`,
     });
 
-    const snapshot = await this.smartcar.fetchStatus({
+    const snapshot = await this.smartcar.fetchVehicleSnapshot({
       providerVehicleId,
       accessToken: session.accessToken,
     });
@@ -108,7 +108,7 @@ export class SmartcarTelemetryAdapter implements VehicleTelemetryProviderAdapter
       credentialRef: `smartcar:${input.vehicleId}`,
     });
 
-    const result = await this.smartcar.sendCommand({
+    const result = await this.smartcar.dispatchVehicleCommand({
       providerVehicleId,
       accessToken: session.accessToken,
       command: input.command,
