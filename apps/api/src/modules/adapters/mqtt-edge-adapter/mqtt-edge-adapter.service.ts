@@ -108,7 +108,7 @@ export class MqttEdgeAdapterService {
 
         const evt = {
           tenantId: registry.tenantId,
-          siteId: registry.siteId,
+          siteId: registry.siteId || 'UNKNOWN_SITE',
           timestamp: new Date(),
           stationId: registry.stationId || '',
           packSerialNumber: bmsSerial,

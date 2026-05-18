@@ -9,7 +9,6 @@ import {
   BatteryProviderAlertCategory,
   BatteryProviderAlertSeverity,
   BatteryProviderAlertStatus,
-  Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { WorkerMetricsService } from '../observability/worker-metrics.service';
@@ -186,10 +185,14 @@ export class BatteryProviderAlertWorker
       });
 
       for (const pack of degradedPacks) {
-        let severity = BatteryProviderAlertSeverity.MEDIUM;
-        if ((pack.soh ?? 100) < 60) severity = BatteryProviderAlertSeverity.CRITICAL;
-        else if ((pack.soh ?? 100) < 70) severity = BatteryProviderAlertSeverity.HIGH;
-        else if ((pack.soc ?? 100) < 10) severity = BatteryProviderAlertSeverity.MEDIUM;
+        let severity: BatteryProviderAlertSeverity =
+          BatteryProviderAlertSeverity.MEDIUM;
+        if ((pack.soh ?? 100) < 60)
+          severity = BatteryProviderAlertSeverity.CRITICAL;
+        else if ((pack.soh ?? 100) < 70)
+          severity = BatteryProviderAlertSeverity.HIGH;
+        else if ((pack.soc ?? 100) < 10)
+          severity = BatteryProviderAlertSeverity.MEDIUM;
 
         const result = await this.upsertAlert({
           tenantId: assignment.tenantId,
@@ -291,7 +294,12 @@ export class BatteryProviderAlertWorker
       for (const pack of overduePacks) {
         const recentIncident = await this.prisma.incident.findFirst({
           where: {
-            stationId: { in: assignment.assignedStationIds.length > 0 ? assignment.assignedStationIds : undefined },
+            stationId: {
+              in:
+                assignment.assignedStationIds.length > 0
+                  ? assignment.assignedStationIds
+                  : undefined,
+            },
             createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
           },
           orderBy: { createdAt: 'desc' },

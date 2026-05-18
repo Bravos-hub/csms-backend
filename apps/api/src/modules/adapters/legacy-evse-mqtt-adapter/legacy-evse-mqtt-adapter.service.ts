@@ -128,7 +128,7 @@ export class LegacyEvseMqttAdapterService extends BaseMqttAdapter {
       vendorDeviceId: registry.vendorDeviceId,
       vendorProviderId: registry.vendorProviderId || '',
       internalStationId: registry.stationId || '',
-      internalSiteId: registry.siteId,
+      internalSiteId: registry.siteId || 'UNKNOWN_SITE',
       tenantId: registry.tenantId,
       capabilities: this.validateCapabilities(registry.capabilities),
     };

@@ -204,7 +204,7 @@ export class AdminApprovalService {
         taxId: data.taxId,
         country: data.country,
         region: data.region,
-        accounttype: data.accountType,
+        accountType: data.accountType,
         role: data.role,
         subscribedPackage: data.subscribedPackage,
         status: 'PENDING',
