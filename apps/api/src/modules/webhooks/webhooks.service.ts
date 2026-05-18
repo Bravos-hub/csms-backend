@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { createHmac, randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { TenantContextService } from '@app/db';
@@ -7,16 +12,24 @@ import { PrismaService } from '../../prisma.service';
 const RETRY_INTERVAL_MS = 10_000;
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  return value && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function toInputJsonValue(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value ?? {})) as Prisma.InputJsonValue;
 }
 
+function stringValue(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
 function normalizeEvents(events: string[] | string): string[] {
   if (Array.isArray(events)) {
-    return Array.from(new Set(events.map((item) => item.trim()).filter(Boolean)));
+    return Array.from(
+      new Set(events.map((item) => item.trim()).filter(Boolean)),
+    );
   }
   return Array.from(
     new Set(
@@ -54,7 +67,11 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
 
   private resolveTenantId(): string | null {
     const context = this.tenantContext.get();
-    return context?.effectiveOrganizationId || context?.authenticatedOrganizationId || null;
+    return (
+      context?.effectiveOrganizationId ||
+      context?.authenticatedOrganizationId ||
+      null
+    );
   }
 
   async listWebhooks() {
@@ -69,7 +86,8 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
     const organizationId = this.resolveTenantId();
     const webhook = await this.prisma.webhook.findUnique({ where: { id } });
     if (!webhook) return null;
-    if (organizationId && webhook.organizationId !== organizationId) return null;
+    if (organizationId && webhook.organizationId !== organizationId)
+      return null;
     return webhook;
   }
 
@@ -91,7 +109,7 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.webhook.create({
       data: {
         organizationId,
-        url: String(payload.url || '').trim(),
+        url: stringValue(payload.url).trim(),
         events: events.join(','),
         active: payload.active !== false,
         secret:
@@ -99,11 +117,13 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
             ? payload.secret.trim()
             : randomUUID(),
         timeoutMs:
-          typeof payload.timeoutMs === 'number' && Number.isFinite(payload.timeoutMs)
+          typeof payload.timeoutMs === 'number' &&
+          Number.isFinite(payload.timeoutMs)
             ? Math.max(1000, Math.floor(payload.timeoutMs))
             : 5000,
         maxRetries:
-          typeof payload.maxRetries === 'number' && Number.isFinite(payload.maxRetries)
+          typeof payload.maxRetries === 'number' &&
+          Number.isFinite(payload.maxRetries)
             ? Math.max(0, Math.floor(payload.maxRetries))
             : 3,
       },
@@ -116,21 +136,30 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
 
     const updates: Record<string, unknown> = {};
     if (payload.url !== undefined) {
-      updates.url = String(payload.url || '').trim();
+      updates.url = stringValue(payload.url).trim();
     }
     if (payload.events !== undefined) {
-      updates.events = normalizeEvents(payload.events as string[] | string).join(',');
+      updates.events = normalizeEvents(
+        payload.events as string[] | string,
+      ).join(',');
     }
     if (payload.active !== undefined) {
       updates.active = payload.active === true;
     }
     if (payload.secret !== undefined && typeof payload.secret === 'string') {
-      updates.secret = payload.secret.trim().length > 0 ? payload.secret.trim() : null;
+      updates.secret =
+        payload.secret.trim().length > 0 ? payload.secret.trim() : null;
     }
-    if (payload.timeoutMs !== undefined && typeof payload.timeoutMs === 'number') {
+    if (
+      payload.timeoutMs !== undefined &&
+      typeof payload.timeoutMs === 'number'
+    ) {
       updates.timeoutMs = Math.max(1000, Math.floor(payload.timeoutMs));
     }
-    if (payload.maxRetries !== undefined && typeof payload.maxRetries === 'number') {
+    if (
+      payload.maxRetries !== undefined &&
+      typeof payload.maxRetries === 'number'
+    ) {
       updates.maxRetries = Math.max(0, Math.floor(payload.maxRetries));
     }
 
@@ -148,11 +177,15 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
     const webhook = await this.getWebhookById(id);
     if (!webhook) return null;
 
-    await this.dispatchEvent('webhook.test', {
-      webhookId: webhook.id,
-      timestamp: new Date().toISOString(),
-      probe: true,
-    }, webhook.organizationId || undefined);
+    await this.dispatchEvent(
+      'webhook.test',
+      {
+        webhookId: webhook.id,
+        timestamp: new Date().toISOString(),
+        probe: true,
+      },
+      webhook.organizationId || undefined,
+    );
 
     return { success: true, id: webhook.id };
   }
@@ -238,7 +271,8 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
     if (!delivery || !delivery.webhook.active) return;
 
     const hook = delivery.webhook;
-    const maxRetries = typeof hook.maxRetries === 'number' ? hook.maxRetries : 3;
+    const maxRetries =
+      typeof hook.maxRetries === 'number' ? hook.maxRetries : 3;
     const nextAttempt = delivery.attempts + 1;
 
     const signatureBase = JSON.stringify({
@@ -276,7 +310,11 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
 
       responseStatus = response.status;
       responseBody = await response.text();
-      status = response.ok ? 'SUCCESS' : nextAttempt > maxRetries ? 'DEAD_LETTER' : 'FAILED';
+      status = response.ok
+        ? 'SUCCESS'
+        : nextAttempt > maxRetries
+          ? 'DEAD_LETTER'
+          : 'FAILED';
       if (!response.ok) {
         lastError = `HTTP ${response.status}`;
       }
@@ -285,7 +323,10 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
       status = nextAttempt > maxRetries ? 'DEAD_LETTER' : 'FAILED';
     }
 
-    const nextDelayMs = Math.min(300_000, 5_000 * Math.pow(2, Math.max(0, nextAttempt - 1)));
+    const nextDelayMs = Math.min(
+      300_000,
+      5_000 * Math.pow(2, Math.max(0, nextAttempt - 1)),
+    );
 
     await this.prisma.webhookDelivery.update({
       where: { id: delivery.id },
@@ -297,9 +338,7 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
         responseStatus,
         responseBody,
         nextAttemptAt:
-          status === 'FAILED'
-            ? new Date(Date.now() + nextDelayMs)
-            : null,
+          status === 'FAILED' ? new Date(Date.now() + nextDelayMs) : null,
       },
     });
   }

@@ -15,10 +15,30 @@ import { PrismaModule } from '../src/prisma.module';
 import { AuditLogsModule } from '../src/modules/audit-logs/audit-logs.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import { Request } from 'express';
 import * as jwt from 'jsonwebtoken';
 import { JwtAuthGuard } from '../src/modules/auth/jwt-auth.guard';
 import { PermissionsGuard } from '../src/modules/auth/permissions.guard';
 import { BatteryProviderGuard } from '../src/modules/battery-providers/battery-provider.guard';
+
+type TestAuthUser = Record<string, unknown> & {
+  sub?: string;
+  tenantId?: string;
+  providerId?: string;
+  role?: string;
+};
+
+type TestRequest = Request & {
+  user?: TestAuthUser;
+  providerScope?: {
+    userId: string;
+    tenantId: string;
+    providerId: string;
+    role: string;
+    assignedStationIds: string[];
+    assignedCabinetIds: string[];
+  };
+};
 
 export type MockPrisma = {
   batteryProviderUserScope: {
@@ -103,7 +123,11 @@ export function createPrismaMock(): MockPrisma {
       count: jest.fn(),
       update: jest.fn(),
     },
-    batteryCabinetSlot: { findMany: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
+    batteryCabinetSlot: {
+      findMany: jest.fn(),
+      findFirst: jest.fn(),
+      update: jest.fn(),
+    },
     swapSession: {
       findMany: jest.fn(),
       findFirst: jest.fn(),
@@ -131,9 +155,7 @@ export function createPrismaMock(): MockPrisma {
   };
 }
 
-export async function bootstrapTestApp(
-  prismaMock?: MockPrisma,
-): Promise<{
+export async function bootstrapTestApp(prismaMock?: MockPrisma): Promise<{
   app: INestApplication;
   moduleRef: TestingModule;
 }> {
@@ -155,7 +177,9 @@ export async function bootstrapTestApp(
     .useValue({ dispatchToUser: jest.fn().mockResolvedValue(undefined) });
 
   if (prismaMock) {
-    moduleBuilder.overrideProvider(PrismaService).useValue(prismaMock as unknown as PrismaService);
+    moduleBuilder
+      .overrideProvider(PrismaService)
+      .useValue(prismaMock as unknown as PrismaService);
   }
 
   const moduleRef: TestingModule = await moduleBuilder.compile();
@@ -186,15 +210,17 @@ class MockAuthGuard implements CanActivate {
   constructor(private config: ConfigService) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const req = context.switchToHttp().getRequest();
-    const cookie = req.headers?.cookie || '';
+    const req = context.switchToHttp().getRequest<TestRequest>();
+    const cookie = req.headers.cookie || '';
     const match = cookie.match(/evzone_access_token=([^;]+)/);
     const secret = this.config.get<string>('JWT_SECRET') || 'test-secret';
 
     if (match) {
       try {
-        const decoded = jwt.verify(match[1], secret) as Record<string, unknown>;
-        req.user = decoded;
+        const decoded = jwt.verify(match[1], secret);
+        if (decoded && typeof decoded === 'object') {
+          req.user = decoded as TestAuthUser;
+        }
       } catch {
         // invalid token — let request proceed with no user; endpoint will 401 if guarded
       }
@@ -231,7 +257,10 @@ export async function bootstrapBatteryProviderTestApp(
           }),
         },
       },
-      { provide: TenantDirectoryService, useValue: { getTenantConfig: jest.fn() } },
+      {
+        provide: TenantDirectoryService,
+        useValue: { getTenantConfig: jest.fn() },
+      },
     ],
   })
     .overrideGuard(JwtAuthGuard)
@@ -241,7 +270,7 @@ export async function bootstrapBatteryProviderTestApp(
     .overrideGuard(BatteryProviderGuard)
     .useValue({
       canActivate: (context: ExecutionContext) => {
-        const req = context.switchToHttp().getRequest();
+        const req = context.switchToHttp().getRequest<TestRequest>();
         req.providerScope = {
           userId: req.user?.sub || 'user-1',
           tenantId: req.user?.tenantId || 'tenant-1',
@@ -268,7 +297,9 @@ export async function bootstrapBatteryProviderTestApp(
     .useValue({ dispatchToUser: jest.fn().mockResolvedValue(undefined) });
 
   if (prismaMock) {
-    moduleBuilder.overrideProvider(PrismaService).useValue(prismaMock as unknown as PrismaService);
+    moduleBuilder
+      .overrideProvider(PrismaService)
+      .useValue(prismaMock as unknown as PrismaService);
   }
 
   const moduleRef: TestingModule = await moduleBuilder.compile();
@@ -292,4 +323,3 @@ export async function bootstrapBatteryProviderTestApp(
   await app.init();
   return { app, moduleRef };
 }
-

@@ -7,6 +7,23 @@ import {
 import { BatteryProviderAccessService } from './battery-provider-access.service';
 import { BatteryProviderContextService } from '@app/db';
 
+type ProviderRequestUser = {
+  sub?: string;
+  selectedTenantId?: string;
+  activeTenantId?: string;
+  tenantId?: string;
+  activeOrganizationId?: string;
+  organizationId?: string;
+  orgId?: string;
+};
+
+type ProviderScopedRequest = {
+  user?: ProviderRequestUser;
+  providerScope?: Awaited<
+    ReturnType<BatteryProviderAccessService['resolveProviderScope']>
+  >;
+};
+
 @Injectable()
 export class BatteryProviderGuard implements CanActivate {
   constructor(
@@ -15,7 +32,7 @@ export class BatteryProviderGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest();
+    const request = context.switchToHttp().getRequest<ProviderScopedRequest>();
     const user = request.user;
 
     if (!user?.sub) {
@@ -31,7 +48,9 @@ export class BatteryProviderGuard implements CanActivate {
       user.orgId;
 
     if (!tenantId) {
-      throw new ForbiddenException('Tenant context required for provider scope');
+      throw new ForbiddenException(
+        'Tenant context required for provider scope',
+      );
     }
 
     const scope = await this.providerAccess.resolveProviderScope(

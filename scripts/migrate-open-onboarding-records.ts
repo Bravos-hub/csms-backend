@@ -153,12 +153,17 @@ async function main() {
         legacy.user.email?.trim().toLowerCase() ||
         `${legacy.user.id}@pending.local`;
       const contactPhone = legacy.user.phone?.trim() || 'PENDING';
+      const legacyAccountTypeValue: unknown = legacy.accounttype;
+      const legacyAccountType =
+        typeof legacyAccountTypeValue === 'string'
+          ? legacyAccountTypeValue
+          : null;
 
       if (!flags.dryRun) {
         await prisma.tenantApplication.create({
           data: {
             applicantId: legacy.userId,
-            tenantType: toTenantType(legacy.accounttype),
+            tenantType: toTenantType(legacyAccountType),
             organizationName,
             businessRegistrationNumber: legacy.taxId || null,
             taxComplianceNumber: legacy.taxId || null,

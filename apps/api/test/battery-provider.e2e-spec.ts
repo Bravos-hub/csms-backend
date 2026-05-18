@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { INestApplication } from '@nestjs/common';
-import { TestingModule } from '@nestjs/testing';
+import { Server } from 'http';
 import {
   bootstrapBatteryProviderTestApp,
   createPrismaMock,
@@ -10,7 +10,6 @@ import { createProviderAuthCookie } from './auth-helpers';
 
 describe('Battery Provider Console (e2e)', () => {
   let app: INestApplication;
-  let moduleRef: TestingModule;
   let prismaMock: MockPrisma;
 
   const tenantId = 'tenant-1';
@@ -22,12 +21,25 @@ describe('Battery Provider Console (e2e)', () => {
 
   beforeEach(async () => {
     prismaMock = createPrismaMock();
-    ({ app, moduleRef } = await bootstrapBatteryProviderTestApp(prismaMock));
+    ({ app } = await bootstrapBatteryProviderTestApp(prismaMock));
   });
 
   afterEach(async () => {
     await app.close();
   });
+
+  function httpServer(): Server {
+    return app.getHttpServer() as Server;
+  }
+
+  function responseBody<T>(response: { body: unknown }): T {
+    return response.body as T;
+  }
+
+  function firstMockArg<T>(mock: jest.Mock): T | undefined {
+    const calls = mock.mock.calls as Array<[T]>;
+    return calls[0]?.[0];
+  }
 
   describe('Provider Login & Scope', () => {
     it('GET /cpo/battery-provider/overview returns KPIs for assigned scope', async () => {
@@ -56,12 +68,21 @@ describe('Battery Provider Console (e2e)', () => {
         selectedTenantId: tenantId,
       });
 
-      const response = await request(app.getHttpServer())
+      const response = await request(httpServer())
         .get('/cpo/battery-provider/overview')
         .set('Cookie', cookie);
+      const body = responseBody<{
+        swapReadinessScore: number;
+        assignedStations: number;
+        activeCabinets: number;
+        activePacks: number;
+        averageSoc: number;
+        averageSoh: number;
+        openCriticalAlerts: number;
+      }>(response);
 
       expect(response.status).toBe(200);
-      expect(response.body).toMatchObject({
+      expect(body).toMatchObject({
         assignedStations: 1,
         activeCabinets: 1,
         activePacks: 4,
@@ -69,8 +90,8 @@ describe('Battery Provider Console (e2e)', () => {
         averageSoh: 92,
         openCriticalAlerts: 0,
       });
-      expect(response.body.swapReadinessScore).toBeGreaterThanOrEqual(0);
-      expect(response.body.swapReadinessScore).toBeLessThanOrEqual(100);
+      expect(body.swapReadinessScore).toBeGreaterThanOrEqual(0);
+      expect(body.swapReadinessScore).toBeLessThanOrEqual(100);
     });
 
     it('GET /cpo/battery-provider/packs enforces station scope', async () => {
@@ -95,17 +116,20 @@ describe('Battery Provider Console (e2e)', () => {
         selectedTenantId: tenantId,
       });
 
-      const response = await request(app.getHttpServer())
+      const response = await request(httpServer())
         .get('/cpo/battery-provider/packs')
         .set('Cookie', cookie);
+      const body = responseBody<{ items: Array<{ id: string }> }>(response);
 
       expect(response.status).toBe(200);
-      expect(response.body.items).toHaveLength(1);
-      expect(response.body.items[0].id).toBe(packId);
+      expect(body.items).toHaveLength(1);
+      expect(body.items[0].id).toBe(packId);
 
       // Verify scope was applied in the Prisma query
-      const findManyCall = prismaMock.batteryPack.findMany.mock.calls[0][0];
-      expect(findManyCall.where).toBeDefined();
+      const findManyCall = firstMockArg<{ where?: unknown }>(
+        prismaMock.batteryPack.findMany,
+      );
+      expect(findManyCall?.where).toBeDefined();
     });
   });
 
@@ -140,13 +164,14 @@ describe('Battery Provider Console (e2e)', () => {
         selectedTenantId: tenantId,
       });
 
-      const response = await request(app.getHttpServer())
+      const response = await request(httpServer())
         .post(`/cpo/battery-provider/packs/${packId}/quarantine`)
         .set('Cookie', cookie)
         .send({ reason: 'Temperature spike detected' });
+      const body = responseBody<{ status: string }>(response);
 
       expect(response.status).toBe(201);
-      expect(response.body.status).toBe('QUARANTINED');
+      expect(body.status).toBe('QUARANTINED');
       expect(prismaMock.auditLog.create).toHaveBeenCalled();
     });
 
@@ -169,13 +194,14 @@ describe('Battery Provider Console (e2e)', () => {
         selectedTenantId: tenantId,
       });
 
-      const response = await request(app.getHttpServer())
+      const response = await request(httpServer())
         .post(`/cpo/battery-provider/packs/${packId}/release`)
         .set('Cookie', cookie)
         .send({ reason: 'Inspection passed' });
+      const body = responseBody<{ status: string }>(response);
 
       expect(response.status).toBe(201);
-      expect(response.body.status).toBe('READY');
+      expect(body.status).toBe('READY');
     });
   });
 
@@ -210,12 +236,13 @@ describe('Battery Provider Console (e2e)', () => {
         selectedTenantId: tenantId,
       });
 
-      const response = await request(app.getHttpServer())
+      const response = await request(httpServer())
         .post(`/cpo/battery-provider/cabinets/${cabinetId}/maintenance-mode`)
         .set('Cookie', cookie);
+      const body = responseBody<{ status: string }>(response);
 
       expect(response.status).toBe(201);
-      expect(response.body.status).toBe('MAINTENANCE');
+      expect(body.status).toBe('MAINTENANCE');
     });
 
     it('POST /cpo/battery-provider/cabinets/:cabinetId/slots/:slotId/disable disables slot', async () => {
@@ -242,14 +269,15 @@ describe('Battery Provider Console (e2e)', () => {
         selectedTenantId: tenantId,
       });
 
-      const response = await request(app.getHttpServer())
+      const response = await request(httpServer())
         .post(
           `/cpo/battery-provider/cabinets/${cabinetId}/slots/slot-1/disable`,
         )
         .set('Cookie', cookie);
+      const body = responseBody<{ isEnabled: boolean }>(response);
 
       expect(response.status).toBe(201);
-      expect(response.body.isEnabled).toBe(false);
+      expect(body.isEnabled).toBe(false);
     });
   });
 
@@ -284,12 +312,13 @@ describe('Battery Provider Console (e2e)', () => {
         selectedTenantId: tenantId,
       });
 
-      const response = await request(app.getHttpServer())
+      const response = await request(httpServer())
         .post(`/cpo/battery-provider/alerts/${alertId}/acknowledge`)
         .set('Cookie', cookie);
+      const body = responseBody<{ status: string }>(response);
 
       expect(response.status).toBe(201);
-      expect(response.body.status).toBe('ACKNOWLEDGED');
+      expect(body.status).toBe('ACKNOWLEDGED');
     });
 
     it('POST /cpo/battery-provider/alerts/:alertId/resolve sets RESOLVED', async () => {
@@ -311,13 +340,14 @@ describe('Battery Provider Console (e2e)', () => {
         selectedTenantId: tenantId,
       });
 
-      const response = await request(app.getHttpServer())
+      const response = await request(httpServer())
         .post(`/cpo/battery-provider/alerts/${alertId}/resolve`)
         .set('Cookie', cookie)
         .send({ reason: 'Technician fixed the issue' });
+      const body = responseBody<{ status: string }>(response);
 
       expect(response.status).toBe(201);
-      expect(response.body.status).toBe('RESOLVED');
+      expect(body.status).toBe('RESOLVED');
     });
   });
 
@@ -350,7 +380,7 @@ describe('Battery Provider Console (e2e)', () => {
         selectedTenantId: tenantId,
       });
 
-      const response = await request(app.getHttpServer())
+      const response = await request(httpServer())
         .post('/cpo/battery-provider/maintenance')
         .set('Cookie', cookie)
         .send({
@@ -360,9 +390,10 @@ describe('Battery Provider Console (e2e)', () => {
           title: 'Pack inspection required',
           severity: 'HIGH',
         });
+      const body = responseBody<{ title: string }>(response);
 
       expect(response.status).toBe(201);
-      expect(response.body.title).toBe('Pack inspection required');
+      expect(body.title).toBe('Pack inspection required');
     });
 
     it('POST /cpo/battery-provider/maintenance/:ticketId/close closes the ticket', async () => {
@@ -385,13 +416,14 @@ describe('Battery Provider Console (e2e)', () => {
         selectedTenantId: tenantId,
       });
 
-      const response = await request(app.getHttpServer())
+      const response = await request(httpServer())
         .post('/cpo/battery-provider/maintenance/incident-1/close')
         .set('Cookie', cookie)
         .send({ notes: 'Resolved on site' });
+      const body = responseBody<{ status: string }>(response);
 
       expect(response.status).toBe(201);
-      expect(response.body.status).toBe('CLOSED');
+      expect(body.status).toBe('CLOSED');
     });
   });
 
@@ -426,12 +458,13 @@ describe('Battery Provider Console (e2e)', () => {
         selectedTenantId: tenantId,
       });
 
-      const response = await request(app.getHttpServer())
+      const response = await request(httpServer())
         .get('/cpo/battery-provider/sla')
         .set('Cookie', cookie);
+      const body = responseBody<{ providerUptimePct: number }>(response);
 
       expect(response.status).toBe(200);
-      expect(response.body.providerUptimePct).toBe(99);
+      expect(body.providerUptimePct).toBe(99);
     });
 
     it('GET /cpo/battery-provider/reports/faults returns grouped faults', async () => {
@@ -447,13 +480,14 @@ describe('Battery Provider Console (e2e)', () => {
         selectedTenantId: tenantId,
       });
 
-      const response = await request(app.getHttpServer())
+      const response = await request(httpServer())
         .get('/cpo/battery-provider/reports/faults')
         .query({ dateFrom: '2026-01-01', dateTo: '2026-01-31' })
         .set('Cookie', cookie);
+      const body = responseBody<{ faultBreakdown: unknown[] }>(response);
 
       expect(response.status).toBe(200);
-      expect(response.body.faultBreakdown).toHaveLength(2);
+      expect(body.faultBreakdown).toHaveLength(2);
     });
   });
 });

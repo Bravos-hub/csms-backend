@@ -22,7 +22,8 @@ export function createProviderAuthCookie(
   const payload: JwtPayload = {
     sub: overrides.sub || 'user-1',
     tenantId: overrides.tenantId || 'tenant-1',
-    activeTenantId: overrides.activeTenantId || overrides.tenantId || 'tenant-1',
+    activeTenantId:
+      overrides.activeTenantId || overrides.tenantId || 'tenant-1',
     selectedTenantId:
       overrides.selectedTenantId || overrides.tenantId || 'tenant-1',
     role: overrides.role || 'SWAP_PROVIDER_ADMIN',

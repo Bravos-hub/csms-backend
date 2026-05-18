@@ -15,15 +15,54 @@ type SignalKey =
   | 'charging';
 
 const PRIORITY: Record<SignalKey, TelemetryProvider[]> = {
-  batterySoc: ['MQTT_BMS', 'ENODE', 'SMARTCAR', 'AUTOPI', 'OPENDBC', 'OBD_DONGLE', 'MANUAL_IMPORT', 'MOCK'],
-  batterySoh: ['MQTT_BMS', 'OPENDBC', 'AUTOPI', 'OBD_DONGLE', 'ENODE', 'SMARTCAR', 'MOCK'],
-  gps: ['AUTOPI', 'OPENDBC', 'OBD_DONGLE', 'SMARTCAR', 'ENODE', 'MQTT_BMS', 'MOCK'],
-  odometer: ['AUTOPI', 'OPENDBC', 'SMARTCAR', 'ENODE', 'OBD_DONGLE', 'MQTT_BMS', 'MOCK'],
-  faults: ['OPENDBC', 'AUTOPI', 'OBD_DONGLE', 'MQTT_BMS', 'SMARTCAR', 'ENODE', 'MOCK'],
+  batterySoc: [
+    'MQTT_BMS',
+    'ENODE',
+    'SMARTCAR',
+    'AUTOPI',
+    'OPENDBC',
+    'OBD_DONGLE',
+    'MANUAL_IMPORT',
+    'MOCK',
+  ],
+  batterySoh: [
+    'MQTT_BMS',
+    'OPENDBC',
+    'AUTOPI',
+    'OBD_DONGLE',
+    'ENODE',
+    'SMARTCAR',
+    'MOCK',
+  ],
+  gps: [
+    'AUTOPI',
+    'OPENDBC',
+    'OBD_DONGLE',
+    'SMARTCAR',
+    'ENODE',
+    'MQTT_BMS',
+    'MOCK',
+  ],
+  odometer: [
+    'AUTOPI',
+    'OPENDBC',
+    'SMARTCAR',
+    'ENODE',
+    'OBD_DONGLE',
+    'MQTT_BMS',
+    'MOCK',
+  ],
+  faults: [
+    'OPENDBC',
+    'AUTOPI',
+    'OBD_DONGLE',
+    'MQTT_BMS',
+    'SMARTCAR',
+    'ENODE',
+    'MOCK',
+  ],
   charging: ['ENODE', 'SMARTCAR', 'MQTT_BMS', 'AUTOPI', 'OPENDBC', 'MOCK'],
 };
-
-const STALE_MS = 60_000;
 
 @Injectable()
 export class TelemetrySignalRouterService {
@@ -50,7 +89,10 @@ export class TelemetrySignalRouterService {
       },
     };
 
-    const pick = (key: SignalKey, getter: (s: UnifiedTelemetryData) => unknown): void => {
+    const pick = (
+      key: SignalKey,
+      getter: (s: UnifiedTelemetryData) => unknown,
+    ): void => {
       const candidates = PRIORITY[key]
         .map((provider) => {
           const status = statuses.find((s) => s.provider === provider);
@@ -121,7 +163,11 @@ export class TelemetrySignalRouterService {
     }
   }
 
-  private setSignal(result: UnifiedTelemetryData, key: SignalKey, value: unknown): void {
+  private setSignal(
+    result: UnifiedTelemetryData,
+    key: SignalKey,
+    value: unknown,
+  ): void {
     switch (key) {
       case 'batterySoc':
         result.battery.soc = value as number | null;
@@ -138,7 +184,8 @@ export class TelemetrySignalRouterService {
       case 'faults':
         break;
       case 'charging':
-        result.charging.status = value as UnifiedTelemetryData['charging']['status'];
+        result.charging.status =
+          value as UnifiedTelemetryData['charging']['status'];
         break;
     }
   }

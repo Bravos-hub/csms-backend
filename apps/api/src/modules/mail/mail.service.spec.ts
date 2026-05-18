@@ -71,7 +71,9 @@ describe('MailService', () => {
       fallback: 'submail',
     });
 
-    const sendgridError = new Error('SendGrid API error (401): unauthorized') as Error & {
+    const sendgridError = new Error(
+      'SendGrid API error (401): unauthorized',
+    ) as Error & {
       statusCode?: number;
     };
     sendgridError.statusCode = 401;

@@ -5,6 +5,11 @@ import { TenantContextService } from '@app/db';
 import { EventStreamService } from '../sse/sse.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 
+function firstMockArg<T>(mock: jest.Mock): T | undefined {
+  const calls = mock.mock.calls as Array<[T]>;
+  return calls[0]?.[0];
+}
+
 describe('DiagnosticsService', () => {
   const prisma = {
     vehicle: {
@@ -141,15 +146,17 @@ describe('DiagnosticsService', () => {
       },
       select: { roleKey: true },
     });
-    expect(prisma.vehicleFault.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'fault-tenant-1' },
-        data: expect.objectContaining({
-          status: 'ACKNOWLEDGED',
-          acknowledgedBy: 'user-tenant-1',
-        }),
-      }),
-    );
+    const updateCall = firstMockArg<{
+      where?: unknown;
+      data?: Record<string, unknown>;
+    }>(prisma.vehicleFault.update);
+    expect(updateCall).toMatchObject({
+      where: { id: 'fault-tenant-1' },
+      data: {
+        status: 'ACKNOWLEDGED',
+        acknowledgedBy: 'user-tenant-1',
+      },
+    });
     expect(result).toEqual({
       ok: true,
       faultId: 'fault-tenant-1',
@@ -170,7 +177,9 @@ describe('DiagnosticsService', () => {
       },
     });
     prisma.user.findUnique.mockResolvedValue({ role: 'DRIVER' });
-    prisma.tenantMembership.findFirst.mockResolvedValue({ roleKey: 'FLEET_DRIVER' });
+    prisma.tenantMembership.findFirst.mockResolvedValue({
+      roleKey: 'FLEET_DRIVER',
+    });
 
     await expect(
       service.acknowledgeFault('user-2', 'fault-2', 'ack'),
@@ -262,17 +271,23 @@ describe('DiagnosticsService', () => {
       resolvedAt,
     });
 
-    const result = await service.resolveFault('user-3', 'fault-3', 'service done');
-
-    expect(prisma.vehicleFault.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'fault-3' },
-        data: expect.objectContaining({
-          status: 'RESOLVED',
-          resolvedBy: 'user-3',
-        }),
-      }),
+    const result = await service.resolveFault(
+      'user-3',
+      'fault-3',
+      'service done',
     );
+
+    const updateCall = firstMockArg<{
+      where?: unknown;
+      data?: Record<string, unknown>;
+    }>(prisma.vehicleFault.update);
+    expect(updateCall).toMatchObject({
+      where: { id: 'fault-3' },
+      data: {
+        status: 'RESOLVED',
+        resolvedBy: 'user-3',
+      },
+    });
     expect(events.emit).toHaveBeenCalledWith(
       'vehicle.fault.resolved',
       expect.objectContaining({

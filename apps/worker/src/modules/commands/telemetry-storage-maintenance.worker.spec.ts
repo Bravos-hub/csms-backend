@@ -81,12 +81,18 @@ describe('TelemetryStorageMaintenanceWorker', () => {
     const deleted = await deleteOldSnapshots.call(worker, 90, 2);
 
     expect(prisma.vehicleTelemetrySnapshot.findMany).toHaveBeenCalledTimes(2);
-    expect(prisma.vehicleTelemetrySnapshot.deleteMany).toHaveBeenNthCalledWith(1, {
-      where: { id: { in: ['snap-1', 'snap-2'] } },
-    });
-    expect(prisma.vehicleTelemetrySnapshot.deleteMany).toHaveBeenNthCalledWith(2, {
-      where: { id: { in: ['snap-3'] } },
-    });
+    expect(prisma.vehicleTelemetrySnapshot.deleteMany).toHaveBeenNthCalledWith(
+      1,
+      {
+        where: { id: { in: ['snap-1', 'snap-2'] } },
+      },
+    );
+    expect(prisma.vehicleTelemetrySnapshot.deleteMany).toHaveBeenNthCalledWith(
+      2,
+      {
+        where: { id: { in: ['snap-3'] } },
+      },
+    );
     expect(deleted).toBe(3);
   });
 

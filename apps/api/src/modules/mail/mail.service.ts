@@ -34,9 +34,7 @@ export class MailService {
       this.configService.get<string>('TWILIO_SENDGRID_FROM') ||
       'noreply@evzone.com';
 
-    const bracketMatch = configuredFrom
-      .trim()
-      .match(/^"?[^"]*"?\s*<([^>]+)>$/);
+    const bracketMatch = configuredFrom.trim().match(/^"?[^"]*"?\s*<([^>]+)>$/);
     if (bracketMatch?.[1]) {
       return bracketMatch[1].trim();
     }

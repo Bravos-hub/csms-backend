@@ -25,30 +25,37 @@ export class BatteryProviderDashboardService {
     private readonly accessService: BatteryProviderAccessService,
   ) {}
 
-  async getOverview(scope: ResolvedProviderScope): Promise<ProviderOverviewKpis> {
+  async getOverview(
+    scope: ResolvedProviderScope,
+  ): Promise<ProviderOverviewKpis> {
     const stationWhere = this.accessService.buildProviderStationWhere(scope);
     const cabinetWhere = this.accessService.buildProviderCabinetWhere(scope, {
       status: { not: 'MAINTENANCE' },
     });
     const packWhere = this.accessService.buildProviderPackWhere(scope);
 
-    const [assignedStations, activeCabinets, packStats, criticalAlerts, telemetryFreshness] =
-      await Promise.all([
-        this.prisma.station.count({ where: stationWhere }),
-        this.prisma.batteryCabinet.count({ where: cabinetWhere }),
-        this.prisma.batteryPack.aggregate({
-          where: packWhere,
-          _count: { id: true },
-          _avg: { soc: true, soh: true },
+    const [
+      assignedStations,
+      activeCabinets,
+      packStats,
+      criticalAlerts,
+      telemetryFreshness,
+    ] = await Promise.all([
+      this.prisma.station.count({ where: stationWhere }),
+      this.prisma.batteryCabinet.count({ where: cabinetWhere }),
+      this.prisma.batteryPack.aggregate({
+        where: packWhere,
+        _count: { id: true },
+        _avg: { soc: true, soh: true },
+      }),
+      this.prisma.batteryProviderAlert.count({
+        where: this.accessService.buildProviderAlertWhere(scope, {
+          status: { not: 'RESOLVED' },
+          severity: 'CRITICAL',
         }),
-        this.prisma.batteryProviderAlert.count({
-          where: this.accessService.buildProviderAlertWhere(scope, {
-            status: { not: 'RESOLVED' },
-            severity: 'CRITICAL',
-          }),
-        }),
-        this.computeTelemetryFreshness(scope),
-      ]);
+      }),
+      this.computeTelemetryFreshness(scope),
+    ]);
 
     const [readyPacks, faultedPacks] = await Promise.all([
       this.prisma.batteryPack.count({

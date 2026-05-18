@@ -17,7 +17,10 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
 import { RequirePermissions } from '../auth/permissions.decorator';
 import { BatteryProviderGuard } from './battery-provider.guard';
-import { BatteryProviderAccessService, ResolvedProviderScope } from './battery-provider-access.service';
+import {
+  BatteryProviderAccessService,
+  ResolvedProviderScope,
+} from './battery-provider-access.service';
 import { BatteryProviderDashboardService } from './battery-provider-dashboard.service';
 import { BatteryProviderPacksService } from './battery-provider-packs.service';
 import { BatteryProviderCabinetsService } from './battery-provider-cabinets.service';
@@ -26,7 +29,6 @@ import { BatteryProviderAlertsService } from './battery-provider-alerts.service'
 import { BatteryProviderMaintenanceService } from './battery-provider-maintenance.service';
 import { BatteryProviderSlaService } from './battery-provider-sla.service';
 import {
-  ProviderOverviewQueryDto,
   PackListQueryDto,
   PackActionDto,
   CabinetListQueryDto,
@@ -110,7 +112,11 @@ export class BatteryProvidersController {
     @Param('packId') packId: string,
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
   ) {
-    return this.packsService.getPackTelemetry(this.getScope(req), packId, limit);
+    return this.packsService.getPackTelemetry(
+      this.getScope(req),
+      packId,
+      limit,
+    );
   }
 
   @Get('packs/:packId/swaps')
@@ -222,7 +228,11 @@ export class BatteryProvidersController {
     @Param('cabinetId') cabinetId: string,
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
   ) {
-    return this.cabinetsService.getCabinetTelemetry(this.getScope(req), cabinetId, limit);
+    return this.cabinetsService.getCabinetTelemetry(
+      this.getScope(req),
+      cabinetId,
+      limit,
+    );
   }
 
   @Post('cabinets/:cabinetId/maintenance-mode')

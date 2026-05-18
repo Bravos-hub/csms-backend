@@ -59,10 +59,7 @@ export class BatteryProviderAdminController {
     );
   }
 
-  private async assertTenantAdmin(
-    req: AuthenticatedRequest,
-    tenantId: string,
-  ): Promise<void> {
+  private assertTenantAdmin(req: AuthenticatedRequest, tenantId: string): void {
     const userTenantId = this.resolveTenantId(req);
     const isPlatform =
       req.user.canonicalRole === 'PLATFORM_SUPER_ADMIN' ||
@@ -86,7 +83,7 @@ export class BatteryProviderAdminController {
       contractType?: string;
     },
   ) {
-    await this.assertTenantAdmin(req, body.tenantId);
+    this.assertTenantAdmin(req, body.tenantId);
 
     return this.prisma.batteryProviderAssignment.create({
       data: {
@@ -111,7 +108,7 @@ export class BatteryProviderAdminController {
     @Query('status') status?: string,
   ) {
     const effectiveTenantId = tenantId || this.resolveTenantId(req);
-    await this.assertTenantAdmin(req, effectiveTenantId);
+    this.assertTenantAdmin(req, effectiveTenantId);
 
     const where: Record<string, unknown> = { tenantId: effectiveTenantId };
     if (providerId) where.providerId = providerId;
@@ -151,7 +148,7 @@ export class BatteryProviderAdminController {
     if (!existing) {
       throw new ForbiddenException('Assignment not found');
     }
-    await this.assertTenantAdmin(req, existing.tenantId);
+    this.assertTenantAdmin(req, existing.tenantId);
 
     return this.prisma.batteryProviderAssignment.update({
       where: { id },
@@ -179,7 +176,7 @@ export class BatteryProviderAdminController {
       assignedCabinetIds?: string[];
     },
   ) {
-    await this.assertTenantAdmin(req, body.tenantId);
+    this.assertTenantAdmin(req, body.tenantId);
 
     return this.prisma.batteryProviderUserScope.create({
       data: {
@@ -203,7 +200,7 @@ export class BatteryProviderAdminController {
     @Query('providerId') providerId?: string,
   ) {
     const effectiveTenantId = tenantId || this.resolveTenantId(req);
-    await this.assertTenantAdmin(req, effectiveTenantId);
+    this.assertTenantAdmin(req, effectiveTenantId);
 
     const where: Record<string, unknown> = { tenantId: effectiveTenantId };
     if (providerId) where.providerId = providerId;

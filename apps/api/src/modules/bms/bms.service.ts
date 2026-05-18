@@ -62,7 +62,10 @@ export class BmsService {
       });
     }
 
-    if (pack.status === BatteryPackStatus.FAULTED || pack.status === BatteryPackStatus.RETIRED) {
+    if (
+      pack.status === BatteryPackStatus.FAULTED ||
+      pack.status === BatteryPackStatus.RETIRED
+    ) {
       return;
     }
 

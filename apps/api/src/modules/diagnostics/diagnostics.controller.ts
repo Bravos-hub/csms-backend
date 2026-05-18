@@ -32,12 +32,18 @@ export class DiagnosticsController {
   }
 
   @Get('vehicles/:vehicleId/faults')
-  getFaults(@CurrentUser() user: unknown, @Param('vehicleId') vehicleId: string) {
+  getFaults(
+    @CurrentUser() user: unknown,
+    @Param('vehicleId') vehicleId: string,
+  ) {
     return this.diagnostics.getFaults(this.resolveUserId(user), vehicleId);
   }
 
   @Get('vehicles/:vehicleId/summary')
-  getSummary(@CurrentUser() user: unknown, @Param('vehicleId') vehicleId: string) {
+  getSummary(
+    @CurrentUser() user: unknown,
+    @Param('vehicleId') vehicleId: string,
+  ) {
     return this.diagnostics.getSummary(this.resolveUserId(user), vehicleId);
   }
 
@@ -47,7 +53,11 @@ export class DiagnosticsController {
     @Param('faultId') faultId: string,
     @Body() dto: FaultLifecycleUpdateDto,
   ) {
-    return this.diagnostics.acknowledgeFault(this.resolveUserId(user), faultId, dto.note);
+    return this.diagnostics.acknowledgeFault(
+      this.resolveUserId(user),
+      faultId,
+      dto.note,
+    );
   }
 
   @Patch('faults/:faultId/resolve')
@@ -56,7 +66,11 @@ export class DiagnosticsController {
     @Param('faultId') faultId: string,
     @Body() dto: FaultLifecycleUpdateDto,
   ) {
-    return this.diagnostics.resolveFault(this.resolveUserId(user), faultId, dto.note);
+    return this.diagnostics.resolveFault(
+      this.resolveUserId(user),
+      faultId,
+      dto.note,
+    );
   }
 
   // Backward compatibility alias for engine clearFault.
@@ -66,6 +80,10 @@ export class DiagnosticsController {
     @Param('faultId') faultId: string,
     @Body() dto?: FaultLifecycleUpdateDto,
   ) {
-    return this.diagnostics.resolveFault(this.resolveUserId(user), faultId, dto?.note);
+    return this.diagnostics.resolveFault(
+      this.resolveUserId(user),
+      faultId,
+      dto?.note,
+    );
   }
 }

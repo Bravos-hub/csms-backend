@@ -126,19 +126,13 @@ export class BatteryProviderPacksService {
       },
     });
 
-    await this.audit.log(
-      actorId,
-      'pack.quarantine',
-      'BATTERY_PACK',
-      packId,
-      {
-        providerId: scope.providerId,
-        tenantId: scope.tenantId,
-        beforeStatus: pack.status,
-        afterStatus: updated.status,
-        reason,
-      },
-    );
+    await this.audit.log(actorId, 'pack.quarantine', 'BATTERY_PACK', packId, {
+      providerId: scope.providerId,
+      tenantId: scope.tenantId,
+      beforeStatus: pack.status,
+      afterStatus: updated.status,
+      reason,
+    });
 
     return updated;
   }
@@ -163,19 +157,13 @@ export class BatteryProviderPacksService {
       },
     });
 
-    await this.audit.log(
-      actorId,
-      'pack.release',
-      'BATTERY_PACK',
-      packId,
-      {
-        providerId: scope.providerId,
-        tenantId: scope.tenantId,
-        beforeStatus: pack.status,
-        afterStatus: updated.status,
-        reason,
-      },
-    );
+    await this.audit.log(actorId, 'pack.release', 'BATTERY_PACK', packId, {
+      providerId: scope.providerId,
+      tenantId: scope.tenantId,
+      beforeStatus: pack.status,
+      afterStatus: updated.status,
+      reason,
+    });
 
     return updated;
   }
@@ -188,17 +176,11 @@ export class BatteryProviderPacksService {
   ) {
     await this.getPackDetail(scope, packId);
 
-    await this.audit.log(
-      actorId,
-      'pack.inspect',
-      'BATTERY_PACK',
-      packId,
-      {
-        providerId: scope.providerId,
-        tenantId: scope.tenantId,
-        notes,
-      },
-    );
+    await this.audit.log(actorId, 'pack.inspect', 'BATTERY_PACK', packId, {
+      providerId: scope.providerId,
+      tenantId: scope.tenantId,
+      notes,
+    });
 
     return { success: true };
   }
@@ -219,19 +201,13 @@ export class BatteryProviderPacksService {
       },
     });
 
-    await this.audit.log(
-      actorId,
-      'pack.retire',
-      'BATTERY_PACK',
-      packId,
-      {
-        providerId: scope.providerId,
-        tenantId: scope.tenantId,
-        beforeStatus: pack.status,
-        afterStatus: updated.status,
-        reason,
-      },
-    );
+    await this.audit.log(actorId, 'pack.retire', 'BATTERY_PACK', packId, {
+      providerId: scope.providerId,
+      tenantId: scope.tenantId,
+      beforeStatus: pack.status,
+      afterStatus: updated.status,
+      reason,
+    });
 
     return updated;
   }

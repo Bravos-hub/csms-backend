@@ -34,7 +34,6 @@ import {
   VehicleCommandInput,
   VehicleCommandResult,
   VehicleCommandStatus,
-  VehicleTelemetryProviderAdapter,
   VehicleTelemetrySourceRecord,
 } from './telemetry.types';
 
@@ -62,7 +61,9 @@ type SmartcarSessionSecrets = {
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  return value && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function stringOrNull(value: unknown): string | null {
@@ -84,15 +85,21 @@ function nowIso(): string {
 function sanitizeCredentialRef(value: string): string {
   const trimmed = value.trim();
   if (trimmed.length < 3 || trimmed.length > 240) {
-    throw new BadRequestException('credentialRef must be between 3 and 240 characters');
+    throw new BadRequestException(
+      'credentialRef must be between 3 and 240 characters',
+    );
   }
   if (!/^[a-z][a-z0-9+.-]*:[^\s]+$/i.test(trimmed)) {
     throw new BadRequestException(
       'credentialRef must be a reference identifier (for example cred:tenant:vehicle:smartcar)',
     );
   }
-  if (/^[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}$/.test(trimmed)) {
-    throw new BadRequestException('credentialRef appears to contain a raw token');
+  if (
+    /^[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}$/.test(trimmed)
+  ) {
+    throw new BadRequestException(
+      'credentialRef appears to contain a raw token',
+    );
   }
   return trimmed;
 }
@@ -200,7 +207,10 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
   private pollActiveTimer: NodeJS.Timeout | null = null;
   private pollIdleTimer: NodeJS.Timeout | null = null;
   private pollRunning = false;
-  private readonly smartcarAuthTokenCache = new Map<string, SmartcarSessionSecrets>();
+  private readonly smartcarAuthTokenCache = new Map<
+    string,
+    SmartcarSessionSecrets
+  >();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -222,7 +232,13 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     this.registry.register(this.smartcar);
     this.registry.register(this.enodeAdapter);
     this.registry.register(this.mqttBmsAdapter);
-    for (const p of ['AUTOPI', 'OPENDBC', 'OBD_DONGLE', 'OEM_API', 'MANUAL_IMPORT'] as TelemetryProvider[]) {
+    for (const p of [
+      'AUTOPI',
+      'OPENDBC',
+      'OBD_DONGLE',
+      'OEM_API',
+      'MANUAL_IMPORT',
+    ] as TelemetryProvider[]) {
       this.registry.register(new SyntheticTelemetryAdapter(p));
     }
 
@@ -273,7 +289,11 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       metadata?: Record<string, unknown>;
     },
   ): Promise<VehicleTelemetrySourceRecord> {
-    const vehicle = await this.findAccessibleVehicle(vehicleId, userId, 'write');
+    const vehicle = await this.findAccessibleVehicle(
+      vehicleId,
+      userId,
+      'write',
+    );
     const provider = providerFrom(input.provider || vehicle.telemetryProvider);
     const credentialRef = sanitizeCredentialRef(input.credentialRef);
     const providerVehicleId =
@@ -281,7 +301,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
         ? input.providerId.trim()
         : `${provider.toLowerCase()}:${vehicle.id}`;
     const capabilities = this.normalizeCapabilities(input.capabilities);
-    const metadata = input.metadata ? toInputJsonValue(input.metadata) : undefined;
+    const metadata = input.metadata
+      ? toInputJsonValue(input.metadata)
+      : undefined;
 
     const created = await this.prisma.vehicleTelemetrySource.create({
       data: {
@@ -311,7 +333,11 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       metadata?: Record<string, unknown>;
     },
   ): Promise<VehicleTelemetrySourceRecord> {
-    const vehicle = await this.findAccessibleVehicle(vehicleId, userId, 'write');
+    const vehicle = await this.findAccessibleVehicle(
+      vehicleId,
+      userId,
+      'write',
+    );
     const source = await this.prisma.vehicleTelemetrySource.findFirst({
       where: { id: sourceId, vehicleId: vehicle.id },
     });
@@ -321,7 +347,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
 
     const updates: Prisma.VehicleTelemetrySourceUpdateInput = {};
     if (input.providerId !== undefined) {
-      updates.providerVehicleId = input.providerId ? input.providerId.trim() : null;
+      updates.providerVehicleId = input.providerId
+        ? input.providerId.trim()
+        : null;
     }
     if (input.credentialRef !== undefined) {
       updates.credentialRef = sanitizeCredentialRef(input.credentialRef);
@@ -349,7 +377,11 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     vehicleId: string,
     sourceId: string,
   ): Promise<{ ok: true }> {
-    const vehicle = await this.findAccessibleVehicle(vehicleId, userId, 'write');
+    const vehicle = await this.findAccessibleVehicle(
+      vehicleId,
+      userId,
+      'write',
+    );
     const source = await this.prisma.vehicleTelemetrySource.findFirst({
       where: { id: sourceId, vehicleId: vehicle.id },
       select: { id: true },
@@ -358,7 +390,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException('Telemetry source not found');
     }
 
-    await this.prisma.vehicleTelemetrySource.delete({ where: { id: source.id } });
+    await this.prisma.vehicleTelemetrySource.delete({
+      where: { id: source.id },
+    });
     return { ok: true };
   }
 
@@ -374,7 +408,11 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     userId: string,
     vehicleId: string,
     sourceId: string,
-  ): Promise<{ success: boolean; provider: TelemetryProvider; health: VehicleTelemetrySourceRecord['health'] }> {
+  ): Promise<{
+    success: boolean;
+    provider: TelemetryProvider;
+    health: VehicleTelemetrySourceRecord['health'];
+  }> {
     const vehicle = await this.findAccessibleVehicle(vehicleId, userId, 'read');
     const source = await this.prisma.vehicleTelemetrySource.findFirst({
       where: { id: sourceId, vehicleId: vehicle.id },
@@ -403,17 +441,24 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     return { success: true, provider, health: 'UNKNOWN' };
   }
 
-
   async issueSmartcarToken(
     userId: string,
-    input: { vehicleId: string; providerId?: string | null; credentialRef: string },
+    input: {
+      vehicleId: string;
+      providerId?: string | null;
+      credentialRef: string;
+    },
   ): Promise<{
     accessToken: string;
     refreshToken: string | null;
     expiresAt: string | null;
     credentialRef: string;
   }> {
-    const vehicle = await this.findAccessibleVehicle(input.vehicleId, userId, 'write');
+    const vehicle = await this.findAccessibleVehicle(
+      input.vehicleId,
+      userId,
+      'write',
+    );
     this.assertGate(
       vehicle.organizationId,
       'reads',
@@ -430,7 +475,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       orderBy: { updatedAt: 'desc' },
     });
     if (!source || !source.credentialRef) {
-      throw new NotFoundException('Enabled SMARTCAR telemetry source not found');
+      throw new NotFoundException(
+        'Enabled SMARTCAR telemetry source not found',
+      );
     }
 
     const session = await this.smartcar.issueToken({
@@ -456,7 +503,11 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     expiresAt: string | null;
     credentialRef: string;
   }> {
-    const vehicle = await this.findAccessibleVehicle(input.vehicleId, userId, 'write');
+    const vehicle = await this.findAccessibleVehicle(
+      input.vehicleId,
+      userId,
+      'write',
+    );
     this.assertGate(
       vehicle.organizationId,
       'reads',
@@ -503,7 +554,10 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       'Telemetry reads are disabled for this tenant',
     );
 
-    const source = await this.resolveSmartcarSource(vehicle.id, providerId || null);
+    const source = await this.resolveSmartcarSource(
+      vehicle.id,
+      providerId || null,
+    );
     if (!source || !source.providerVehicleId || !source.credentialRef) {
       throw new NotFoundException(
         'Enabled SMARTCAR telemetry source with credentialRef is required',
@@ -522,7 +576,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     });
 
     const status = this.buildSmartcarUnifiedTelemetry(vehicle.id, snapshot);
-    await this.persistTelemetrySnapshot(vehicle.id, status, { rawPayload: null });
+    await this.persistTelemetrySnapshot(vehicle.id, status, {
+      rawPayload: null,
+    });
     await this.writeIngestAlertIfNeeded({
       provider: 'SMARTCAR',
       vehicleId: vehicle.id,
@@ -550,14 +606,21 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     vehicleId: string,
     input: { providerId?: string | null; command: VehicleCommandInput },
   ): Promise<VehicleCommandResult> {
-    const vehicle = await this.findAccessibleVehicle(vehicleId, userId, 'write');
+    const vehicle = await this.findAccessibleVehicle(
+      vehicleId,
+      userId,
+      'write',
+    );
     this.assertGate(
       vehicle.organizationId,
       'commandDispatch',
       'Telemetry command dispatch is disabled for this tenant',
     );
 
-    const source = await this.resolveSmartcarSource(vehicle.id, input.providerId || null);
+    const source = await this.resolveSmartcarSource(
+      vehicle.id,
+      input.providerId || null,
+    );
     if (!source || !source.providerVehicleId || !source.credentialRef) {
       throw new NotFoundException(
         'Enabled SMARTCAR telemetry source with credentialRef is required',
@@ -697,7 +760,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       stringOrNull(asRecord(eventData.vehicle).id) ||
       stringOrNull(payload.providerVehicleId);
     if (!vehicleId) {
-      throw new BadRequestException('Smartcar webhook payload missing vehicleId');
+      throw new BadRequestException(
+        'Smartcar webhook payload missing vehicleId',
+      );
     }
 
     const vehicle = await this.resolveVehicleForWebhook(
@@ -706,7 +771,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       'SMARTCAR',
     );
     if (!vehicle) {
-      throw new NotFoundException('Vehicle not found for Smartcar webhook payload');
+      throw new NotFoundException(
+        'Vehicle not found for Smartcar webhook payload',
+      );
     }
 
     this.assertGate(
@@ -742,9 +809,7 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async listRawSnapshots(
-    limit = 100,
-  ): Promise<
+  async listRawSnapshots(limit = 100): Promise<
     Array<{
       id: string;
       vehicleId: string;
@@ -841,7 +906,8 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     }
 
     const provider = providerFrom(query?.provider || vehicle.telemetryProvider);
-    const adapter = this.registry.resolve(provider) || this.registry.resolve('MOCK');
+    const adapter =
+      this.registry.resolve(provider) || this.registry.resolve('MOCK');
     const lastKnown = latest
       ? this.toUnifiedTelemetryFromLatest(vehicle.id, latest)
       : null;
@@ -852,7 +918,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       lastKnown,
     });
 
-    await this.persistTelemetrySnapshot(vehicle.id, fetched, { rawPayload: null });
+    await this.persistTelemetrySnapshot(vehicle.id, fetched, {
+      rawPayload: null,
+    });
     await this.writeIngestAlertIfNeeded({
       provider: fetched.provider,
       providerId: fetched.providerId,
@@ -861,36 +929,57 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       source: 'poll',
       message: `${fetched.provider} telemetry status pull freshness check`,
     });
-    await this.syncFaultLifecycle(vehicle, fetched.faults, 'provider-sync', fetched.provider);
-    await this.emitVehicleEvent('vehicle.telemetry.updated', {
-      vehicleId: vehicle.id,
-      provider: fetched.provider,
-      lastSyncedAt: fetched.lastSyncedAt,
-      stale: fetched.sources.battery?.isStale ?? true,
-    }, vehicle.organizationId || undefined);
+    await this.syncFaultLifecycle(
+      vehicle,
+      fetched.faults,
+      'provider-sync',
+      fetched.provider,
+    );
+    await this.emitVehicleEvent(
+      'vehicle.telemetry.updated',
+      {
+        vehicleId: vehicle.id,
+        provider: fetched.provider,
+        lastSyncedAt: fetched.lastSyncedAt,
+        stale: fetched.sources.battery?.isStale ?? true,
+      },
+      vehicle.organizationId || undefined,
+    );
 
     if (fetched.battery.soc !== null && fetched.battery.soc <= 20) {
-      await this.emitVehicleEvent('vehicle.low_soc', {
-        vehicleId: vehicle.id,
-        soc: fetched.battery.soc,
-      }, vehicle.organizationId || undefined);
+      await this.emitVehicleEvent(
+        'vehicle.low_soc',
+        {
+          vehicleId: vehicle.id,
+          soc: fetched.battery.soc,
+        },
+        vehicle.organizationId || undefined,
+      );
     }
 
     if (
       fetched.battery.temperatureC !== null &&
       fetched.battery.temperatureC >= 45
     ) {
-      await this.emitVehicleEvent('vehicle.high_temperature', {
-        vehicleId: vehicle.id,
-        temperatureC: fetched.battery.temperatureC,
-      }, vehicle.organizationId || undefined);
+      await this.emitVehicleEvent(
+        'vehicle.high_temperature',
+        {
+          vehicleId: vehicle.id,
+          temperatureC: fetched.battery.temperatureC,
+        },
+        vehicle.organizationId || undefined,
+      );
     }
 
     if (fetched.sources.battery?.isStale) {
-      await this.emitVehicleEvent('vehicle.telemetry_stale', {
-        vehicleId: vehicle.id,
-        provider: fetched.provider,
-      }, vehicle.organizationId || undefined);
+      await this.emitVehicleEvent(
+        'vehicle.telemetry_stale',
+        {
+          vehicleId: vehicle.id,
+          provider: fetched.provider,
+        },
+        vehicle.organizationId || undefined,
+      );
     }
 
     return fetched;
@@ -905,7 +994,11 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       providerId?: string;
     },
   ): Promise<VehicleCommandResult> {
-    const vehicle = await this.findAccessibleVehicle(vehicleId, userId, 'write');
+    const vehicle = await this.findAccessibleVehicle(
+      vehicleId,
+      userId,
+      'write',
+    );
     this.assertGate(
       vehicle.organizationId,
       'commandDispatch',
@@ -1008,12 +1101,16 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       errorCode: null,
     };
 
-    await this.emitVehicleEvent('vehicle.command.updated', {
-      vehicleId: vehicle.id,
-      commandId: result.commandId,
-      status: result.status,
-      provider: result.provider,
-    }, vehicle.organizationId || undefined);
+    await this.emitVehicleEvent(
+      'vehicle.command.updated',
+      {
+        vehicleId: vehicle.id,
+        commandId: result.commandId,
+        status: result.status,
+        provider: result.provider,
+      },
+      vehicle.organizationId || undefined,
+    );
 
     return result;
   }
@@ -1029,13 +1126,18 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       'commandDispatch',
       'Telemetry command dispatch is disabled for this tenant',
     );
-    const command = await this.commands.getVehicleCommandById(commandId, vehicle.id);
+    const command = await this.commands.getVehicleCommandById(
+      commandId,
+      vehicle.id,
+    );
     if (!command) {
       throw new NotFoundException('Vehicle command not found');
     }
 
     const status = this.mapCommandStatus(command.status);
-    const provider = providerFrom(command.provider || vehicle.telemetryProvider);
+    const provider = providerFrom(
+      command.provider || vehicle.telemetryProvider,
+    );
     if (provider === 'SMARTCAR') {
       return this.getSmartcarVehicleCommandStatus(userId, vehicleId, commandId);
     }
@@ -1049,13 +1151,17 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       errorCode: command.resultCode || command.error || null,
     };
 
-    await this.emitVehicleEvent('vehicle.command.updated', {
-      vehicleId: vehicle.id,
-      commandId: result.commandId,
-      status: result.status,
-      provider: result.provider,
-      errorCode: result.errorCode,
-    }, vehicle.organizationId || undefined);
+    await this.emitVehicleEvent(
+      'vehicle.command.updated',
+      {
+        vehicleId: vehicle.id,
+        commandId: result.commandId,
+        status: result.status,
+        provider: result.provider,
+        errorCode: result.errorCode,
+      },
+      vehicle.organizationId || undefined,
+    );
 
     return result;
   }
@@ -1106,7 +1212,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     );
 
     if (!vehicle) {
-      throw new NotFoundException('Vehicle not found for telemetry webhook payload');
+      throw new NotFoundException(
+        'Vehicle not found for telemetry webhook payload',
+      );
     }
     this.assertGate(
       vehicle.organizationId,
@@ -1152,13 +1260,22 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     await this.persistTelemetrySnapshot(vehicle.id, status, {
       rawPayload: body.rawPayload || body,
     });
-    await this.syncFaultLifecycle(vehicle, status.faults, 'webhook', normalizedProvider);
+    await this.syncFaultLifecycle(
+      vehicle,
+      status.faults,
+      'webhook',
+      normalizedProvider,
+    );
 
-    await this.emitVehicleEvent('vehicle.telemetry.updated', {
-      vehicleId: vehicle.id,
-      provider: normalizedProvider,
-      source: 'webhook',
-    }, vehicle.organizationId || undefined);
+    await this.emitVehicleEvent(
+      'vehicle.telemetry.updated',
+      {
+        vehicleId: vehicle.id,
+        provider: normalizedProvider,
+        source: 'webhook',
+      },
+      vehicle.organizationId || undefined,
+    );
 
     const lastSyncedAt = stringOrNull(body.lastSyncedAt) || status.lastSyncedAt;
     const lagMs = this.computeLagMs(lastSyncedAt);
@@ -1223,19 +1340,30 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
         try {
           status = await adapter.fetchStatus({
             vehicleId: vehicle.id,
-            providerVehicleId: await this.resolveProviderVehicleId(vehicle.id, provider),
+            providerVehicleId: await this.resolveProviderVehicleId(
+              vehicle.id,
+              provider,
+            ),
             lastKnown,
           });
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message =
+            error instanceof Error ? error.message : String(error);
           this.logger.warn(
             `${provider} poll failed for vehicle ${vehicle.id}: ${message}`,
           );
           continue;
         }
 
-        await this.persistTelemetrySnapshot(vehicle.id, status, { rawPayload: null });
-        await this.syncFaultLifecycle(vehicle, status.faults, 'poll', status.provider);
+        await this.persistTelemetrySnapshot(vehicle.id, status, {
+          rawPayload: null,
+        });
+        await this.syncFaultLifecycle(
+          vehicle,
+          status.faults,
+          'poll',
+          status.provider,
+        );
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1281,7 +1409,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     userId: string,
     mode: 'read' | 'write',
   ) {
-    const vehicle = await this.prisma.vehicle.findUnique({ where: { id: vehicleId } });
+    const vehicle = await this.prisma.vehicle.findUnique({
+      where: { id: vehicleId },
+    });
     if (!vehicle) throw new NotFoundException('Vehicle not found');
 
     if (vehicle.organizationId) {
@@ -1333,13 +1463,17 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
 
     const tenantId = this.resolveTenantId();
     if (tenantId && tenantId !== organizationId) {
-      throw new ForbiddenException('Active tenant context does not match vehicle tenant');
+      throw new ForbiddenException(
+        'Active tenant context does not match vehicle tenant',
+      );
     }
   }
 
   private resolveTenantId(): string | null {
     const ctx = this.tenantContext.get();
-    return ctx?.effectiveOrganizationId || ctx?.authenticatedOrganizationId || null;
+    return (
+      ctx?.effectiveOrganizationId || ctx?.authenticatedOrganizationId || null
+    );
   }
 
   private normalizeBattery(value: unknown): TelemetryBattery {
@@ -1480,8 +1614,11 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
           batterySoh: parseLineage(signals.batterySoh) || fallbackLineage,
           hvCurrent: parseLineage(signals.hvCurrent) || fallbackLineage,
           hvVoltage: parseLineage(signals.hvVoltage) || fallbackLineage,
-          gpsSpeed: parseLineage(signals.gpsSpeed) || (hasGps ? fallbackLineage : null),
-          gpsHeading: parseLineage(signals.gpsHeading) || (hasGps ? fallbackLineage : null),
+          gpsSpeed:
+            parseLineage(signals.gpsSpeed) || (hasGps ? fallbackLineage : null),
+          gpsHeading:
+            parseLineage(signals.gpsHeading) ||
+            (hasGps ? fallbackLineage : null),
         },
       },
     };
@@ -1543,7 +1680,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     status: UnifiedTelemetryData,
     input: { rawPayload: unknown },
   ) {
-    const sampledAt = status.lastSyncedAt ? new Date(status.lastSyncedAt) : new Date();
+    const sampledAt = status.lastSyncedAt
+      ? new Date(status.lastSyncedAt)
+      : new Date();
 
     await this.prisma.vehicleTelemetrySnapshot.create({
       data: {
@@ -1551,7 +1690,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
         provider: status.provider,
         providerVehicleId: status.providerId,
         collectedAt: sampledAt,
-        lastSyncedAt: status.lastSyncedAt ? new Date(status.lastSyncedAt) : null,
+        lastSyncedAt: status.lastSyncedAt
+          ? new Date(status.lastSyncedAt)
+          : null,
         battery: toInputJsonValue(status.battery),
         gps: toNullableJsonInput(status.gps),
         odometer: toInputJsonValue(status.odometer),
@@ -1568,7 +1709,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
         vehicleId,
         provider: status.provider,
         providerVehicleId: status.providerId,
-        lastSyncedAt: status.lastSyncedAt ? new Date(status.lastSyncedAt) : null,
+        lastSyncedAt: status.lastSyncedAt
+          ? new Date(status.lastSyncedAt)
+          : null,
         sampledAt,
         battery: toInputJsonValue(status.battery),
         gps: toNullableJsonInput(status.gps),
@@ -1580,7 +1723,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       update: {
         provider: status.provider,
         providerVehicleId: status.providerId,
-        lastSyncedAt: status.lastSyncedAt ? new Date(status.lastSyncedAt) : null,
+        lastSyncedAt: status.lastSyncedAt
+          ? new Date(status.lastSyncedAt)
+          : null,
         sampledAt,
         battery: toInputJsonValue(status.battery),
         gps: toNullableJsonInput(status.gps),
@@ -1638,12 +1783,16 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
           },
         });
 
-        await this.emitVehicleEvent('vehicle.fault.detected', {
-          vehicleId: vehicle.id,
-          faultId: created.id,
-          code: fault.code,
-          severity: fault.severity,
-        }, vehicle.organizationId || undefined);
+        await this.emitVehicleEvent(
+          'vehicle.fault.detected',
+          {
+            vehicleId: vehicle.id,
+            faultId: created.id,
+            code: fault.code,
+            severity: fault.severity,
+          },
+          vehicle.organizationId || undefined,
+        );
       } else {
         await this.prisma.vehicleFault.update({
           where: { id: found.id },
@@ -1669,11 +1818,15 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
         },
       });
 
-      await this.emitVehicleEvent('vehicle.fault.resolved', {
-        vehicleId: vehicle.id,
-        faultId: row.id,
-        code: row.code,
-      }, vehicle.organizationId || undefined);
+      await this.emitVehicleEvent(
+        'vehicle.fault.resolved',
+        {
+          vehicleId: vehicle.id,
+          faultId: row.id,
+          code: row.code,
+        },
+        vehicle.organizationId || undefined,
+      );
     }
   }
 
@@ -1696,8 +1849,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     )
       ? source.capabilities
           .map((item) => String(item).toUpperCase())
-          .filter((item): item is 'READ' | 'COMMANDS' =>
-            item === 'READ' || item === 'COMMANDS',
+          .filter(
+            (item): item is 'READ' | 'COMMANDS' =>
+              item === 'READ' || item === 'COMMANDS',
           )
       : ['READ'];
 
@@ -1718,7 +1872,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       enabled: source.enabled,
       capabilities: capabilities.length > 0 ? capabilities : ['READ'],
       health: normalizedHealth,
-      lastSyncedAt: source.lastSyncedAt ? source.lastSyncedAt.toISOString() : null,
+      lastSyncedAt: source.lastSyncedAt
+        ? source.lastSyncedAt.toISOString()
+        : null,
       metadata: source.metadata ? asRecord(source.metadata) : null,
       createdAt: source.createdAt.toISOString(),
       updatedAt: source.updatedAt.toISOString(),
@@ -1735,8 +1891,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       new Set(
         value
           .map((item) => item.toUpperCase())
-          .filter((item): item is 'READ' | 'COMMANDS' =>
-            item === 'READ' || item === 'COMMANDS',
+          .filter(
+            (item): item is 'READ' | 'COMMANDS' =>
+              item === 'READ' || item === 'COMMANDS',
           ),
       ),
     );
@@ -1851,9 +2008,14 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     },
   ): UnifiedTelemetryData {
     const lastSyncedAt = nowIso();
-    const lineage = buildLineage('SMARTCAR', snapshot.providerVehicleId, lastSyncedAt);
+    const lineage = buildLineage(
+      'SMARTCAR',
+      snapshot.providerVehicleId,
+      lastSyncedAt,
+    );
     const hasGps =
-      typeof snapshot.latitude === 'number' && typeof snapshot.longitude === 'number';
+      typeof snapshot.latitude === 'number' &&
+      typeof snapshot.longitude === 'number';
 
     return {
       vehicleId,
@@ -1921,7 +2083,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     return Math.max(0, Date.now() - parsed);
   }
 
-  private extractSmartcarWebhookTimestamp(payload: Record<string, unknown>): string | null {
+  private extractSmartcarWebhookTimestamp(
+    payload: Record<string, unknown>,
+  ): string | null {
     const data = asRecord(payload.data);
     const meta = asRecord(payload.meta);
     const deliveredAt = meta.deliveredAt;
@@ -1944,7 +2108,8 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     const resolved = Object.keys(fromPayload).length ? fromPayload : fromData;
 
     return {
-      soc: numberOrNull(resolved.soc) ?? numberOrNull(resolved.percentRemaining),
+      soc:
+        numberOrNull(resolved.soc) ?? numberOrNull(resolved.percentRemaining),
       estimatedRangeKm:
         numberOrNull(resolved.estimatedRangeKm) ?? numberOrNull(resolved.range),
     };
@@ -1970,7 +2135,8 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     const resolved = Object.keys(fromPayload).length ? fromPayload : fromData;
 
     return {
-      totalKm: numberOrNull(resolved.totalKm) ?? numberOrNull(resolved.distance),
+      totalKm:
+        numberOrNull(resolved.totalKm) ?? numberOrNull(resolved.distance),
     };
   }
 
@@ -1981,7 +2147,8 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     const resolved = Object.keys(fromPayload).length ? fromPayload : fromData;
 
     const status =
-      stringOrNull(resolved.status) || this.mapSmartcarChargeState(stringOrNull(resolved.state));
+      stringOrNull(resolved.status) ||
+      this.mapSmartcarChargeState(stringOrNull(resolved.state));
 
     return {
       status: status && isChargingStatus(status) ? status : null,
@@ -2025,7 +2192,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
       data: {
         status: mapped,
         completedAt:
-          mapped === 'Confirmed' || mapped === 'Failed' ? new Date() : undefined,
+          mapped === 'Confirmed' || mapped === 'Failed'
+            ? new Date()
+            : undefined,
       },
     });
   }
@@ -2041,10 +2210,19 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
   }): Promise<void> {
     const lagMs = input.lagMs ?? this.computeLagMs(input.lastSyncedAt);
     const shouldWriteLag =
-      lagMs !== null && lagMs > this.readPositiveInt('TELEMETRY_INGEST_LAG_ALERT_THRESHOLD_MS', INGEST_LAG_ALERT_THRESHOLD_MS);
+      lagMs !== null &&
+      lagMs >
+        this.readPositiveInt(
+          'TELEMETRY_INGEST_LAG_ALERT_THRESHOLD_MS',
+          INGEST_LAG_ALERT_THRESHOLD_MS,
+        );
     const shouldWriteStale =
       lagMs === null ||
-      lagMs > this.readPositiveInt('TELEMETRY_STALENESS_ALERT_THRESHOLD_MS', STALE_ALERT_THRESHOLD_MS);
+      lagMs >
+        this.readPositiveInt(
+          'TELEMETRY_STALENESS_ALERT_THRESHOLD_MS',
+          STALE_ALERT_THRESHOLD_MS,
+        );
 
     if (!shouldWriteLag && !shouldWriteStale) {
       return;
@@ -2101,8 +2279,13 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
     const normalized = (status || '').trim().toUpperCase();
     if (normalized === 'QUEUED') return 'QUEUED';
     if (normalized === 'SENT') return 'SENT';
-    if (normalized === 'CONFIRMED' || normalized === 'COMPLETED') return 'CONFIRMED';
-    if (normalized === 'FAILED' || normalized === 'DEADLETTERED' || normalized === 'DEAD_LETTERED') {
+    if (normalized === 'CONFIRMED' || normalized === 'COMPLETED')
+      return 'CONFIRMED';
+    if (
+      normalized === 'FAILED' ||
+      normalized === 'DEADLETTERED' ||
+      normalized === 'DEAD_LETTERED'
+    ) {
       return 'FAILED';
     }
 
@@ -2133,7 +2316,9 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
   }
 
   validateProviderWebhookSecret(secret: string | null): boolean {
-    const expected = this.config.get<string>('TELEMETRY_PROVIDER_WEBHOOK_SECRET');
+    const expected = this.config.get<string>(
+      'TELEMETRY_PROVIDER_WEBHOOK_SECRET',
+    );
     if (!expected) return true;
     return Boolean(secret && secret === expected);
   }
@@ -2167,7 +2352,11 @@ export class TelemetryService implements OnModuleInit, OnModuleDestroy {
           enabled: true,
           OR: [
             { lastSyncedAt: null },
-            { lastSyncedAt: { lt: new Date(Date.now() - STALE_ALERT_THRESHOLD_MS) } },
+            {
+              lastSyncedAt: {
+                lt: new Date(Date.now() - STALE_ALERT_THRESHOLD_MS),
+              },
+            },
           ],
         },
       }),

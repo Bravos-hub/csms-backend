@@ -54,7 +54,6 @@ function toInputJsonValue(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value ?? {})) as Prisma.InputJsonValue;
 }
 
-
 type SmartcarHttpResponse = {
   status: number;
   body: unknown;
@@ -67,7 +66,9 @@ type SmartcarTokenResponse = {
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  return value && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function stringOrNull(value: unknown): string | null {
@@ -94,7 +95,9 @@ function parseTokenResponse(
   const row = asRecord(payload) as SmartcarTokenResponse;
   const accessToken = stringOrNull(row.access_token);
   if (!accessToken) {
-    throw new UnauthorizedException('Smartcar token response missing access_token');
+    throw new UnauthorizedException(
+      'Smartcar token response missing access_token',
+    );
   }
 
   const refreshToken = stringOrNull(row.refresh_token);
@@ -104,7 +107,9 @@ function parseTokenResponse(
       ? Math.max(0, Math.floor(expiresInRaw))
       : null;
   const expiresAt =
-    expiresIn === null ? null : new Date(Date.now() + expiresIn * 1000).toISOString();
+    expiresIn === null
+      ? null
+      : new Date(Date.now() + expiresIn * 1000).toISOString();
 
   return {
     accessToken,
@@ -150,7 +155,9 @@ function parseCredentialConfig(
   const source = asRecord(sourceConfig);
 
   const clientId =
-    stringOrNull(byRef.clientId) || config.get<string>('SMARTCAR_CLIENT_ID') || '';
+    stringOrNull(byRef.clientId) ||
+    config.get<string>('SMARTCAR_CLIENT_ID') ||
+    '';
   const clientSecret =
     stringOrNull(byRef.clientSecret) ||
     config.get<string>('SMARTCAR_CLIENT_SECRET') ||
@@ -174,18 +181,19 @@ function parseCredentialConfig(
       stringOrNull(byRef.authorizationCode) ||
       null,
     refreshToken:
-      stringOrNull(source.refreshToken) || stringOrNull(byRef.refreshToken) || null,
+      stringOrNull(source.refreshToken) ||
+      stringOrNull(byRef.refreshToken) ||
+      null,
     accessToken:
-      stringOrNull(source.accessToken) || stringOrNull(byRef.accessToken) || null,
+      stringOrNull(source.accessToken) ||
+      stringOrNull(byRef.accessToken) ||
+      null,
     accessTokenExpiresAt:
       stringOrNull(source.accessTokenExpiresAt) ||
       stringOrNull(byRef.accessTokenExpiresAt) ||
       null,
   };
 }
-
-
-
 
 function buildLineage(
   provider: TelemetryProvider,
@@ -198,7 +206,9 @@ function buildLineage(
   freshnessMs: number | null;
   isStale: boolean;
 } {
-  const freshnessMs = lastSyncedAt ? Math.max(0, Date.now() - Date.parse(lastSyncedAt)) : null;
+  const freshnessMs = lastSyncedAt
+    ? Math.max(0, Date.now() - Date.parse(lastSyncedAt))
+    : null;
   return {
     provider,
     providerId,
@@ -216,7 +226,6 @@ function nowIso(): string {
 export class SmartcarProviderService implements VehicleTelemetryProviderAdapter {
   provider = 'SMARTCAR' as TelemetryProvider;
   private readonly authTokenCache = new Map<string, SmartcarTokenSession>();
-
 
   constructor(
     private readonly prisma: PrismaService,
@@ -236,7 +245,10 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
 
     if (creds.accessToken && creds.accessTokenExpiresAt) {
       const expiresAtMs = Date.parse(creds.accessTokenExpiresAt);
-      const skewMs = this.getPositiveInt('SMARTCAR_TOKEN_REFRESH_SKEW_MS', 30_000);
+      const skewMs = this.getPositiveInt(
+        'SMARTCAR_TOKEN_REFRESH_SKEW_MS',
+        30_000,
+      );
       if (!Number.isNaN(expiresAtMs) && expiresAtMs - skewMs > Date.now()) {
         return {
           accessToken: creds.accessToken,
@@ -267,7 +279,11 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
       redirect_uri: creds.redirectUri,
     });
 
-    const result = await this.callTokenEndpoint(body, creds.clientId, creds.clientSecret);
+    const result = await this.callTokenEndpoint(
+      body,
+      creds.clientId,
+      creds.clientSecret,
+    );
     return parseTokenResponse(result.body, input.credentialRef);
   }
 
@@ -286,7 +302,11 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
       grant_type: 'refresh_token',
       refresh_token: input.refreshToken,
     });
-    const result = await this.callTokenEndpoint(body, creds.clientId, creds.clientSecret);
+    const result = await this.callTokenEndpoint(
+      body,
+      creds.clientId,
+      creds.clientSecret,
+    );
     return parseTokenResponse(result.body, input.credentialRef);
   }
 
@@ -319,7 +339,9 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
     return {
       providerVehicleId: vehicleId,
       batterySoc:
-        percentRemaining === null ? null : Number((percentRemaining * 100).toFixed(2)),
+        percentRemaining === null
+          ? null
+          : Number((percentRemaining * 100).toFixed(2)),
       rangeKm: numberOrNull(batteryRec.range),
       isPluggedIn: boolOrNull(chargeRec.isPluggedIn),
       chargeState: stringOrNull(chargeRec.state),
@@ -350,7 +372,8 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
         input.accessToken,
       );
       return {
-        providerCommandId: extractProviderCommandId(response.body) || localCommandId,
+        providerCommandId:
+          extractProviderCommandId(response.body) || localCommandId,
       };
     }
 
@@ -368,7 +391,10 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
     }
 
     if (input.command.type === 'SET_CHARGE_LIMIT') {
-      const boundedLimit = Math.min(100, Math.max(50, input.command.limitPercent));
+      const boundedLimit = Math.min(
+        100,
+        Math.max(50, input.command.limitPercent),
+      );
       await this.writeVehicleEndpoint(
         vehicleId,
         '/charge/limit',
@@ -383,7 +409,6 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
     );
   }
 
-
   async fetchStatus(input: {
     vehicleId: string;
     providerVehicleId?: string | null;
@@ -394,7 +419,9 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
         vehicleId: input.vehicleId,
         provider: 'SMARTCAR',
         enabled: true,
-        ...(input.providerVehicleId ? { providerVehicleId: input.providerVehicleId } : {}),
+        ...(input.providerVehicleId
+          ? { providerVehicleId: input.providerVehicleId }
+          : {}),
       },
       orderBy: { updatedAt: 'desc' },
     });
@@ -430,7 +457,9 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
         vehicleId: input.vehicleId,
         provider: 'SMARTCAR',
         enabled: true,
-        ...(input.providerVehicleId ? { providerVehicleId: input.providerVehicleId } : {}),
+        ...(input.providerVehicleId
+          ? { providerVehicleId: input.providerVehicleId }
+          : {}),
       },
       orderBy: { updatedAt: 'desc' },
     });
@@ -457,18 +486,27 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
     return { providerCommandId: result.providerCommandId };
   }
 
-  verifyWebhook(input: { rawBody: string; signature?: string | null; secretRef?: string | null; }): Promise<boolean> {
-    return Promise.resolve(this.verifyWebhookSignature(input.rawBody, input.signature || null));
+  verifyWebhook(input: {
+    rawBody: string;
+    signature?: string | null;
+    secretRef?: string | null;
+  }): Promise<boolean> {
+    return Promise.resolve(
+      this.verifyWebhookSignature(input.rawBody, input.signature || null),
+    );
   }
 
-  async ingestWebhook(payload: Record<string, unknown>): Promise<UnifiedTelemetryData> {
+  ingestWebhook(
+    payload: Record<string, unknown>,
+  ): Promise<UnifiedTelemetryData> {
     const eventData = asRecord(payload.data);
     const vehicleId =
       stringOrNull(payload.vehicleId) ||
       stringOrNull(asRecord(eventData.vehicle).id) ||
       stringOrNull(payload.providerVehicleId) ||
       '';
-    const providerVehicleId = stringOrNull(payload.providerVehicleId) || vehicleId;
+    const providerVehicleId =
+      stringOrNull(payload.providerVehicleId) || vehicleId;
     const lastSyncedAt = this.extractWebhookTimestamp(payload);
     const snapshot = this.buildSmartcarUnifiedTelemetry(vehicleId, {
       providerVehicleId,
@@ -487,7 +525,9 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
       chargeLimitPercent:
         numberOrNull(asRecord(payload.charging).chargeLimitPercent) ??
         (numberOrNull(asRecord(eventData.chargeLimit).limit) !== null
-          ? Number((Number(asRecord(eventData.chargeLimit).limit) * 100).toFixed(2))
+          ? Number(
+              (Number(asRecord(eventData.chargeLimit).limit) * 100).toFixed(2),
+            )
           : null),
       odometerKm:
         numberOrNull(asRecord(payload.odometer).totalKm) ??
@@ -503,12 +543,12 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
         boolOrNull(asRecord(eventData.security).isLocked),
     });
 
-    return {
+    return Promise.resolve({
       ...snapshot,
       vehicleId,
       providerId: providerVehicleId,
       lastSyncedAt,
-    };
+    });
   }
 
   private resolveSourceConfig(source: {
@@ -593,9 +633,14 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
     },
   ): UnifiedTelemetryData {
     const lastSyncedAt = nowIso();
-    const lineage = buildLineage('SMARTCAR', snapshot.providerVehicleId, lastSyncedAt);
+    const lineage = buildLineage(
+      'SMARTCAR',
+      snapshot.providerVehicleId,
+      lastSyncedAt,
+    );
     const hasGps =
-      typeof snapshot.latitude === 'number' && typeof snapshot.longitude === 'number';
+      typeof snapshot.latitude === 'number' &&
+      typeof snapshot.longitude === 'number';
 
     return {
       vehicleId,
@@ -656,7 +701,9 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
     return null;
   }
 
-  private extractWebhookTimestamp(payload: Record<string, unknown>): string | null {
+  private extractWebhookTimestamp(
+    payload: Record<string, unknown>,
+  ): string | null {
     const data = asRecord(payload.data);
     const meta = asRecord(payload.meta);
     const deliveredAt = meta.deliveredAt;
@@ -673,7 +720,9 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
   }
 
   verifyWebhookSignature(rawBody: string, signature: string | null): boolean {
-    const managementToken = this.config.get<string>('SMARTCAR_MANAGEMENT_TOKEN');
+    const managementToken = this.config.get<string>(
+      'SMARTCAR_MANAGEMENT_TOKEN',
+    );
     if (!managementToken) {
       throw new UnauthorizedException(
         'SMARTCAR_MANAGEMENT_TOKEN is required for webhook verification',
@@ -695,9 +744,13 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
   }
 
   buildVerifyChallengeResponse(challenge: string): { challenge: string } {
-    const managementToken = this.config.get<string>('SMARTCAR_MANAGEMENT_TOKEN');
+    const managementToken = this.config.get<string>(
+      'SMARTCAR_MANAGEMENT_TOKEN',
+    );
     if (!managementToken) {
-      throw new UnauthorizedException('SMARTCAR_MANAGEMENT_TOKEN is not configured');
+      throw new UnauthorizedException(
+        'SMARTCAR_MANAGEMENT_TOKEN is not configured',
+      );
     }
 
     return {
@@ -725,7 +778,9 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
       this.config.get<string>('SMARTCAR_AUTH_BASE_URL') || null,
       'https://auth.smartcar.com',
     );
-    const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+    const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString(
+      'base64',
+    );
     const url = `${baseUrl}/oauth/token`;
 
     const response = await fetch(url, {
@@ -735,12 +790,15 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: payload.toString(),
-      signal: AbortSignal.timeout(this.getPositiveInt('SMARTCAR_HTTP_TIMEOUT_MS', 20_000)),
+      signal: AbortSignal.timeout(
+        this.getPositiveInt('SMARTCAR_HTTP_TIMEOUT_MS', 20_000),
+      ),
     });
 
     const body = await this.readResponseBody(response);
     if (!response.ok) {
-      const err = stringOrNull(asRecord(body).error_description) || response.statusText;
+      const err =
+        stringOrNull(asRecord(body).error_description) || response.statusText;
       throw new UnauthorizedException(
         `Smartcar token request failed (${response.status}): ${err}`,
       );
@@ -760,13 +818,17 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
-      signal: AbortSignal.timeout(this.getPositiveInt('SMARTCAR_HTTP_TIMEOUT_MS', 20_000)),
+      signal: AbortSignal.timeout(
+        this.getPositiveInt('SMARTCAR_HTTP_TIMEOUT_MS', 20_000),
+      ),
     });
 
     const body = await this.readResponseBody(response);
     if (!response.ok) {
-      const code = stringOrNull(asRecord(body).code) || 'SMARTCAR_REQUEST_FAILED';
-      const message = stringOrNull(asRecord(body).description) || response.statusText;
+      const code =
+        stringOrNull(asRecord(body).code) || 'SMARTCAR_REQUEST_FAILED';
+      const message =
+        stringOrNull(asRecord(body).description) || response.statusText;
       throw new BadRequestException(
         `Smartcar request failed (${response.status}) ${code}: ${message}`,
       );
@@ -789,13 +851,17 @@ export class SmartcarProviderService implements VehicleTelemetryProviderAdapter 
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(this.getPositiveInt('SMARTCAR_HTTP_TIMEOUT_MS', 20_000)),
+      signal: AbortSignal.timeout(
+        this.getPositiveInt('SMARTCAR_HTTP_TIMEOUT_MS', 20_000),
+      ),
     });
 
     const body = await this.readResponseBody(response);
     if (!response.ok) {
-      const code = stringOrNull(asRecord(body).code) || 'SMARTCAR_COMMAND_FAILED';
-      const message = stringOrNull(asRecord(body).description) || response.statusText;
+      const code =
+        stringOrNull(asRecord(body).code) || 'SMARTCAR_COMMAND_FAILED';
+      const message =
+        stringOrNull(asRecord(body).description) || response.statusText;
       throw new BadRequestException(
         `Smartcar command failed (${response.status}) ${code}: ${message}`,
       );

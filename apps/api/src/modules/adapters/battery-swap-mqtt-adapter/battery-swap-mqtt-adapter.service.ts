@@ -161,10 +161,7 @@ export class BatterySwapMqttAdapterService extends BaseMqttAdapter {
             deviceInfo.internalSiteId,
             rawPayload,
           );
-          await this.persistence.persistCabinetStatus(
-            deviceInfo.tenantId,
-            evt,
-          );
+          await this.persistence.persistCabinetStatus(deviceInfo.tenantId, evt);
           this.eventPublisher.publishBatteryCabinetStatus(
             evt,
             deviceInfo.tenantId,

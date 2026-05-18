@@ -20,7 +20,7 @@ export class BatteryProviderSlaWorker implements OnModuleInit, OnModuleDestroy {
     private readonly metrics: WorkerMetricsService,
   ) {}
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     const enabled = this.getBoolean('BATTERY_PROVIDER_SLA_ENABLED', true);
     if (!enabled) {
       this.logger.log('Battery provider SLA worker disabled');
@@ -105,8 +105,13 @@ export class BatteryProviderSlaWorker implements OnModuleInit, OnModuleDestroy {
       // Previous calendar day
       const now = new Date();
       const periodEnd = new Date(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
-          0, 0, 0,
+        Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate(),
+          0,
+          0,
+          0,
         ),
       );
       const periodStart = new Date(periodEnd);
@@ -126,8 +131,7 @@ export class BatteryProviderSlaWorker implements OnModuleInit, OnModuleDestroy {
           );
           snapshotsCreated++;
         } catch (err) {
-          const message =
-            err instanceof Error ? err.message : String(err);
+          const message = err instanceof Error ? err.message : String(err);
           this.logger.warn(
             `SLA snapshot failed for provider ${assignment.providerId}: ${message}`,
           );
@@ -165,13 +169,9 @@ export class BatteryProviderSlaWorker implements OnModuleInit, OnModuleDestroy {
     periodEnd: Date,
   ): Promise<void> {
     const stationFilter =
-      assignedStationIds.length > 0
-        ? { in: assignedStationIds }
-        : undefined;
+      assignedStationIds.length > 0 ? { in: assignedStationIds } : undefined;
     const cabinetFilter =
-      assignedCabinetIds.length > 0
-        ? { in: assignedCabinetIds }
-        : undefined;
+      assignedCabinetIds.length > 0 ? { in: assignedCabinetIds } : undefined;
 
     const fiveMinutesAgo = new Date(periodEnd.getTime() - 5 * 60 * 1000);
 
@@ -219,18 +219,13 @@ export class BatteryProviderSlaWorker implements OnModuleInit, OnModuleDestroy {
     ]);
 
     const packAvailabilityPct =
-      totalPacks > 0
-        ? Math.round((readyPacks / totalPacks) * 100)
-        : 100;
+      totalPacks > 0 ? Math.round((readyPacks / totalPacks) * 100) : 100;
 
     const telemetryFreshnessPct =
-      totalPacks > 0
-        ? Math.round((freshPacks / totalPacks) * 100)
-        : 100;
+      totalPacks > 0 ? Math.round((freshPacks / totalPacks) * 100) : 100;
 
     // 3. Provider uptime = at least one cabinet online
-    const providerUptimePct =
-      totalCabinets > 0 && onlineCabinets > 0 ? 100 : 0;
+    const providerUptimePct = totalCabinets > 0 && onlineCabinets > 0 ? 100 : 0;
 
     // 4. Swap failure rate
     const swapWhere: Record<string, unknown> = {
@@ -248,9 +243,7 @@ export class BatteryProviderSlaWorker implements OnModuleInit, OnModuleDestroy {
     ]);
 
     const failedSwapRatePct =
-      totalSwaps > 0
-        ? Math.round((failedSwaps / totalSwaps) * 100)
-        : 0;
+      totalSwaps > 0 ? Math.round((failedSwaps / totalSwaps) * 100) : 0;
 
     // 5. Average resolution time & SLA breaches
     const alerts = await this.prisma.batteryProviderAlert.findMany({
@@ -271,10 +264,7 @@ export class BatteryProviderSlaWorker implements OnModuleInit, OnModuleDestroy {
     let slaBreaches = 0;
 
     for (const alert of alerts) {
-      if (
-        alert.severity === 'CRITICAL' ||
-        alert.severity === 'HIGH'
-      ) {
+      if (alert.severity === 'CRITICAL' || alert.severity === 'HIGH') {
         slaBreaches++;
       }
       if (alert.firstSeenAt && alert.resolvedAt) {

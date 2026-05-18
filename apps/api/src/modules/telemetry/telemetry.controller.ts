@@ -73,10 +73,14 @@ export class TelemetryController {
     @Param('vehicleId') vehicleId: string,
     @Query() query: TelemetryStatusQueryDto,
   ) {
-    return this.telemetry.getVehicleStatus(this.resolveUserId(user), vehicleId, {
-      provider: query.provider,
-      providerId: query.providerId,
-    });
+    return this.telemetry.getVehicleStatus(
+      this.resolveUserId(user),
+      vehicleId,
+      {
+        provider: query.provider,
+        providerId: query.providerId,
+      },
+    );
   }
 
   @Post('vehicles/:vehicleId/commands')
@@ -86,11 +90,15 @@ export class TelemetryController {
     @Param('vehicleId') vehicleId: string,
     @Body() dto: SendVehicleCommandDto,
   ) {
-    return this.telemetry.sendVehicleCommand(this.resolveUserId(user), vehicleId, {
-      command: this.toCommandInput(dto.command),
-      provider: dto.provider,
-      providerId: dto.providerId,
-    });
+    return this.telemetry.sendVehicleCommand(
+      this.resolveUserId(user),
+      vehicleId,
+      {
+        command: this.toCommandInput(dto.command),
+        provider: dto.provider,
+        providerId: dto.providerId,
+      },
+    );
   }
 
   @Get('vehicles/:vehicleId/commands/:commandId')
@@ -113,13 +121,22 @@ export class TelemetryController {
     @CurrentUser() user: unknown,
     @Param('vehicleId') vehicleId: string,
   ) {
-    return this.telemetry.getCommandCapabilities(this.resolveUserId(user), vehicleId);
+    return this.telemetry.getCommandCapabilities(
+      this.resolveUserId(user),
+      vehicleId,
+    );
   }
 
   @Get('vehicles/:vehicleId/sources')
   @UseGuards(JwtAuthGuard)
-  listSources(@CurrentUser() user: unknown, @Param('vehicleId') vehicleId: string) {
-    return this.telemetry.listTelemetrySources(this.resolveUserId(user), vehicleId);
+  listSources(
+    @CurrentUser() user: unknown,
+    @Param('vehicleId') vehicleId: string,
+  ) {
+    return this.telemetry.listTelemetrySources(
+      this.resolveUserId(user),
+      vehicleId,
+    );
   }
 
   @Post('vehicles/:vehicleId/sources')
@@ -135,14 +152,18 @@ export class TelemetryController {
     if (!dto.credentialRef) {
       throw new BadRequestException('credentialRef is required');
     }
-    return this.telemetry.createTelemetrySource(this.resolveUserId(user), vehicleId, {
-      provider: dto.provider,
-      providerId: dto.providerId || null,
-      credentialRef: dto.credentialRef,
-      enabled: dto.enabled,
-      capabilities: dto.capabilities,
-      metadata: dto.metadata,
-    });
+    return this.telemetry.createTelemetrySource(
+      this.resolveUserId(user),
+      vehicleId,
+      {
+        provider: dto.provider,
+        providerId: dto.providerId || null,
+        credentialRef: dto.credentialRef,
+        enabled: dto.enabled,
+        capabilities: dto.capabilities,
+        metadata: dto.metadata,
+      },
+    );
   }
 
   @Patch('vehicles/:vehicleId/sources/:sourceId')
@@ -192,7 +213,11 @@ export class TelemetryController {
     @Param('vehicleId') vehicleId: string,
     @Param('sourceId') sourceId: string,
   ) {
-    return this.telemetry.removeTelemetrySource(this.resolveUserId(user), vehicleId, sourceId);
+    return this.telemetry.removeTelemetrySource(
+      this.resolveUserId(user),
+      vehicleId,
+      sourceId,
+    );
   }
 
   @Post('vehicles/:vehicleId/sources/:sourceId/enable')
@@ -241,7 +266,10 @@ export class TelemetryController {
 
   @Post('providers/smartcar/auth/token')
   @UseGuards(JwtAuthGuard)
-  issueSmartcarToken(@CurrentUser() user: unknown, @Body() dto: SmartcarIssueTokenDto) {
+  issueSmartcarToken(
+    @CurrentUser() user: unknown,
+    @Body() dto: SmartcarIssueTokenDto,
+  ) {
     return this.telemetry.issueSmartcarToken(this.resolveUserId(user), {
       vehicleId: dto.vehicleId,
       providerId: dto.providerId || null,
@@ -283,10 +311,14 @@ export class TelemetryController {
     @Param('vehicleId') vehicleId: string,
     @Body() dto: SmartcarVehicleCommandDto,
   ) {
-    return this.telemetry.sendSmartcarVehicleCommand(this.resolveUserId(user), vehicleId, {
-      providerId: dto.providerId || null,
-      command: this.toCommandInput(dto.command),
-    });
+    return this.telemetry.sendSmartcarVehicleCommand(
+      this.resolveUserId(user),
+      vehicleId,
+      {
+        providerId: dto.providerId || null,
+        command: this.toCommandInput(dto.command),
+      },
+    );
   }
 
   @Get('providers/smartcar/vehicles/:vehicleId/commands/:commandId')

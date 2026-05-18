@@ -258,7 +258,10 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
     outbox: CommandOutbox,
   ): Promise<void> {
     if (!command.vehicleId) {
-      await this.handlePublishFailure(outbox, 'Missing vehicleId for vehicle command');
+      await this.handlePublishFailure(
+        outbox,
+        'Missing vehicleId for vehicle command',
+      );
       return;
     }
 
@@ -293,14 +296,20 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const apiBaseUrl = this.config.get<string>('API_INTERNAL_URL') || 'http://127.0.0.1:3000';
+    const apiBaseUrl =
+      this.config.get<string>('API_INTERNAL_URL') || 'http://127.0.0.1:3000';
     const url = `${apiBaseUrl}/telemetry/vehicles/${command.vehicleId}/commands`;
     const payload = {
       provider: command.provider,
       providerId: command.providerVehicleId || undefined,
       command:
         normalizedType === 'SET_CHARGE_LIMIT'
-          ? { type: normalizedType, limitPercent: (command.payload as Record<string, unknown>)?.limitPercent ?? 80 }
+          ? {
+              type: normalizedType,
+              limitPercent:
+                (command.payload as Record<string, unknown>)?.limitPercent ??
+                80,
+            }
           : { type: normalizedType },
     };
 
@@ -316,8 +325,11 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
         throw new Error(`API returned ${response.status}: ${bodyText}`);
       }
 
-      const result = (await response.json()) as { providerCommandId?: string | null };
-      const providerCommandId = result.providerCommandId || `smartcar_${Date.now().toString(36)}`;
+      const result = (await response.json()) as {
+        providerCommandId?: string | null;
+      };
+      const providerCommandId =
+        result.providerCommandId || `smartcar_${Date.now().toString(36)}`;
       const now = new Date();
 
       await this.prisma.$transaction(async (tx) => {
@@ -346,7 +358,11 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
           data: {
             commandId: command.id,
             status: 'Sent',
-            payload: { domain: 'VEHICLE', provider, commandType: command.commandType },
+            payload: {
+              domain: 'VEHICLE',
+              provider,
+              commandType: command.commandType,
+            },
             occurredAt: now,
           },
         });
@@ -372,7 +388,10 @@ export class CommandOutboxWorker implements OnModuleInit, OnModuleDestroy {
         now.getTime() - command.requestedAt.getTime(),
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Vehicle command publish failed';
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Vehicle command publish failed';
       this.recordPublishFailure(message);
       this.metrics.increment('outbox_publish_fail_total');
       await this.handlePublishFailure(outbox, message);

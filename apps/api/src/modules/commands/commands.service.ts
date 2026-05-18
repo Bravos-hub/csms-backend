@@ -213,9 +213,7 @@ export class CommandsService {
     return this.toLifecycleRecord(command);
   }
 
-  async enqueueVehicleCommand(
-    input: VehicleCommandEnqueueInput,
-  ): Promise<{
+  async enqueueVehicleCommand(input: VehicleCommandEnqueueInput): Promise<{
     commandId: string;
     status: 'QUEUED';
     requestedAt: string;

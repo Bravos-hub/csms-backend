@@ -51,7 +51,10 @@ export class BatteryProviderMaintenanceService {
     const [items, total] = await Promise.all([
       this.prisma.incident.findMany({
         where: finalWhere,
-        include: { dispatches: true, station: { select: { id: true, name: true } } },
+        include: {
+          dispatches: true,
+          station: { select: { id: true, name: true } },
+        },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
@@ -127,19 +130,13 @@ export class BatteryProviderMaintenanceService {
       },
     });
 
-    await this.audit.log(
-      actorId,
-      'maintenance.update',
-      'INCIDENT',
-      ticketId,
-      {
-        providerId: scope.providerId,
-        tenantId: scope.tenantId,
-        beforeStatus: incident.status,
-        afterStatus: updated.status,
-        notes: dto.notes,
-      },
-    );
+    await this.audit.log(actorId, 'maintenance.update', 'INCIDENT', ticketId, {
+      providerId: scope.providerId,
+      tenantId: scope.tenantId,
+      beforeStatus: incident.status,
+      afterStatus: updated.status,
+      notes: dto.notes,
+    });
 
     return updated;
   }
@@ -173,19 +170,13 @@ export class BatteryProviderMaintenanceService {
       },
     });
 
-    await this.audit.log(
-      actorId,
-      'maintenance.close',
-      'INCIDENT',
-      ticketId,
-      {
-        providerId: scope.providerId,
-        tenantId: scope.tenantId,
-        beforeStatus: incident.status,
-        afterStatus: updated.status,
-        resolutionNotes,
-      },
-    );
+    await this.audit.log(actorId, 'maintenance.close', 'INCIDENT', ticketId, {
+      providerId: scope.providerId,
+      tenantId: scope.tenantId,
+      beforeStatus: incident.status,
+      afterStatus: updated.status,
+      resolutionNotes,
+    });
 
     return updated;
   }

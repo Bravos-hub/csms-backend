@@ -7,6 +7,11 @@ import { WorkerTenantRoutingService } from './worker-tenant-routing.service';
 import { KAFKA_TOPICS } from '../../contracts/kafka-topics';
 import { validateCommandRequestContract } from '../../contracts/commands';
 
+function firstMockArg<T>(mock: jest.Mock): T | undefined {
+  const calls = mock.mock.calls as Array<[T]>;
+  return calls[0]?.[0];
+}
+
 describe('CommandOutboxWorker tenant routing', () => {
   const config = {
     get: jest.fn(),
@@ -88,8 +93,10 @@ describe('CommandOutboxWorker tenant routing', () => {
         }),
     );
     tenantRouting.runWithTenant.mockImplementation(
-      async (_tenantId: string | null | undefined, operation: () => Promise<unknown>) =>
-        operation(),
+      async (
+        _tenantId: string | null | undefined,
+        operation: () => Promise<unknown>,
+      ) => operation(),
     );
   });
 
@@ -193,15 +200,17 @@ describe('CommandOutboxWorker tenant routing', () => {
       attempts: 1,
     });
 
-    expect(prisma.commandOutbox.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'outbox-veh-3' },
-        data: expect.objectContaining({
-          status: 'Queued',
-          lastError: 'Provider MOCK vehicle command dispatch not yet implemented',
-        }),
-      }),
-    );
+    const outboxUpdateCall = firstMockArg<{
+      where?: unknown;
+      data?: Record<string, unknown>;
+    }>(prisma.commandOutbox.update);
+    expect(outboxUpdateCall).toMatchObject({
+      where: { id: 'outbox-veh-3' },
+      data: {
+        status: 'Queued',
+        lastError: 'Provider MOCK vehicle command dispatch not yet implemented',
+      },
+    });
   });
 
   it('dead-letters unsupported VEHICLE command types through failure handler', async () => {
@@ -282,27 +291,34 @@ describe('CommandOutboxWorker tenant routing', () => {
       attempts: 1,
     });
 
-    expect(prisma.commandOutbox.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'outbox-cp-1' },
-        data: expect.objectContaining({
-          status: 'Queued',
-          lockedAt: null,
-          lastError: 'provider timeout',
-        }),
-      }),
-    );
-    expect(prisma.commandEvent.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          commandId: 'cmd-cp-1',
-          status: 'RetryScheduled',
-        }),
-      }),
-    );
+    const outboxUpdateCall = firstMockArg<{
+      where?: unknown;
+      data?: Record<string, unknown>;
+    }>(prisma.commandOutbox.update);
+    expect(outboxUpdateCall).toMatchObject({
+      where: { id: 'outbox-cp-1' },
+      data: {
+        status: 'Queued',
+        lockedAt: null,
+        lastError: 'provider timeout',
+      },
+    });
+    const eventCreateCall = firstMockArg<{
+      data?: Record<string, unknown>;
+    }>(prisma.commandEvent.create);
+    expect(eventCreateCall).toMatchObject({
+      data: {
+        commandId: 'cmd-cp-1',
+        status: 'RetryScheduled',
+      },
+    });
     expect(metrics.increment).toHaveBeenCalledWith('outbox_publish_fail_total');
-    expect(metrics.increment).toHaveBeenCalledWith('outbox_retry_scheduled_total');
-    expect(metrics.increment).not.toHaveBeenCalledWith('outbox_dead_letter_total');
+    expect(metrics.increment).toHaveBeenCalledWith(
+      'outbox_retry_scheduled_total',
+    );
+    expect(metrics.increment).not.toHaveBeenCalledWith(
+      'outbox_dead_letter_total',
+    );
   });
 
   it('dead-letters exhausted charge-point publishes and records dead-letter publish failures', async () => {
@@ -341,33 +357,38 @@ describe('CommandOutboxWorker tenant routing', () => {
       attempts: 5,
     });
 
-    expect(prisma.commandOutbox.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'outbox-cp-2' },
-        data: expect.objectContaining({
-          status: 'DeadLettered',
-          lockedAt: null,
-          lastError: 'provider timeout',
-        }),
-      }),
-    );
-    expect(prisma.command.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'cmd-cp-2' },
-        data: expect.objectContaining({
-          status: 'Failed',
-          error: 'provider timeout',
-        }),
-      }),
-    );
-    expect(prisma.commandEvent.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          commandId: 'cmd-cp-2',
-          status: 'DeadLettered',
-        }),
-      }),
-    );
+    const outboxUpdateCall = firstMockArg<{
+      where?: unknown;
+      data?: Record<string, unknown>;
+    }>(prisma.commandOutbox.update);
+    expect(outboxUpdateCall).toMatchObject({
+      where: { id: 'outbox-cp-2' },
+      data: {
+        status: 'DeadLettered',
+        lockedAt: null,
+        lastError: 'provider timeout',
+      },
+    });
+    const commandUpdateCall = firstMockArg<{
+      where?: unknown;
+      data?: Record<string, unknown>;
+    }>(prisma.command.update);
+    expect(commandUpdateCall).toMatchObject({
+      where: { id: 'cmd-cp-2' },
+      data: {
+        status: 'Failed',
+        error: 'provider timeout',
+      },
+    });
+    const eventCreateCall = firstMockArg<{
+      data?: Record<string, unknown>;
+    }>(prisma.commandEvent.create);
+    expect(eventCreateCall).toMatchObject({
+      data: {
+        commandId: 'cmd-cp-2',
+        status: 'DeadLettered',
+      },
+    });
     expect(kafka.publish).toHaveBeenNthCalledWith(
       1,
       KAFKA_TOPICS.commandRequests,

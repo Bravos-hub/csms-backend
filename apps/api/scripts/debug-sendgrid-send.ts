@@ -7,10 +7,13 @@ async function run() {
   const envPath = path.join(process.cwd(), '.env');
   const envContent = fs.readFileSync(envPath, 'utf8');
   const env: Record<string, string> = {};
-  envContent.split('\n').forEach(line => {
+  envContent.split('\n').forEach((line) => {
     const [key, ...valueParts] = line.split('=');
     if (key && valueParts.length > 0) {
-      env[key.trim()] = valueParts.join('=').trim().replace(/^"|^'|"$|'$/g, '');
+      env[key.trim()] = valueParts
+        .join('=')
+        .trim()
+        .replace(/^"|^'|"$|'$/g, '');
     }
   });
 
@@ -21,7 +24,12 @@ async function run() {
     personalizations: [{ to: [{ email: 'test@evzonecharging.com' }] }],
     from: { email: fromEmail },
     subject: 'SendGrid Diagnostic Test',
-    content: [{ type: 'text/plain', value: 'This is a test to verify the "Maximum credits exceeded" error.' }]
+    content: [
+      {
+        type: 'text/plain',
+        value: 'This is a test to verify the "Maximum credits exceeded" error.',
+      },
+    ],
   };
 
   console.log(`Sending from: ${fromEmail}`);
@@ -34,7 +42,7 @@ async function run() {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     });
 
     console.log(`Status: ${res.status} ${res.statusText}`);
@@ -42,11 +50,13 @@ async function run() {
     console.log(`Response Body: ${body}`);
 
     if (res.status === 401 && body.includes('Maximum credits exceeded')) {
-      console.log('\nCONFIRMED: The account is indeed returning "Maximum credits exceeded" despite being a paid account.');
+      console.log(
+        '\nCONFIRMED: The account is indeed returning "Maximum credits exceeded" despite being a paid account.',
+      );
     }
   } catch (e) {
     console.error('ERROR:', e);
   }
 }
 
-run();
+void run();

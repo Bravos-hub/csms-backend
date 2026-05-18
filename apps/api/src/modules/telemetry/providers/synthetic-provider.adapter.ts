@@ -6,14 +6,6 @@ import {
 
 const TELEMETRY_STALE_MS = 60_000;
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-}
-
-function stringOrNull(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
-}
-
 function numberOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
@@ -33,7 +25,9 @@ function buildLineage(
   freshnessMs: number | null;
   isStale: boolean;
 } {
-  const freshnessMs = lastSyncedAt ? Math.max(0, Date.now() - Date.parse(lastSyncedAt)) : null;
+  const freshnessMs = lastSyncedAt
+    ? Math.max(0, Date.now() - Date.parse(lastSyncedAt))
+    : null;
   return {
     provider,
     providerId,
@@ -46,7 +40,7 @@ function buildLineage(
 export class SyntheticTelemetryAdapter implements VehicleTelemetryProviderAdapter {
   constructor(readonly provider: TelemetryProvider) {}
 
-  async fetchStatus(input: {
+  fetchStatus(input: {
     vehicleId: string;
     providerVehicleId?: string | null;
     lastKnown?: UnifiedTelemetryData | null;
@@ -64,7 +58,9 @@ export class SyntheticTelemetryAdapter implements VehicleTelemetryProviderAdapte
       MOCK: 62,
     };
 
-    const providerId = input.providerVehicleId || `${this.provider.toLowerCase()}:${input.vehicleId}`;
+    const providerId =
+      input.providerVehicleId ||
+      `${this.provider.toLowerCase()}:${input.vehicleId}`;
     const lastSyncedAt = nowIso();
     const lineage = buildLineage(this.provider, providerId, lastSyncedAt);
     const gpsEnabled =
@@ -73,14 +69,20 @@ export class SyntheticTelemetryAdapter implements VehicleTelemetryProviderAdapte
       this.provider === 'ENODE' ||
       this.provider === 'OEM_API';
 
-    return {
+    return Promise.resolve({
       vehicleId: input.vehicleId,
       provider: this.provider,
       providerId,
       lastSyncedAt,
       battery: {
-        soh: numberOrNull(input.lastKnown?.battery.soh) ?? Number((91 + wave).toFixed(2)),
-        soc: Number((Math.max(3, Math.min(100, socBase[this.provider] + wave * 2))).toFixed(2)),
+        soh:
+          numberOrNull(input.lastKnown?.battery.soh) ??
+          Number((91 + wave).toFixed(2)),
+        soc: Number(
+          Math.max(3, Math.min(100, socBase[this.provider] + wave * 2)).toFixed(
+            2,
+          ),
+        ),
         temperatureC: Number((31 + wave).toFixed(2)),
         voltageV: Number((392 + wave * 4).toFixed(2)),
         currentA: Number((16 + wave * 3).toFixed(2)),
@@ -121,6 +123,6 @@ export class SyntheticTelemetryAdapter implements VehicleTelemetryProviderAdapte
           gpsHeading: gpsEnabled ? lineage : null,
         },
       },
-    };
+    });
   }
 }

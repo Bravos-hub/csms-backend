@@ -15,7 +15,13 @@ import { TelemetryGatesService } from './telemetry-gates.service';
 import { TelemetryService } from './telemetry.service';
 
 @Module({
-  imports: [ConfigModule, PrismaModule, CommandsModule, SseModule, WebhooksModule],
+  imports: [
+    ConfigModule,
+    PrismaModule,
+    CommandsModule,
+    SseModule,
+    WebhooksModule,
+  ],
   controllers: [TelemetryController],
   providers: [
     TelemetryService,

@@ -56,7 +56,9 @@ export class BatteryProviderCabinetsService {
 
   async getCabinetDetail(scope: ResolvedProviderScope, cabinetId: string) {
     const cabinet = await this.prisma.batteryCabinet.findFirst({
-      where: this.accessService.buildProviderCabinetWhere(scope, { id: cabinetId }),
+      where: this.accessService.buildProviderCabinetWhere(scope, {
+        id: cabinetId,
+      }),
     });
 
     if (!cabinet) {

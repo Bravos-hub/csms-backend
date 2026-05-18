@@ -23,16 +23,12 @@ describe('DiagnosticsController', () => {
     diagnostics.acknowledgeFault.mockResolvedValue({ ok: true });
     diagnostics.resolveFault.mockResolvedValue({ ok: true });
 
-    await controller.acknowledgeFault(
-      { sub: 'user-1' },
-      'fault-1',
-      { note: 'ack-note' },
-    );
-    await controller.resolveFault(
-      { sub: 'user-1' },
-      'fault-1',
-      { note: 'resolve-note' },
-    );
+    await controller.acknowledgeFault({ sub: 'user-1' }, 'fault-1', {
+      note: 'ack-note',
+    });
+    await controller.resolveFault({ sub: 'user-1' }, 'fault-1', {
+      note: 'resolve-note',
+    });
 
     expect(diagnostics.acknowledgeFault).toHaveBeenCalledWith(
       'user-1',
@@ -49,11 +45,9 @@ describe('DiagnosticsController', () => {
   it('keeps delete alias behavior for engine clearFault compatibility', async () => {
     diagnostics.resolveFault.mockResolvedValue({ ok: true });
 
-    await controller.clearFault(
-      { sub: 'user-legacy' },
-      'fault-legacy-1',
-      { note: 'legacy-clear-fault' },
-    );
+    await controller.clearFault({ sub: 'user-legacy' }, 'fault-legacy-1', {
+      note: 'legacy-clear-fault',
+    });
     await controller.clearFault(
       { sub: 'user-legacy' },
       'fault-legacy-2',
@@ -74,12 +68,12 @@ describe('DiagnosticsController', () => {
     );
   });
 
-  it('rejects invalid authenticated user payloads', async () => {
-    expect(() =>
-      controller.getFaults({} as unknown, 'veh-1'),
-    ).toThrow(UnauthorizedException);
-    expect(() =>
-      controller.clearFault(null, 'fault-1', { note: 'x' }),
-    ).toThrow(UnauthorizedException);
+  it('rejects invalid authenticated user payloads', () => {
+    expect(() => controller.getFaults({} as unknown, 'veh-1')).toThrow(
+      UnauthorizedException,
+    );
+    expect(() => controller.clearFault(null, 'fault-1', { note: 'x' })).toThrow(
+      UnauthorizedException,
+    );
   });
 });

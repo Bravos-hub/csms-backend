@@ -19,7 +19,7 @@ export class MqttBmsTelemetryAdapter implements VehicleTelemetryProviderAdapter 
   readonly provider: TelemetryProvider = 'MQTT_BMS';
   private readonly logger = new Logger(MqttBmsTelemetryAdapter.name);
 
-  async fetchStatus(input: {
+  fetchStatus(input: {
     vehicleId: string;
     providerVehicleId?: string | null;
     lastKnown?: UnifiedTelemetryData | null;
@@ -29,9 +29,11 @@ export class MqttBmsTelemetryAdapter implements VehicleTelemetryProviderAdapter 
 
     // Placeholder: real implementation would read from BatteryPack / BatteryTelemetry
     // or from MQTT BMS device registry mapped to the vehicle.
-    this.logger.warn(`MQTT_BMS fetchStatus not yet fully implemented for vehicle ${input.vehicleId}`);
+    this.logger.warn(
+      `MQTT_BMS fetchStatus not yet fully implemented for vehicle ${input.vehicleId}`,
+    );
 
-    return {
+    return Promise.resolve({
       vehicleId: input.vehicleId,
       provider: this.provider,
       providerId,
@@ -68,10 +70,12 @@ export class MqttBmsTelemetryAdapter implements VehicleTelemetryProviderAdapter 
           gpsHeading: null,
         },
       },
-    };
+    });
   }
 
-  async ingestWebhook(payload: Record<string, unknown>): Promise<UnifiedTelemetryData> {
+  ingestWebhook(
+    payload: Record<string, unknown>,
+  ): Promise<UnifiedTelemetryData> {
     const now = new Date().toISOString();
     const vehicleId = stringOrNull(payload.vehicleId) || 'unknown';
 
@@ -93,7 +97,7 @@ export class MqttBmsTelemetryAdapter implements VehicleTelemetryProviderAdapter 
       });
     }
 
-    return {
+    return Promise.resolve({
       vehicleId,
       provider: this.provider,
       providerId: vehicleId,
@@ -130,12 +134,12 @@ export class MqttBmsTelemetryAdapter implements VehicleTelemetryProviderAdapter 
           gpsHeading: null,
         },
       },
-    };
+    });
   }
 
   private buildLineage(providerId: string | null) {
     return {
-      provider: this.provider as TelemetryProvider,
+      provider: this.provider,
       providerId,
       lastSyncedAt: new Date().toISOString(),
       freshnessMs: 0,

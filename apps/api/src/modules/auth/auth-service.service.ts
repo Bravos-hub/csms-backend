@@ -2794,11 +2794,7 @@ export class AuthService {
       });
     }
 
-    const challenge = await this.sendOtpChallengeToUser(
-      user,
-      channel,
-      'setup',
-    );
+    const challenge = await this.sendOtpChallengeToUser(user, channel, 'setup');
 
     await this.recordAuditEvent({
       actor: userId,
@@ -3168,8 +3164,7 @@ export class AuthService {
       mustChangePassword: Boolean(user.mustChangePassword),
       twoFactorEnabled: Boolean(user.twoFactorEnabled),
       mfaRequired: Boolean(user.mfaRequired),
-      mfaSetupRequired:
-        !Boolean(user.mfaRequired) && !Boolean(user.twoFactorEnabled),
+      mfaSetupRequired: !user.mfaRequired && !user.twoFactorEnabled,
     };
   }
 
@@ -5222,7 +5217,8 @@ export class AuthService {
     const hasPasskeys = passkeyCount > 0;
     const mfaEnforced =
       user.mfaRequired || user.twoFactorEnabled || hasPasskeys;
-    const otpBackedMfa = user.mfaRequired && !user.twoFactorEnabled && !hasPasskeys;
+    const otpBackedMfa =
+      user.mfaRequired && !user.twoFactorEnabled && !hasPasskeys;
 
     if (!mfaEnforced) {
       return;

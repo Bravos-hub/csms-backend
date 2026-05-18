@@ -1,13 +1,37 @@
 export type TelemetryProvider =
-  | 'SMARTCAR' | 'ENODE' | 'AUTOPI' | 'OPENDBC' | 'MQTT_BMS'
-  | 'OBD_DONGLE' | 'OEM_API' | 'MANUAL_IMPORT' | 'MOCK';
+  | 'SMARTCAR'
+  | 'ENODE'
+  | 'AUTOPI'
+  | 'OPENDBC'
+  | 'MQTT_BMS'
+  | 'OBD_DONGLE'
+  | 'OEM_API'
+  | 'MANUAL_IMPORT'
+  | 'MOCK';
 
 export type VehicleOwnershipType = 'PERSONAL' | 'ORGANIZATION' | 'FLEET';
-export type VehicleStatusType = 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE' | 'RETIRED';
+export type VehicleStatusType =
+  | 'ACTIVE'
+  | 'INACTIVE'
+  | 'MAINTENANCE'
+  | 'RETIRED';
 export type PowertrainType = 'BEV' | 'PHEV' | 'HEV' | 'ICE';
-export type ConnectorType = 'TYPE_1' | 'TYPE_2' | 'CCS1' | 'CCS2' | 'CHADEMO' | 'GBT_AC' | 'GBT_DC' | 'TESLA_NACS' | 'TESLA_SCS';
+export type ConnectorType =
+  | 'TYPE_1'
+  | 'TYPE_2'
+  | 'CCS1'
+  | 'CCS2'
+  | 'CHADEMO'
+  | 'GBT_AC'
+  | 'GBT_DC'
+  | 'TESLA_NACS'
+  | 'TESLA_SCS';
 export type VehicleTelemetryCapability = 'READ' | 'COMMANDS';
-export type VehicleTelemetryHealth = 'HEALTHY' | 'DEGRADED' | 'OFFLINE' | 'UNKNOWN';
+export type VehicleTelemetryHealth =
+  | 'HEALTHY'
+  | 'DEGRADED'
+  | 'OFFLINE'
+  | 'UNKNOWN';
 export type VehicleFaultSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
 export type VehicleFaultLifecycleStatus = 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED';
 

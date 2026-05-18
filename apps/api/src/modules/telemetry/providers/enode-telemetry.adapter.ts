@@ -23,7 +23,7 @@ export class EnodeTelemetryAdapter implements VehicleTelemetryProviderAdapter {
   readonly provider: TelemetryProvider = 'ENODE';
   private readonly logger = new Logger(EnodeTelemetryAdapter.name);
 
-  async fetchStatus(input: {
+  fetchStatus(input: {
     vehicleId: string;
     providerVehicleId?: string | null;
     lastKnown?: UnifiedTelemetryData | null;
@@ -33,9 +33,11 @@ export class EnodeTelemetryAdapter implements VehicleTelemetryProviderAdapter {
 
     // Placeholder: Enode API integration would go here.
     // For now, return a structured placeholder so the registry can register the adapter.
-    this.logger.warn(`Enode fetchStatus not yet implemented for vehicle ${input.vehicleId}`);
+    this.logger.warn(
+      `Enode fetchStatus not yet implemented for vehicle ${input.vehicleId}`,
+    );
 
-    return {
+    return Promise.resolve({
       vehicleId: input.vehicleId,
       provider: this.provider,
       providerId,
@@ -72,28 +74,35 @@ export class EnodeTelemetryAdapter implements VehicleTelemetryProviderAdapter {
           gpsHeading: null,
         },
       },
-    };
+    });
   }
 
-  async sendCommand(input: {
+  sendCommand(input: {
     vehicleId: string;
     providerVehicleId?: string | null;
     command: VehicleCommandInput;
   }): Promise<{ providerCommandId: string | null }> {
-    this.logger.warn(`Enode sendCommand not yet implemented for vehicle ${input.vehicleId}`);
-    throw new Error('Enode command dispatch not yet implemented');
+    this.logger.warn(
+      `Enode sendCommand not yet implemented for vehicle ${input.vehicleId}`,
+    );
+    return Promise.reject(
+      new Error('Enode command dispatch not yet implemented'),
+    );
   }
 
-  async verifyWebhook(input: {
+  verifyWebhook(_input: {
     rawBody: string;
     signature?: string | null;
     secretRef?: string | null;
   }): Promise<boolean> {
+    void _input;
     // Placeholder: implement HMAC verification with Enode webhook secret
-    return false;
+    return Promise.resolve(false);
   }
 
-  async ingestWebhook(payload: Record<string, unknown>): Promise<UnifiedTelemetryData> {
+  ingestWebhook(
+    payload: Record<string, unknown>,
+  ): Promise<UnifiedTelemetryData> {
     const now = new Date().toISOString();
     const vehicleId = stringOrNull(payload.vehicleId) || 'unknown';
 
@@ -106,7 +115,7 @@ export class EnodeTelemetryAdapter implements VehicleTelemetryProviderAdapter {
         ? (payload.battery as Record<string, unknown>)
         : {};
 
-    return {
+    return Promise.resolve({
       vehicleId,
       provider: this.provider,
       providerId: vehicleId,
@@ -143,7 +152,7 @@ export class EnodeTelemetryAdapter implements VehicleTelemetryProviderAdapter {
           gpsHeading: null,
         },
       },
-    };
+    });
   }
 
   private normalizeChargeState(
@@ -160,7 +169,7 @@ export class EnodeTelemetryAdapter implements VehicleTelemetryProviderAdapter {
 
   private buildLineage() {
     return {
-      provider: this.provider as TelemetryProvider,
+      provider: this.provider,
       providerId: null,
       lastSyncedAt: new Date().toISOString(),
       freshnessMs: 0,

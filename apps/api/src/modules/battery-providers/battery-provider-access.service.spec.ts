@@ -1,6 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException } from '@nestjs/common';
-import { BatteryProviderAccessService } from './battery-provider-access.service';
+import {
+  BatteryProviderAccessService,
+  ResolvedProviderScope,
+} from './battery-provider-access.service';
 import { BatteryProviderContextService } from '@app/db';
 import { PrismaService } from '../../prisma.service';
 
@@ -12,6 +15,20 @@ const mockPrisma = {
     findUnique: jest.fn(),
   },
 } as unknown as PrismaService;
+
+function providerScope(
+  overrides: Partial<ResolvedProviderScope>,
+): ResolvedProviderScope {
+  return {
+    userId: 'u1',
+    tenantId: 't1',
+    providerId: 'p1',
+    role: 'ADMIN',
+    assignedStationIds: [],
+    assignedCabinetIds: [],
+    ...overrides,
+  };
+}
 
 describe('BatteryProviderAccessService', () => {
   let service: BatteryProviderAccessService;
@@ -33,16 +50,16 @@ describe('BatteryProviderAccessService', () => {
 
   describe('resolveProviderScope', () => {
     it('returns explicit user scope when found', async () => {
-      (mockPrisma.batteryProviderUserScope.findFirst as jest.Mock).mockResolvedValue(
-        {
-          userId: 'u1',
-          tenantId: 't1',
-          providerId: 'p1',
-          role: 'ADMIN',
-          assignedStationIds: ['s1'],
-          assignedCabinetIds: ['c1'],
-        },
-      );
+      (
+        mockPrisma.batteryProviderUserScope.findFirst as jest.Mock
+      ).mockResolvedValue({
+        userId: 'u1',
+        tenantId: 't1',
+        providerId: 'p1',
+        role: 'ADMIN',
+        assignedStationIds: ['s1'],
+        assignedCabinetIds: ['c1'],
+      });
 
       const scope = await service.resolveProviderScope('u1', 't1');
       expect(scope).toEqual({
@@ -56,7 +73,9 @@ describe('BatteryProviderAccessService', () => {
     });
 
     it('falls back to user.providerId when no explicit scope', async () => {
-      (mockPrisma.batteryProviderUserScope.findFirst as jest.Mock).mockResolvedValue(null);
+      (
+        mockPrisma.batteryProviderUserScope.findFirst as jest.Mock
+      ).mockResolvedValue(null);
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
         providerId: 'p1',
         role: 'SWAP_PROVIDER_ADMIN',
@@ -74,8 +93,12 @@ describe('BatteryProviderAccessService', () => {
     });
 
     it('returns null when no provider scope exists', async () => {
-      (mockPrisma.batteryProviderUserScope.findFirst as jest.Mock).mockResolvedValue(null);
-      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ providerId: null });
+      (
+        mockPrisma.batteryProviderUserScope.findFirst as jest.Mock
+      ).mockResolvedValue(null);
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        providerId: null,
+      });
 
       const scope = await service.resolveProviderScope('u1', 't1');
       expect(scope).toBeNull();
@@ -85,19 +108,13 @@ describe('BatteryProviderAccessService', () => {
   describe('assertProviderScope', () => {
     it('throws when providerId mismatches', () => {
       expect(() =>
-        service.assertProviderScope(
-          { providerId: 'p1' } as any,
-          'p2',
-        ),
+        service.assertProviderScope(providerScope({ providerId: 'p1' }), 'p2'),
       ).toThrow(ForbiddenException);
     });
 
     it('does not throw when providerId matches', () => {
       expect(() =>
-        service.assertProviderScope(
-          { providerId: 'p1' } as any,
-          'p1',
-        ),
+        service.assertProviderScope(providerScope({ providerId: 'p1' }), 'p1'),
       ).not.toThrow();
     });
   });
@@ -106,7 +123,7 @@ describe('BatteryProviderAccessService', () => {
     it('throws when station is not in assigned list', () => {
       expect(() =>
         service.assertStationAccess(
-          { assignedStationIds: ['s1'] } as any,
+          providerScope({ assignedStationIds: ['s1'] }),
           's2',
         ),
       ).toThrow(ForbiddenException);
@@ -115,7 +132,7 @@ describe('BatteryProviderAccessService', () => {
     it('allows access when assignedStationIds is empty', () => {
       expect(() =>
         service.assertStationAccess(
-          { assignedStationIds: [] } as any,
+          providerScope({ assignedStationIds: [] }),
           's2',
         ),
       ).not.toThrow();
@@ -124,12 +141,14 @@ describe('BatteryProviderAccessService', () => {
 
   describe('buildProviderPackWhere', () => {
     it('includes providerId and tenant scope', () => {
-      const where = service.buildProviderPackWhere({
-        providerId: 'p1',
-        tenantId: 't1',
-        assignedStationIds: [],
-        assignedCabinetIds: [],
-      } as any);
+      const where = service.buildProviderPackWhere(
+        providerScope({
+          providerId: 'p1',
+          tenantId: 't1',
+          assignedStationIds: [],
+          assignedCabinetIds: [],
+        }),
+      );
 
       expect(where).toEqual({
         AND: [{ providerId: 'p1' }],
@@ -137,27 +156,23 @@ describe('BatteryProviderAccessService', () => {
     });
 
     it('adds station and cabinet constraints when assigned', () => {
-      const where = service.buildProviderPackWhere({
-        providerId: 'p1',
-        tenantId: 't1',
-        assignedStationIds: ['s1'],
-        assignedCabinetIds: ['c1'],
-      } as any);
+      const where = service.buildProviderPackWhere(
+        providerScope({
+          providerId: 'p1',
+          tenantId: 't1',
+          assignedStationIds: ['s1'],
+          assignedCabinetIds: ['c1'],
+        }),
+      );
 
       expect(where).toEqual({
         AND: [
           { providerId: 'p1' },
           {
-            OR: [
-              { stationId: { in: ['s1'] } },
-              { stationId: null },
-            ],
+            OR: [{ stationId: { in: ['s1'] } }, { stationId: null }],
           },
           {
-            OR: [
-              { cabinetId: { in: ['c1'] } },
-              { cabinetId: null },
-            ],
+            OR: [{ cabinetId: { in: ['c1'] } }, { cabinetId: null }],
           },
         ],
       });

@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { EventPattern, Payload } from '@nestjs/microservices';
 import { SessionService } from './session-service.service';

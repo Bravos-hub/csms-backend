@@ -56,15 +56,11 @@ describe('TelemetryController', () => {
   it('maps simple vehicle command payloads to service contract', async () => {
     telemetry.sendVehicleCommand.mockResolvedValue({ accepted: true });
 
-    await controller.sendCommand(
-      { sub: 'user-1' },
-      'veh-1',
-      {
-        provider: 'MOCK',
-        providerId: 'veh-1',
-        command: { type: 'LOCK' },
-      },
-    );
+    await controller.sendCommand({ sub: 'user-1' }, 'veh-1', {
+      provider: 'MOCK',
+      providerId: 'veh-1',
+      command: { type: 'LOCK' },
+    });
 
     expect(telemetry.sendVehicleCommand).toHaveBeenCalledWith(
       'user-1',
@@ -77,23 +73,19 @@ describe('TelemetryController', () => {
     );
   });
 
-  it('requires limitPercent for SET_CHARGE_LIMIT commands', async () => {
+  it('requires limitPercent for SET_CHARGE_LIMIT commands', () => {
     expect(() =>
-      controller.sendCommand(
-        { sub: 'user-1' },
-        'veh-1',
-        {
-          command: { type: 'SET_CHARGE_LIMIT' },
-        },
-      ),
+      controller.sendCommand({ sub: 'user-1' }, 'veh-1', {
+        command: { type: 'SET_CHARGE_LIMIT' },
+      }),
     ).toThrow(BadRequestException);
     expect(telemetry.sendVehicleCommand).not.toHaveBeenCalled();
   });
 
-  it('rejects invalid authenticated user payload', async () => {
-    expect(() =>
-      controller.getStatus(null, 'veh-1', {}),
-    ).toThrow(UnauthorizedException);
+  it('rejects invalid authenticated user payload', () => {
+    expect(() => controller.getStatus(null, 'veh-1', {})).toThrow(
+      UnauthorizedException,
+    );
     expect(telemetry.getVehicleStatus).not.toHaveBeenCalled();
   });
 
@@ -105,27 +97,18 @@ describe('TelemetryController', () => {
     telemetry.setTelemetrySourceEnabled.mockResolvedValue({ id: 'src-1' });
 
     await controller.listSources({ sub: 'user-1' }, 'veh-1');
-    await controller.createSource(
-      { sub: 'user-1' },
-      'veh-1',
-      {
-        provider: 'SMARTCAR',
-        providerId: 'sc-veh-1',
-        credentialRef: 'cred:tenant:smartcar',
-        enabled: true,
-        capabilities: ['READ', 'COMMANDS'],
-        metadata: { env: 'test' },
-      },
-    );
-    await controller.updateSource(
-      { sub: 'user-1' },
-      'veh-1',
-      'src-1',
-      {
-        providerId: '',
-        credentialRef: 'cred:tenant:smartcar',
-      },
-    );
+    await controller.createSource({ sub: 'user-1' }, 'veh-1', {
+      provider: 'SMARTCAR',
+      providerId: 'sc-veh-1',
+      credentialRef: 'cred:tenant:smartcar',
+      enabled: true,
+      capabilities: ['READ', 'COMMANDS'],
+      metadata: { env: 'test' },
+    });
+    await controller.updateSource({ sub: 'user-1' }, 'veh-1', 'src-1', {
+      providerId: '',
+      credentialRef: 'cred:tenant:smartcar',
+    });
     await controller.removeSource({ sub: 'user-1' }, 'veh-1', 'src-1');
     await controller.enableSource({ sub: 'user-1' }, 'veh-1', 'src-1');
     await controller.disableSource({ sub: 'user-1' }, 'veh-1', 'src-1');
@@ -173,14 +156,9 @@ describe('TelemetryController', () => {
   it('does not overwrite providerId when omitted from source patch payload', async () => {
     telemetry.updateTelemetrySource.mockResolvedValue({ id: 'src-1' });
 
-    await controller.updateSource(
-      { sub: 'user-1' },
-      'veh-1',
-      'src-1',
-      {
-        enabled: true,
-      },
-    );
+    await controller.updateSource({ sub: 'user-1' }, 'veh-1', 'src-1', {
+      enabled: true,
+    });
 
     const updateCalls = telemetry.updateTelemetrySource.mock.calls as Array<
       [string, string, string, Record<string, unknown>]
@@ -190,34 +168,30 @@ describe('TelemetryController', () => {
     expect(updatePayload).not.toHaveProperty('providerId');
   });
 
-  it('requires provider and credentialRef for source creation', async () => {
+  it('requires provider and credentialRef for source creation', () => {
     expect(() =>
-      controller.createSource(
-        { sub: 'user-1' },
-        'veh-1',
-        {
-          credentialRef: 'cred:tenant:smartcar',
-        },
-      ),
+      controller.createSource({ sub: 'user-1' }, 'veh-1', {
+        credentialRef: 'cred:tenant:smartcar',
+      }),
     ).toThrow(BadRequestException);
 
     expect(() =>
-      controller.createSource(
-        { sub: 'user-1' },
-        'veh-1',
-        {
-          provider: 'SMARTCAR',
-        },
-      ),
+      controller.createSource({ sub: 'user-1' }, 'veh-1', {
+        provider: 'SMARTCAR',
+      }),
     ).toThrow(BadRequestException);
   });
 
   it('forwards smartcar provider operations', async () => {
     telemetry.issueSmartcarToken.mockResolvedValue({ accessToken: 'a' });
     telemetry.refreshSmartcarToken.mockResolvedValue({ accessToken: 'b' });
-    telemetry.getSmartcarVehicleStatus.mockResolvedValue({ vehicleId: 'veh-1' });
+    telemetry.getSmartcarVehicleStatus.mockResolvedValue({
+      vehicleId: 'veh-1',
+    });
     telemetry.sendSmartcarVehicleCommand.mockResolvedValue({ accepted: true });
-    telemetry.getSmartcarVehicleCommandStatus.mockResolvedValue({ status: 'SENT' });
+    telemetry.getSmartcarVehicleCommandStatus.mockResolvedValue({
+      status: 'SENT',
+    });
 
     await controller.issueSmartcarToken(
       { sub: 'user-1' },
@@ -236,29 +210,26 @@ describe('TelemetryController', () => {
       },
     );
     await controller.getSmartcarStatus({ sub: 'user-1' }, 'veh-1', 'sc-veh-1');
-    await controller.sendSmartcarCommand(
+    await controller.sendSmartcarCommand({ sub: 'user-1' }, 'veh-1', {
+      providerId: 'sc-veh-1',
+      command: { type: 'UNLOCK' },
+    });
+    await controller.getSmartcarCommandStatus(
       { sub: 'user-1' },
       'veh-1',
-      {
-        providerId: 'sc-veh-1',
-        command: { type: 'UNLOCK' },
-      },
+      'cmd-1',
     );
-    await controller.getSmartcarCommandStatus({ sub: 'user-1' }, 'veh-1', 'cmd-1');
 
     expect(telemetry.issueSmartcarToken).toHaveBeenCalledWith('user-1', {
       vehicleId: 'veh-1',
       providerId: 'sc-veh-1',
       credentialRef: 'cred:tenant:smartcar',
     });
-    expect(telemetry.refreshSmartcarToken).toHaveBeenCalledWith(
-      'user-1',
-      {
-        vehicleId: 'veh-1',
-        credentialRef: 'cred:tenant:smartcar',
-        refreshToken: 'refresh-1',
-      },
-    );
+    expect(telemetry.refreshSmartcarToken).toHaveBeenCalledWith('user-1', {
+      vehicleId: 'veh-1',
+      credentialRef: 'cred:tenant:smartcar',
+      refreshToken: 'refresh-1',
+    });
     expect(telemetry.getSmartcarVehicleStatus).toHaveBeenCalledWith(
       'user-1',
       'veh-1',
@@ -306,12 +277,12 @@ describe('TelemetryController', () => {
     expect(telemetry.ingestSmartcarWebhook).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects provider webhooks when secret is invalid', async () => {
+  it('rejects provider webhooks when secret is invalid', () => {
     telemetry.validateProviderWebhookSecret.mockReturnValue(false);
 
-    expect(() =>
-      controller.ingestWebhook('MOCK', undefined, {}),
-    ).toThrow(UnauthorizedException);
+    expect(() => controller.ingestWebhook('MOCK', undefined, {})).toThrow(
+      UnauthorizedException,
+    );
     expect(telemetry.ingestProviderWebhook).not.toHaveBeenCalled();
   });
 
@@ -333,12 +304,27 @@ describe('TelemetryController', () => {
   });
 
   it('forwards telemetry source test connection', async () => {
-    telemetry.testTelemetrySource.mockResolvedValue({ success: true, provider: 'SMARTCAR', health: 'HEALTHY' });
+    telemetry.testTelemetrySource.mockResolvedValue({
+      success: true,
+      provider: 'SMARTCAR',
+      health: 'HEALTHY',
+    });
 
-    const result = await controller.testSource({ sub: 'user-1' }, 'veh-1', 'src-1');
+    const result = await controller.testSource(
+      { sub: 'user-1' },
+      'veh-1',
+      'src-1',
+    );
 
-    expect(telemetry.testTelemetrySource).toHaveBeenCalledWith('user-1', 'veh-1', 'src-1');
-    expect(result).toEqual({ success: true, provider: 'SMARTCAR', health: 'HEALTHY' });
-
+    expect(telemetry.testTelemetrySource).toHaveBeenCalledWith(
+      'user-1',
+      'veh-1',
+      'src-1',
+    );
+    expect(result).toEqual({
+      success: true,
+      provider: 'SMARTCAR',
+      health: 'HEALTHY',
+    });
   });
 });

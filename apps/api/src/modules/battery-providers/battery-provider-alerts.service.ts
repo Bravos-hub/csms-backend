@@ -37,10 +37,14 @@ export class BatteryProviderAlertsService {
       conditions.push({ status: filters.status as BatteryProviderAlertStatus });
     }
     if (filters.severity) {
-      conditions.push({ severity: filters.severity as BatteryProviderAlertSeverity });
+      conditions.push({
+        severity: filters.severity as BatteryProviderAlertSeverity,
+      });
     }
     if (filters.category) {
-      conditions.push({ category: filters.category as BatteryProviderAlertCategory });
+      conditions.push({
+        category: filters.category as BatteryProviderAlertCategory,
+      });
     }
 
     const finalWhere: Prisma.BatteryProviderAlertWhereInput =

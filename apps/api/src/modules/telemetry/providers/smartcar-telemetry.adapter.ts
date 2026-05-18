@@ -117,16 +117,20 @@ export class SmartcarTelemetryAdapter implements VehicleTelemetryProviderAdapter
     return { providerCommandId: result.providerCommandId };
   }
 
-  async verifyWebhook(input: {
+  verifyWebhook(input: {
     rawBody: string;
     signature?: string | null;
     secretRef?: string | null;
   }): Promise<boolean> {
-    if (!input.signature) return false;
-    return this.smartcar.verifyWebhookSignature(input.rawBody, input.signature);
+    if (!input.signature) return Promise.resolve(false);
+    return Promise.resolve(
+      this.smartcar.verifyWebhookSignature(input.rawBody, input.signature),
+    );
   }
 
-  async ingestWebhook(payload: Record<string, unknown>): Promise<UnifiedTelemetryData> {
+  ingestWebhook(
+    payload: Record<string, unknown>,
+  ): Promise<UnifiedTelemetryData> {
     const body = payload;
     const vehicleId = stringOrNull(body.vehicleId) || 'unknown';
     const now = new Date().toISOString();
@@ -151,13 +155,16 @@ export class SmartcarTelemetryAdapter implements VehicleTelemetryProviderAdapter
     const percentRemaining = numberOrNull(batteryRec.percentRemaining);
     const chargeLimitFraction = numberOrNull(chargeRec.limit);
 
-    return {
+    return Promise.resolve({
       vehicleId,
       provider: this.provider,
       providerId: vehicleId,
       lastSyncedAt: now,
       battery: {
-        soc: percentRemaining === null ? null : Number((percentRemaining * 100).toFixed(2)),
+        soc:
+          percentRemaining === null
+            ? null
+            : Number((percentRemaining * 100).toFixed(2)),
         soh: null,
         temperatureC: null,
         voltageV: null,
@@ -165,7 +172,8 @@ export class SmartcarTelemetryAdapter implements VehicleTelemetryProviderAdapter
         estimatedRangeKm: numberOrNull(batteryRec.range),
       },
       gps:
-        locationRec.latitude !== undefined || locationRec.longitude !== undefined
+        locationRec.latitude !== undefined ||
+        locationRec.longitude !== undefined
           ? {
               latitude: numberOrNull(locationRec.latitude),
               longitude: numberOrNull(locationRec.longitude),
@@ -203,7 +211,7 @@ export class SmartcarTelemetryAdapter implements VehicleTelemetryProviderAdapter
           gpsHeading: null,
         },
       },
-    };
+    });
   }
 
   private normalizeChargeState(
@@ -218,9 +226,10 @@ export class SmartcarTelemetryAdapter implements VehicleTelemetryProviderAdapter
     return 'IDLE';
   }
 
-  private buildLineage(signal: string) {
+  private buildLineage(_signal: string) {
+    void _signal;
     return {
-      provider: this.provider as TelemetryProvider,
+      provider: this.provider,
       providerId: null,
       lastSyncedAt: new Date().toISOString(),
       freshnessMs: 0,

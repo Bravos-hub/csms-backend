@@ -35,7 +35,10 @@ export class TelemetryStorageMaintenanceWorker
   ) {}
 
   async onModuleInit(): Promise<void> {
-    const enabled = this.getBoolean('TELEMETRY_STORAGE_MAINTENANCE_ENABLED', true);
+    const enabled = this.getBoolean(
+      'TELEMETRY_STORAGE_MAINTENANCE_ENABLED',
+      true,
+    );
     if (!enabled) {
       this.logger.log('Telemetry storage maintenance is disabled');
       return;
@@ -95,9 +98,8 @@ export class TelemetryStorageMaintenanceWorker
         retentionDays,
         retentionBatchSize,
       );
-      const partitionsCreated = await this.ensureSnapshotPartitions(
-        partitionMonthsAhead,
-      );
+      const partitionsCreated =
+        await this.ensureSnapshotPartitions(partitionMonthsAhead);
       const ingestHealth = await this.computeIngestHealth();
 
       this.metrics.increment('telemetry_storage_maintenance_runs_total');
@@ -109,7 +111,10 @@ export class TelemetryStorageMaintenanceWorker
         'telemetry_storage_partitions_created_total',
         partitionsCreated,
       );
-      this.metrics.setGauge('telemetry_ingest_lag_max_ms', ingestHealth.maxLagMs);
+      this.metrics.setGauge(
+        'telemetry_ingest_lag_max_ms',
+        ingestHealth.maxLagMs,
+      );
       this.metrics.setGauge(
         'telemetry_ingest_stale_vehicle_count',
         ingestHealth.staleVehicleCount,

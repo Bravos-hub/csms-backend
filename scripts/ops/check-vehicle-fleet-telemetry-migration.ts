@@ -69,7 +69,10 @@ async function getCount(
   return Number.parseInt(result.rows[0]?.count ?? '0', 10);
 }
 
-async function tableExists(client: Client, tableName: string): Promise<boolean> {
+async function tableExists(
+  client: Client,
+  tableName: string,
+): Promise<boolean> {
   const result = await client.query<{ exists: boolean }>(
     `SELECT to_regclass($1) IS NOT NULL AS exists`,
     [`public.${tableName}`],
@@ -205,7 +208,10 @@ async function buildProfile(
   client: Client,
   sampleLimit: number,
 ): Promise<ProfileSnapshot> {
-  const vehiclesTotal = await getCount(client, `SELECT COUNT(*)::bigint AS count FROM "vehicles"`);
+  const vehiclesTotal = await getCount(
+    client,
+    `SELECT COUNT(*)::bigint AS count FROM "vehicles"`,
+  );
   const vehiclesMissingOwnershipType = await getCount(
     client,
     `SELECT COUNT(*)::bigint AS count FROM "vehicles" WHERE "ownership_type" IS NULL`,
@@ -294,7 +300,10 @@ async function buildProfile(
     `,
   );
 
-  const commandsTotal = await getCount(client, `SELECT COUNT(*)::bigint AS count FROM "commands"`);
+  const commandsTotal = await getCount(
+    client,
+    `SELECT COUNT(*)::bigint AS count FROM "commands"`,
+  );
   const commandsMissingDomain = await getCount(
     client,
     `
@@ -374,8 +383,12 @@ async function buildProfile(
     commandsMissingDomain,
     commandsNonCanonicalDomain,
     commandsUnsupportedDomain,
-    unresolvedVehicleSamples: unresolvedVehicleSamplesResult.rows.map((row) => row.id),
-    unsupportedDomainSamples: unsupportedDomainSamplesResult.rows.map((row) => row.domain),
+    unresolvedVehicleSamples: unresolvedVehicleSamplesResult.rows.map(
+      (row) => row.id,
+    ),
+    unsupportedDomainSamples: unsupportedDomainSamplesResult.rows.map(
+      (row) => row.domain,
+    ),
   };
 }
 
@@ -515,7 +528,8 @@ async function main() {
         name: 'data_profile_skipped',
         ok: true,
         details: {
-          reason: 'Schema tables/columns are not ready yet. Run prisma migrate deploy first.',
+          reason:
+            'Schema tables/columns are not ready yet. Run prisma migrate deploy first.',
         },
       });
     } else {
@@ -614,4 +628,3 @@ main().catch((error) => {
   );
   process.exitCode = 1;
 });
-

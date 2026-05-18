@@ -1,14 +1,7 @@
-import {
-  Injectable,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
-import {
-  BatteryProviderContextService,
-  BatteryProviderScope,
-} from '@app/db';
+import { BatteryProviderContextService } from '@app/db';
 
 export interface ResolvedProviderScope {
   userId: string;
@@ -69,10 +62,7 @@ export class BatteryProviderAccessService {
     return this.providerContext.get();
   }
 
-  assertProviderScope(
-    scope: ResolvedProviderScope,
-    providerId: string,
-  ): void {
+  assertProviderScope(scope: ResolvedProviderScope, providerId: string): void {
     if (scope.providerId !== providerId) {
       throw new ForbiddenException(
         'You do not have access to this battery provider scope',
@@ -80,31 +70,21 @@ export class BatteryProviderAccessService {
     }
   }
 
-  assertStationAccess(
-    scope: ResolvedProviderScope,
-    stationId: string,
-  ): void {
+  assertStationAccess(scope: ResolvedProviderScope, stationId: string): void {
     if (
       scope.assignedStationIds.length > 0 &&
       !scope.assignedStationIds.includes(stationId)
     ) {
-      throw new ForbiddenException(
-        'You do not have access to this station',
-      );
+      throw new ForbiddenException('You do not have access to this station');
     }
   }
 
-  assertCabinetAccess(
-    scope: ResolvedProviderScope,
-    cabinetId: string,
-  ): void {
+  assertCabinetAccess(scope: ResolvedProviderScope, cabinetId: string): void {
     if (
       scope.assignedCabinetIds.length > 0 &&
       !scope.assignedCabinetIds.includes(cabinetId)
     ) {
-      throw new ForbiddenException(
-        'You do not have access to this cabinet',
-      );
+      throw new ForbiddenException('You do not have access to this cabinet');
     }
   }
 

@@ -17,7 +17,9 @@ const PLATFORM_ADMIN_ROLES = new Set<UserRole>([
 const WRITE_DENIED_TENANT_ROLE_KEYS = new Set(['FLEET_DRIVER']);
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  return value && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function toInputJsonValue(value: unknown): Prisma.InputJsonValue {
@@ -47,7 +49,10 @@ export class DiagnosticsService {
     const vehicle = await this.findAccessibleVehicle(vehicleId, userId, 'read');
 
     const faults = await this.prisma.vehicleFault.findMany({
-      where: { vehicleId: vehicle.id, status: { in: ['OPEN', 'ACKNOWLEDGED'] } },
+      where: {
+        vehicleId: vehicle.id,
+        status: { in: ['OPEN', 'ACKNOWLEDGED'] },
+      },
       orderBy: [{ severity: 'desc' }, { lastSeenAt: 'desc' }],
     });
 
@@ -93,7 +98,11 @@ export class DiagnosticsService {
     );
 
     const criticalFaults = await this.prisma.vehicleFault.count({
-      where: { vehicleId: vehicle.id, status: { in: ['OPEN', 'ACKNOWLEDGED'] }, severity: 'CRITICAL' },
+      where: {
+        vehicleId: vehicle.id,
+        status: { in: ['OPEN', 'ACKNOWLEDGED'] },
+        severity: 'CRITICAL',
+      },
     });
 
     const sourceHealth = sources.reduce(
@@ -192,7 +201,9 @@ export class DiagnosticsService {
     userId: string,
     mode: 'read' | 'write',
   ) {
-    const vehicle = await this.prisma.vehicle.findUnique({ where: { id: vehicleId } });
+    const vehicle = await this.prisma.vehicle.findUnique({
+      where: { id: vehicleId },
+    });
     if (!vehicle) {
       throw new NotFoundException('Vehicle not found');
     }
@@ -253,13 +264,17 @@ export class DiagnosticsService {
 
     const tenantId = this.resolveTenantId();
     if (tenantId && tenantId !== organizationId) {
-      throw new ForbiddenException('Active tenant context does not match vehicle tenant');
+      throw new ForbiddenException(
+        'Active tenant context does not match vehicle tenant',
+      );
     }
   }
 
   private resolveTenantId(): string | null {
     const ctx = this.tenantContext.get();
-    return ctx?.effectiveOrganizationId || ctx?.authenticatedOrganizationId || null;
+    return (
+      ctx?.effectiveOrganizationId || ctx?.authenticatedOrganizationId || null
+    );
   }
 
   private async emitVehicleEvent(

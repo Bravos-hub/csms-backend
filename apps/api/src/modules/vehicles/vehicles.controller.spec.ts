@@ -25,12 +25,15 @@ describe('VehiclesController', () => {
   it('lists vehicles with pagination and search', async () => {
     vehiclesService.list.mockResolvedValue({ data: [], total: 0 });
 
-    await controller.list({ sub: 'user-1' }, {
-      scope: 'all',
-      skip: 0,
-      take: 10,
-      search: 'Toyota',
-    });
+    await controller.list(
+      { sub: 'user-1' },
+      {
+        scope: 'all',
+        skip: 0,
+        take: 10,
+        search: 'Toyota',
+      },
+    );
 
     expect(vehiclesService.list).toHaveBeenCalledWith(
       'user-1',

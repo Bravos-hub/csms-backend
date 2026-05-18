@@ -96,15 +96,16 @@ describe('SmartcarProviderService', () => {
       refreshToken: 'old-refresh',
     });
 
-    expect(global.fetch).toHaveBeenCalledWith(
-      'https://auth.smartcar.com/oauth/token',
-      expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({
-          Authorization: expect.stringContaining('Basic '),
-        }),
-      }),
-    );
+    const fetchCall = (
+      global.fetch as unknown as jest.MockedFunction<typeof fetch>
+    ).mock.calls[0];
+    const fetchUrl = fetchCall?.[0];
+    const fetchInit = fetchCall?.[1] as
+      | { method?: string; headers?: Record<string, string> }
+      | undefined;
+    expect(fetchUrl).toBe('https://auth.smartcar.com/oauth/token');
+    expect(fetchInit?.method).toBe('POST');
+    expect(fetchInit?.headers?.Authorization).toContain('Basic ');
     expect(session.accessToken).toBe('new-access');
     expect(session.refreshToken).toBe('new-refresh');
     expect(session.credentialRef).toBe('cred:tenant:smartcar');
@@ -138,7 +139,9 @@ describe('SmartcarProviderService', () => {
         return Promise.resolve(jsonResponse({ distance: 18234.4 }));
       }
       if (url.endsWith('/location')) {
-        return Promise.resolve(jsonResponse({ latitude: 0.31, longitude: 32.58 }));
+        return Promise.resolve(
+          jsonResponse({ latitude: 0.31, longitude: 32.58 }),
+        );
       }
       if (url.endsWith('/security')) {
         return Promise.resolve(jsonResponse({ isLocked: false }));
@@ -186,7 +189,9 @@ describe('SmartcarProviderService', () => {
         body: JSON.stringify({ limit: 0.5 }),
       }),
     );
-    expect(result.providerCommandId).toEqual(expect.stringMatching(/^smartcar_/));
+    expect(result.providerCommandId).toEqual(
+      expect.stringMatching(/^smartcar_/),
+    );
   });
 
   it('uses provider command id from smartcar response when available', async () => {

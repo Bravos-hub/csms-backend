@@ -248,7 +248,8 @@ async function main() {
       },
       {
         name: 'telemetry.command_status_endpoint',
-        engineFragment: '/telemetry/vehicles/${vehicleId}/commands/${commandId}',
+        engineFragment:
+          '/telemetry/vehicles/${vehicleId}/commands/${commandId}',
         backendFragment: "@Get('vehicles/:vehicleId/commands/:commandId')",
       },
       {
@@ -267,7 +268,9 @@ async function main() {
             ? backendDiagnosticsControllerSource.includes(
                 endpoint.backendFragment,
               )
-            : backendTelemetryControllerSource.includes(endpoint.backendFragment)),
+            : backendTelemetryControllerSource.includes(
+                endpoint.backendFragment,
+              )),
         details: {
           engineFragment: endpoint.engineFragment,
           backendFragment: endpoint.backendFragment,
@@ -295,7 +298,9 @@ async function main() {
 
     checks.push({
       name: 'telemetry.command_types_alignment',
-      ok: JSON.stringify(engineCommandTypes) === JSON.stringify(backendCommandTypes),
+      ok:
+        JSON.stringify(engineCommandTypes) ===
+        JSON.stringify(backendCommandTypes),
       details: {
         engine: engineCommandTypes,
         backend: backendCommandTypes,

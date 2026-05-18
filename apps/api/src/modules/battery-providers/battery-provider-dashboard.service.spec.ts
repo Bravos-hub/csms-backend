@@ -15,9 +15,15 @@ const mockPrisma = {
 
 const mockAccessService = {
   buildProviderStationWhere: jest.fn(() => ({ orgId: 't1' })),
-  buildProviderCabinetWhere: jest.fn(() => ({ tenantId: 't1', providerId: 'p1' })),
+  buildProviderCabinetWhere: jest.fn(() => ({
+    tenantId: 't1',
+    providerId: 'p1',
+  })),
   buildProviderPackWhere: jest.fn(() => ({ providerId: 'p1' })),
-  buildProviderAlertWhere: jest.fn(() => ({ tenantId: 't1', providerId: 'p1' })),
+  buildProviderAlertWhere: jest.fn(() => ({
+    tenantId: 't1',
+    providerId: 'p1',
+  })),
 } as unknown as BatteryProviderAccessService;
 
 describe('BatteryProviderDashboardService', () => {
